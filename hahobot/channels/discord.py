@@ -50,7 +50,7 @@ class DiscordChannel(BaseChannel):
     async def start(self) -> None:
         """Start the Discord client."""
         if not DISCORD_AVAILABLE:
-            logger.error("discord.py not installed. Run: pip install hahobot-ai[discord]")
+            logger.error("discord.py not installed. Run: pip install -e \".[discord]\"")
             return
 
         if not self.config.token:

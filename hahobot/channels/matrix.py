@@ -37,7 +37,7 @@ try:
     from nio.exceptions import EncryptionError
 except ImportError as e:
     raise ImportError(
-        "Matrix dependencies not installed. Run: pip install hahobot-ai[matrix]"
+        "Matrix dependencies not installed. Run: pip install -e \".[matrix]\""
     ) from e
 
 from hahobot.bus.events import OutboundMessage

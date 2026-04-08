@@ -223,5 +223,5 @@ def test_mem0_backend_raises_clear_error_when_dependency_missing() -> None:
         "hahobot.agent.memory_backends.mem0_backend.import_module",
         side_effect=ImportError("missing mem0"),
     ):
-        with pytest.raises(RuntimeError, match="pip install hahobot-ai\\[mem0\\]"):
+        with pytest.raises(RuntimeError, match='pip install -e ".\\[mem0\\]"'):
             Mem0UserMemoryBackend(config)

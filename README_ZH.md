@@ -2,8 +2,8 @@
   <img src="hahobot_logo.png" alt="hahobot" width="500">
   <h1>hahobot：超轻量级个人 AI 助手</h1>
   <p>
-    <a href="https://pypi.org/project/hahobot-ai/"><img src="https://img.shields.io/pypi/v/hahobot-ai" alt="PyPI"></a>
-    <a href="https://pepy.tech/project/hahobot-ai"><img src="https://static.pepy.tech/badge/hahobot-ai" alt="Downloads"></a>
+    <img src="https://img.shields.io/badge/status-local_fork-orange" alt="Local Fork">
+    <img src="https://img.shields.io/badge/package-unpublished-lightgrey" alt="Package">
     <img src="https://img.shields.io/badge/python-≥3.11-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   </p>
@@ -11,7 +11,7 @@
 
 `hahobot` 是一个超轻量级的个人 AI 助手框架，整体设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，但体量更小、启动更快，也更适合本地化定制。
 
-当前工作仓库是 `HuaGCS/hahobot`，持续同步 `HKUDS/hahobot`，并在此基础上落地了更偏陪伴型与本地化的能力，例如：
+当前目录里的 `hahobot` 是基于 [HKUDS/nanobot](https://github.com/HKUDS/nanobot) 整理并重命名出的本地工作仓库，历史发布记录和上游讨论仍以 `nanobot` 为准；在此基础上又落地了更偏陪伴型与本地化的能力，例如：
 
 - SillyTavern 角色资产导入到 persona 工作区
 - persona 级参考图与角色一致性生图
@@ -53,27 +53,22 @@
 ### 从源码安装
 
 ```bash
-git clone https://github.com/HKUDS/hahobot.git
-cd hahobot
+cd /path/to/Hahobot
 pip install -e .
 ```
 
 ### 使用 uv 安装
 
 ```bash
-uv tool install hahobot-ai
-```
-
-### 从 PyPI 安装
-
-```bash
-pip install hahobot-ai
+uv tool install /path/to/Hahobot
 ```
 
 ### 更新
 
+这个重命名后的本地仓库暂时没有公开的 `hahobot-ai` 包发布；更新方式以同步源码后重新安装为准：
+
 ```bash
-pip install -U hahobot-ai
+pip install -e .
 hahobot --version
 ```
 
@@ -480,7 +475,7 @@ hahobot gateway
 安装依赖：
 
 ```bash
-pip install hahobot-ai[matrix]
+pip install -e ".[matrix]"
 ```
 
 配置示例：
@@ -679,8 +674,7 @@ hahobot channels login whatsapp
 从源码安装 Weixin 依赖：
 
 ```bash
-git clone https://github.com/HKUDS/hahobot.git
-cd hahobot
+cd /path/to/Hahobot
 pip install -e ".[weixin]"
 ```
 
@@ -708,7 +702,7 @@ hahobot channels login weixin
 安装可选依赖：
 
 ```bash
-pip install hahobot-ai[wecom]
+pip install -e ".[wecom]"
 ```
 
 配置示例：
@@ -979,7 +973,7 @@ hahobot 现在可以把 Mem0 作为真正的用户记忆后端使用。
 - `memory.user.backend: "mem0"` 时，会从 Mem0 检索记忆上下文，并在每轮完成后把 turn 写入 Mem0。
 - 当 `memory.user.backend=mem0` 时，hahobot 仍会保留 file 侧的 `MEMORY.md` 作为 prompt 注入保底来源；如果 Mem0 没检索到内容或查询失败，会自动回退到现有文件记忆。
 - `memory.user.shadowWriteMem0: true` 可以保持 `file` 为主后端，同时并行双写到 Mem0。
-- 运行时需要额外安装依赖：`uv sync --extra mem0` 或 `pip install hahobot-ai[mem0]`。
+- 运行时需要额外安装依赖：`uv sync --extra mem0` 或 `pip install -e ".[mem0]"`。
 - `memory.user.mem0.llm`、`embedder`、`vectorStore` 建议优先使用显式字段：`provider`、`apiKey`、`url`、`model`、`headers`。
 - provider 私有扩展参数继续放在 `config` 中，顶层 `metadata` 会在写入 Mem0 时一起附带。
 
@@ -1312,7 +1306,7 @@ manifest 中可声明：
 hahobot 可以暴露一个最小化的 OpenAI 兼容接口，方便本地集成：
 
 ```bash
-pip install "hahobot-ai[api]"
+pip install -e ".[api]"
 hahobot serve
 ```
 

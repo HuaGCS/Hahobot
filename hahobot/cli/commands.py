@@ -365,7 +365,7 @@ def onboard(
         console.print("     Get one at: https://openrouter.ai/keys")
         console.print(f"  2. Chat: [cyan]{agent_cmd}[/cyan]")
     console.print(
-        "\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/hahobot#-chat-apps[/dim]"
+        "\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]"
     )
 
 
@@ -625,7 +625,7 @@ def serve(
     try:
         from aiohttp import web  # noqa: F401
     except ImportError:
-        console.print("[red]aiohttp is required. Install with: pip install 'hahobot-ai[api]'[/red]")
+        console.print("[red]aiohttp is required. Install with: pip install -e '.[api]'[/red]")
         raise typer.Exit(1)
 
     from loguru import logger

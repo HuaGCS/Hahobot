@@ -338,6 +338,7 @@ class QQConfig(Base):
     app_id: str = ""  # 机器人 ID (AppID) from q.qq.com
     secret: str = ""  # 机器人密钥 (AppSecret) from q.qq.com
     allow_from: list[str] = Field(default_factory=list)  # Allowed user openids
+    ack_message: str = ""
     msg_format: Literal["plain", "markdown"] = "plain"
     media_dir: str = ""
     download_chunk_size: int = 1024 * 256

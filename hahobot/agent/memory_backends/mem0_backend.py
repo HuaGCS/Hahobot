@@ -77,7 +77,7 @@ class Mem0UserMemoryBackend(UserMemoryBackend):
             module = import_module("mem0")
         except ImportError as exc:  # pragma: no cover - exercised in runtime envs
             raise RuntimeError(
-                "mem0ai is not installed. Run: pip install hahobot-ai[mem0]"
+                "mem0ai is not installed. Run: pip install -e \".[mem0]\""
             ) from exc
 
         async_cls = getattr(module, "AsyncMemory", None)

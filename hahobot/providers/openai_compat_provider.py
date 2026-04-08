@@ -10,6 +10,7 @@ import secrets
 import string
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import json_repair
@@ -39,7 +40,7 @@ _ALNUM = string.ascii_letters + string.digits
 _STANDARD_TC_KEYS = frozenset({"id", "type", "index", "function"})
 _STANDARD_FN_KEYS = frozenset({"name", "arguments"})
 _DEFAULT_OPENROUTER_HEADERS = {
-    "HTTP-Referer": "https://github.com/HKUDS/hahobot",
+    "HTTP-Referer": "https://github.com/HKUDS/nanobot",
     "X-OpenRouter-Title": "hahobot",
     "X-OpenRouter-Categories": "cli-agent,personal-agent",
 }
@@ -697,9 +698,14 @@ class OpenAICompatProvider(LLMProvider):
             "error_should_retry": should_retry,
         }
 
-    @staticmethod
-    def _handle_error(e: Exception) -> LLMResponse:
-        return OpenAICompatProvider._error_response(e)
+    @classmethod
+    def _handle_error(cls, e: Exception) -> LLMResponse:
+        response = cls._error_response(e)
+        metadata = cls._extract_error_metadata(e)
+        retry_after = metadata.get("error_retry_after_s")
+        if retry_after is None:
+            retry_after = LLMProvider._extract_retry_after(response.content)
+        return replace(response, retry_after=retry_after, **metadata)
 
     # ------------------------------------------------------------------
     # Public API

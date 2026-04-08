@@ -1,11 +1,18 @@
 from pathlib import Path
 
+import pytest
+
 from hahobot.bus.queue import MessageBus
-from hahobot.channels.matrix import MatrixChannel
 from hahobot.channels.mochat import MochatChannel
 from hahobot.config.schema import MatrixConfig, MatrixInstanceConfig, MochatConfig, MochatInstanceConfig
 
+try:
+    from hahobot.channels.matrix import MatrixChannel
+except ImportError:
+    MatrixChannel = None
 
+
+@pytest.mark.skipif(MatrixChannel is None, reason="Matrix dependencies not installed")
 def test_matrix_default_store_path_unchanged(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr("hahobot.channels.matrix.get_data_dir", lambda: tmp_path)
     channel = MatrixChannel(
@@ -22,6 +29,7 @@ def test_matrix_default_store_path_unchanged(monkeypatch, tmp_path: Path) -> Non
     assert channel._get_store_path() == tmp_path / "matrix-store"
 
 
+@pytest.mark.skipif(MatrixChannel is None, reason="Matrix dependencies not installed")
 def test_matrix_instance_store_path_isolated(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr("hahobot.channels.matrix.get_data_dir", lambda: tmp_path)
     channel = MatrixChannel(
