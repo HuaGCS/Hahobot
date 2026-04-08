@@ -70,9 +70,8 @@ This happens approximately **once a week**, but the timing depends on when featu
 Keep setup boring and reliable. The goal is to get you into the code quickly:
 
 ```bash
-# Clone the repository
-git clone https://github.com/HKUDS/hahobot.git
-cd hahobot
+# Enter your local hahobot checkout
+cd /path/to/Hahobot
 
 # Install with dev dependencies
 pip install -e ".[dev]"
@@ -113,7 +112,9 @@ In practice:
 
 If you have questions, ideas, or half-formed insights, you are warmly welcome here.
 
-Please feel free to open an [issue](https://github.com/HKUDS/hahobot/issues), join the community, or simply reach out:
+Please feel free to open an issue in your hahobot fork or, when the topic still applies upstream,
+in the [nanobot issue tracker](https://github.com/HKUDS/nanobot/issues), join the community, or
+simply reach out:
 
 - [Discord](https://discord.gg/MnCvHqpUGB)
 - [Feishu/WeChat](./COMMUNICATION.md)

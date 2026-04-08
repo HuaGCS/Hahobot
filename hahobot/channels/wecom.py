@@ -55,7 +55,7 @@ class WecomChannel(BaseChannel):
     async def start(self) -> None:
         """Start the WeCom bot with WebSocket long connection."""
         if not WECOM_AVAILABLE:
-            logger.error("WeCom SDK not installed. Run: pip install hahobot-ai[wecom]")
+            logger.error("WeCom SDK not installed. Run: pip install -e \".[wecom]\"")
             return
 
         if not self.config.bot_id or not self.config.secret:

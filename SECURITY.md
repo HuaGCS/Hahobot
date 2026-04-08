@@ -147,8 +147,8 @@ For production use:
 1. **Isolate the Environment**
    ```bash
    # Run in a container or VM
-   docker run --rm -it python:3.11
-   pip install hahobot-ai
+   docker run --rm -it -v "$PWD":/app -w /app python:3.11
+   pip install -e .
    ```
 
 2. **Use a Dedicated User**
@@ -177,8 +177,8 @@ For production use:
 
 6. **Regular Updates**
    ```bash
-   # Check for updates weekly
-   pip install --upgrade hahobot-ai
+   # After syncing your local checkout, reinstall it
+   pip install -e .
    ```
 
 ### 8. Development vs Production
@@ -271,8 +271,8 @@ Before deploying hahobot:
 **Last Updated**: 2026-04-05
 
 For the latest security updates and announcements, check:
-- GitHub Security Advisories: https://github.com/HKUDS/hahobot/security/advisories
-- Release Notes: https://github.com/HKUDS/hahobot/releases
+- GitHub Security Advisories: https://github.com/HKUDS/nanobot/security/advisories
+- Release Notes: https://github.com/HKUDS/nanobot/releases
 
 ## License
 

@@ -2,11 +2,11 @@
   <img src="hahobot_logo.png" alt="hahobot" width="500">
   <h1>hahobot: Ultra-Lightweight Personal AI Agent</h1>
   <p>
-    <a href="https://pypi.org/project/hahobot-ai/"><img src="https://img.shields.io/pypi/v/hahobot-ai" alt="PyPI"></a>
-    <a href="https://pepy.tech/project/hahobot-ai"><img src="https://static.pepy.tech/badge/hahobot-ai" alt="Downloads"></a>
+    <img src="https://img.shields.io/badge/status-local_fork-orange" alt="Local Fork">
+    <img src="https://img.shields.io/badge/package-unpublished-lightgrey" alt="Package">
     <img src="https://img.shields.io/badge/python-≥3.11-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-    <a href="https://hahobot.wiki/docs/0.1.5/getting-started/hahobot-overview"><img src="https://img.shields.io/badge/Docs-hahobot.wiki-blue?style=flat&logo=readthedocs&logoColor=white" alt="Docs"></a>
+    <img src="https://img.shields.io/badge/docs-in_repo-blue?style=flat&logo=readthedocs&logoColor=white" alt="Docs">
     <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat&logo=feishu&logoColor=white" alt="Feishu"></a>
     <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/WeChat-Group-C5EAB4?style=flat&logo=wechat&logoColor=white" alt="WeChat"></a>
     <a href="https://discord.gg/MnCvHqpUGB"><img src="https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
@@ -15,13 +15,17 @@
 
 🐈 **hahobot** is an **ultra-lightweight** personal AI agent inspired by [OpenClaw](https://github.com/openclaw/openclaw).
 
+This repository is a renamed local fork derived from [HKUDS/nanobot](https://github.com/HKUDS/nanobot).
+Historical release notes below still point to the upstream nanobot project until hahobot publishes
+its own public releases, package index, and docs site.
+
 ⚡️ Delivers core agent functionality with **99% fewer lines of code**.
 
 📏 Real-time line count: run `bash core_agent_lines.sh` to verify anytime.
 
 ## 📢 News
 
-- **2026-04-05** 🚀 Released **v0.1.5** — sturdier long-running tasks, Dream two-stage memory, production-ready sandboxing and programming Agent SDK. Please see [release notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.5) for details.
+- **2026-04-05** 🚀 Released **v0.1.5** — sturdier long-running tasks, Dream two-stage memory, production-ready sandboxing and programming Agent SDK. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5) for details.
 - **2026-04-04** 🚀 Jinja2 response templates, Dream memory hardened, smarter retry handling.
 - **2026-04-03** 🧠 Xiaomi MiMo provider, chain-of-thought reasoning visible, Telegram UX polish.
 - **2026-04-02** 🧱 Long-running tasks run more reliably — core runtime hardening.
@@ -30,7 +34,7 @@
 - **2026-03-30** 🧩 OpenAI-compatible API tightened; composable agent lifecycle hooks.
 - **2026-03-29** 💬 WeChat voice, typing, QR/media resilience; fixed-session OpenAI-compatible API.
 - **2026-03-28** 📚 Provider docs refresh; skill template wording fix.
-- **2026-03-27** 🚀 Released **v0.1.4.post6** — architecture decoupling, litellm removal, end-to-end streaming, WeChat channel, and a security fix. Please see [release notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.4.post6) for details.
+- **2026-03-27** 🚀 Released **v0.1.4.post6** — architecture decoupling, litellm removal, end-to-end streaming, WeChat channel, and a security fix. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post6) for details.
 
 
 <details>
@@ -41,12 +45,12 @@
 - **2026-03-24** 🔧 WeChat compatibility, Feishu CardKit streaming, test suite restructured.
 - **2026-03-23** 🔧 Command routing refactored for plugins, WhatsApp/WeChat media, unified channel login CLI.
 - **2026-03-22** ⚡ End-to-end streaming, WeChat channel, Anthropic cache optimization, `/status` command.
-- **2026-03-21** 🔒 Replace `litellm` with native `openai` + `anthropic` SDKs. Please see [commit](https://github.com/HKUDS/hahobot/commit/3dfdab7).
+- **2026-03-21** 🔒 Replace `litellm` with native `openai` + `anthropic` SDKs. Please see [commit](https://github.com/HKUDS/nanobot/commit/3dfdab7).
 - **2026-03-20** 🧙 Interactive setup wizard — pick your provider, model autocomplete, and you're good to go.
 - **2026-03-19** 💬 Telegram gets more resilient under load; Feishu now renders code blocks properly.
 - **2026-03-18** 📷 Telegram can now send media via URL. Cron schedules show human-readable details.
 - **2026-03-17** ✨ Feishu formatting glow-up, Slack reacts when done, custom endpoints support extra headers, and image handling is more reliable.
-- **2026-03-16** 🚀 Released **v0.1.4.post5** — a refinement-focused release with stronger reliability and channel support, and a more dependable day-to-day experience. Please see [release notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.4.post5) for details.
+- **2026-03-16** 🚀 Released **v0.1.4.post5** — a refinement-focused release with stronger reliability and channel support, and a more dependable day-to-day experience. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post5) for details.
 - **2026-03-15** 🧩 DingTalk rich media, smarter built-in skills, and cleaner model compatibility.
 - **2026-03-14** 💬 Channel plugins, Feishu replies, and steadier MCP, QQ, and media handling.
 - **2026-03-13** 🌐 Multi-provider web search, LangSmith, and broader reliability improvements.
@@ -54,7 +58,7 @@
 - **2026-03-11** 🔌 WeCom, Ollama, cleaner discovery, and safer tool behavior.
 - **2026-03-10** 🧠 Token-based memory, shared retries, and cleaner gateway and Telegram behavior.
 - **2026-03-09** 💬 Slack thread polish and better Feishu audio compatibility.
-- **2026-03-08** 🚀 Released **v0.1.4.post4** — a reliability-packed release with safer defaults, better multi-instance support, sturdier MCP, and major channel and provider improvements. Please see [release notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.4.post4) for details.
+- **2026-03-08** 🚀 Released **v0.1.4.post4** — a reliability-packed release with safer defaults, better multi-instance support, sturdier MCP, and major channel and provider improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post4) for details.
 - **2026-03-07** 🚀 Azure OpenAI provider, WhatsApp media, QQ group chats, and more Telegram/Feishu polish.
 - **2026-03-06** 🪄 Lighter providers, smarter media handling, and sturdier memory and CLI compatibility.
 - **2026-03-05** ⚡️ Telegram draft streaming, MCP SSE support, and broader channel reliability fixes.
@@ -62,31 +66,31 @@
 - **2026-03-03** 🧠 Cleaner user-message merging, safer multimodal saves, and stronger Cron guards.
 - **2026-03-02** 🛡️ Safer default access control, sturdier Cron reloads, and cleaner Matrix media handling.
 - **2026-03-01** 🌐 Web proxy support, smarter Cron reminders, and Feishu rich-text parsing improvements.
-- **2026-02-28** 🚀 Released **v0.1.4.post3** — cleaner context, hardened session history, and smarter agent. Please see [release notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.4.post3) for details.
+- **2026-02-28** 🚀 Released **v0.1.4.post3** — cleaner context, hardened session history, and smarter agent. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post3) for details.
 - **2026-02-27** 🧠 Experimental thinking mode support, DingTalk media messages, Feishu and QQ channel fixes.
 - **2026-02-26** 🛡️ Session poisoning fix, WhatsApp dedup, Windows path guard, Mistral compatibility.
 - **2026-02-25** 🧹 New Matrix channel, cleaner session context, auto workspace template sync.
-- **2026-02-24** 🚀 Released **v0.1.4.post2** — a reliability-focused release with a redesigned heartbeat, prompt cache optimization, and hardened provider & channel stability. See [release notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.4.post2) for details.
+- **2026-02-24** 🚀 Released **v0.1.4.post2** — a reliability-focused release with a redesigned heartbeat, prompt cache optimization, and hardened provider & channel stability. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post2) for details.
 - **2026-02-23** 🔧 Virtual tool-call heartbeat, prompt cache optimization, Slack mrkdwn fixes.
 - **2026-02-22** 🛡️ Slack thread isolation, Discord typing fix, agent reliability improvements.
-- **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.4.post1) for details.
+- **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post1) for details.
 - **2026-02-20** 🐦 Feishu now receives multimodal files from users. More reliable memory under the hood.
 - **2026-02-19** ✨ Slack now sends files, Discord splits long messages, and subagents work in CLI mode.
 - **2026-02-18** ⚡️ hahobot now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
-- **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.4) for details.
+- **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4) for details.
 - **2026-02-16** 🦞 hahobot now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
 - **2026-02-15** 🔑 hahobot now supports OpenAI Codex provider with OAuth login support.
 - **2026-02-14** 🔌 hahobot now supports MCP! See [MCP section](#mcp-model-context-protocol) for details.
-- **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.3.post7) for more details.
-- **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/HKUDS/hahobot/discussions/566) about it!
+- **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post7) for more details.
+- **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/HKUDS/nanobot/discussions/566) about it!
 - **2026-02-11** ✨ Enhanced CLI experience and added MiniMax support!
-- **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/HKUDS/hahobot/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/HKUDS/hahobot/discussions/431).
+- **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/HKUDS/nanobot/discussions/431).
 - **2026-02-09** 💬 Added Slack, Email, and QQ support — hahobot now supports multiple chat platforms!
 - **2026-02-08** 🔧 Refactored Providers—adding a new LLM provider now takes just 2 simple steps! Check [here](#providers).
-- **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/hahobot/releases/tag/v0.1.3.post5) for details.
+- **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post5) for details.
 - **2026-02-06** ✨ Added Moonshot/Kimi provider, Discord integration, and enhanced security hardening!
 - **2026-02-05** ✨ Added Feishu channel, DeepSeek provider, and enhanced scheduled tasks support!
-- **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/HKUDS/hahobot/releases/tag/v0.1.3.post4) for details.
+- **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post4) for details.
 - **2026-02-03** ⚡ Integrated vLLM for local LLM support and improved natural language task scheduling!
 - **2026-02-02** 🎉 hahobot officially launched! Welcome to try 🐈 hahobot!
 
@@ -161,41 +165,27 @@
 > [!IMPORTANT]
 > This README may describe features that are available first in the latest source code.
 > If you want the newest features and experiments, install from source.
-> If you want the most stable day-to-day experience, install from PyPI or with `uv`.
+> This renamed fork does not publish a public package yet, so the source tree is the canonical distribution.
 
 **Install from source** (latest features, experimental changes may land here first; recommended for development)
 
 ```bash
-git clone https://github.com/HKUDS/hahobot.git
-cd hahobot
+cd /path/to/Hahobot
 pip install -e .
 ```
 
-**Install with [uv](https://github.com/astral-sh/uv)** (stable release, fast)
+**Install with [uv](https://github.com/astral-sh/uv)** (local checkout)
 
 ```bash
-uv tool install hahobot-ai
-```
-
-**Install from PyPI** (stable release)
-
-```bash
-pip install hahobot-ai
+uv tool install /path/to/Hahobot
 ```
 
 ### Update to latest version
 
-**PyPI / pip**
+After syncing your local hahobot checkout, reinstall from the repo root:
 
 ```bash
-pip install -U hahobot-ai
-hahobot --version
-```
-
-**uv**
-
-```bash
-uv tool upgrade hahobot-ai
+pip install -e .
 hahobot --version
 ```
 
@@ -743,7 +733,7 @@ hahobot gateway
 Install Matrix dependencies first:
 
 ```bash
-pip install hahobot-ai[matrix]
+pip install -e ".[matrix]"
 ```
 
 **1. Create/choose a Matrix account**
@@ -1137,7 +1127,7 @@ Uses **HTTP long-poll** with QR-code login via the ilinkai personal WeChat API. 
 **1. Install with WeChat support**
 
 ```bash
-pip install "hahobot-ai[weixin]"
+pip install -e ".[weixin]"
 ```
 
 **2. Configure**
@@ -1189,7 +1179,7 @@ hahobot gateway
 **1. Install the optional dependency**
 
 ```bash
-pip install hahobot-ai[wecom]
+pip install -e ".[wecom]"
 ```
 
 **2. Create a WeCom AI Bot**
@@ -1765,7 +1755,7 @@ hahobot now supports Mem0 as a real user-memory backend.
 - `memory.user.shadowWriteMem0: true` keeps `file` as the primary backend while also writing
   completed turns to Mem0 in parallel.
 - Install the optional runtime dependency with `uv sync --extra mem0` or
-  `pip install hahobot-ai[mem0]`.
+  `pip install -e ".[mem0]"`.
 - Inside `memory.user.mem0`, prefer explicit `provider`, `apiKey`, `url`, `model`, and `headers`
   fields for `llm`, `embedder`, and `vectorStore`; keep provider-specific extras under `config`.
 - Top-level `memory.user.mem0.metadata` is attached to Mem0 writes as extra tags.
@@ -2312,7 +2302,7 @@ See [docs/PYTHON_SDK.md](docs/PYTHON_SDK.md) for the full SDK reference.
 hahobot can expose a minimal OpenAI-compatible endpoint for local integrations:
 
 ```bash
-pip install "hahobot-ai[api]"
+pip install -e ".[api]"
 hahobot serve
 ```
 
@@ -2505,7 +2495,7 @@ PRs welcome! The codebase is intentionally small and readable. 🤗
 
 **Unsure which branch to target?** See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
 
-**Roadmap** — Pick an item and [open a PR](https://github.com/HKUDS/hahobot/pulls)!
+**Roadmap** — Pick an item and open a PR in your own hahobot remote once you publish one.
 
 - [ ] **Multi-modal** — See and hear (images, voice, video)
 - [ ] **Long-term memory** — Never forget important context
@@ -2515,26 +2505,11 @@ PRs welcome! The codebase is intentionally small and readable. 🤗
 
 ### Contributors
 
-<a href="https://github.com/HKUDS/hahobot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=HKUDS/hahobot&max=100&columns=12&updated=20260210" alt="Contributors" />
-</a>
-
-
-## ⭐ Star History
-
-<div align="center">
-  <a href="https://star-history.com/#HKUDS/hahobot&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HKUDS/hahobot&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=HKUDS/hahobot&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=HKUDS/hahobot&type=Date" style="border-radius: 15px; box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);" />
-    </picture>
-  </a>
-</div>
+Contributor, star-history, and visitor widgets are intentionally omitted until hahobot has its own
+public remote and release infrastructure.
 
 <p align="center">
-  <em> Thanks for visiting ✨ hahobot!</em><br><br>
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.hahobot&style=for-the-badge&color=00d4ff" alt="Views">
+  <em> Thanks for visiting ✨ hahobot!</em>
 </p>
 
 
