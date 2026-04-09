@@ -69,6 +69,119 @@ def test_save_config_writes_context_window_tokens_but_not_memory_window(tmp_path
     assert "memoryWindow" not in defaults
 
 
+def test_load_config_auto_corrects_compat_keys_in_place(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "agents": {
+                    "defaults": {
+                        "maxTokens": 2222,
+                        "memoryWindow": 30,
+                    }
+                },
+                "tools": {
+                    "exec": {
+                        "restrictToWorkspace": False,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert config.agents.defaults.max_tokens == 2222
+    assert config.tools.restrict_to_workspace is False
+    assert "memoryWindow" not in saved["agents"]["defaults"]
+    assert saved["tools"]["restrictToWorkspace"] is False
+    assert "restrictToWorkspace" not in saved["tools"]["exec"]
+
+
+def test_load_config_copies_default_nanobot_config_to_hahobot_path(
+    tmp_path, monkeypatch
+) -> None:
+    import hahobot.config.loader as loader_mod
+
+    hahobot_home = tmp_path / ".hahobot"
+    nanobot_home = tmp_path / ".nanobot"
+    hahobot_path = hahobot_home / "config.json"
+    nanobot_path = nanobot_home / "config.json"
+    legacy_workspace = nanobot_home / "workspace"
+
+    nanobot_path.parent.mkdir(parents=True)
+    legacy_workspace.mkdir(parents=True)
+    nanobot_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "openrouter": {
+                        "apiKey": "sk-legacy",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(loader_mod, "DEFAULT_CONFIG_DIR", hahobot_home)
+    monkeypatch.setattr(loader_mod, "DEFAULT_CONFIG_PATH", hahobot_path)
+    monkeypatch.setattr(loader_mod, "LEGACY_CONFIG_DIR", nanobot_home)
+    monkeypatch.setattr(loader_mod, "LEGACY_CONFIG_PATH", nanobot_path)
+    monkeypatch.setattr(loader_mod, "_current_config_path", None)
+
+    config = load_config()
+    saved = json.loads(hahobot_path.read_text(encoding="utf-8"))
+
+    assert config._config_path == hahobot_path.resolve(strict=False)
+    assert config.providers.openrouter.api_key == "sk-legacy"
+    assert config.agents.defaults.workspace == str(legacy_workspace)
+    assert saved["providers"]["openrouter"]["apiKey"] == "sk-legacy"
+    assert saved["agents"]["defaults"]["workspace"] == str(legacy_workspace)
+    assert nanobot_path.exists()
+
+
+def test_load_config_prefers_existing_hahobot_config_over_nanobot_default(
+    tmp_path, monkeypatch
+) -> None:
+    import hahobot.config.loader as loader_mod
+
+    hahobot_home = tmp_path / ".hahobot"
+    nanobot_home = tmp_path / ".nanobot"
+    hahobot_path = hahobot_home / "config.json"
+    nanobot_path = nanobot_home / "config.json"
+
+    hahobot_path.parent.mkdir(parents=True, exist_ok=True)
+    nanobot_path.parent.mkdir(parents=True, exist_ok=True)
+    hahobot_path.write_text(
+        json.dumps({"providers": {"openrouter": {"apiKey": "sk-hahobot"}}}),
+        encoding="utf-8",
+    )
+    nanobot_path.write_text(
+        json.dumps({"providers": {"openrouter": {"apiKey": "sk-legacy"}}}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(loader_mod, "DEFAULT_CONFIG_DIR", hahobot_home)
+    monkeypatch.setattr(loader_mod, "DEFAULT_CONFIG_PATH", hahobot_path)
+    monkeypatch.setattr(loader_mod, "LEGACY_CONFIG_DIR", nanobot_home)
+    monkeypatch.setattr(loader_mod, "LEGACY_CONFIG_PATH", nanobot_path)
+    monkeypatch.setattr(loader_mod, "_current_config_path", None)
+
+    config = load_config()
+
+    assert config._config_path == hahobot_path.resolve(strict=False)
+    assert config.providers.openrouter.api_key == "sk-hahobot"
+    assert json.loads(hahobot_path.read_text(encoding="utf-8"))["providers"]["openrouter"][
+        "apiKey"
+    ] == "sk-hahobot"
+    assert json.loads(nanobot_path.read_text(encoding="utf-8"))["providers"]["openrouter"][
+        "apiKey"
+    ] == "sk-legacy"
+
+
 def test_save_config_persists_memory_shadow_write_settings(tmp_path) -> None:
     config_path = tmp_path / "config.json"
     config = load_config(config_path)
@@ -82,7 +195,7 @@ def test_save_config_persists_memory_shadow_write_settings(tmp_path) -> None:
     config.memory.user.mem0.vector_store.provider = "qdrant"
     config.memory.user.mem0.vector_store.url = "https://qdrant.example.com"
     config.memory.user.mem0.vector_store.headers = {"Authorization": "Bearer test"}
-    config.memory.user.mem0.vector_store.config = {"collectionName": "nanobot_user_memory"}
+    config.memory.user.mem0.vector_store.config = {"collectionName": "hahobot_user_memory"}
 
     save_config(config, config_path)
     saved = json.loads(config_path.read_text(encoding="utf-8"))
@@ -98,7 +211,7 @@ def test_save_config_persists_memory_shadow_write_settings(tmp_path) -> None:
         "Authorization": "Bearer test"
     }
     assert saved["memory"]["user"]["mem0"]["vectorStore"]["config"]["collectionName"] == (
-        "nanobot_user_memory"
+        "hahobot_user_memory"
     )
 
 
@@ -127,7 +240,7 @@ def test_load_config_parses_mem0_runtime_provider_api_fields(tmp_path) -> None:
                                 "provider": "qdrant",
                                 "url": "https://qdrant.example.com",
                                 "headers": {"api-key": "qdrant-key"},
-                                "config": {"collectionName": "nanobot_user_memory"},
+                                "config": {"collectionName": "hahobot_user_memory"},
                             },
                         }
                     }
@@ -149,7 +262,7 @@ def test_load_config_parses_mem0_runtime_provider_api_fields(tmp_path) -> None:
     assert config.memory.user.mem0.vector_store.url == "https://qdrant.example.com"
     assert config.memory.user.mem0.vector_store.headers == {"api-key": "qdrant-key"}
     assert config.memory.user.mem0.vector_store.config == {
-        "collectionName": "nanobot_user_memory"
+        "collectionName": "hahobot_user_memory"
     }
 
 

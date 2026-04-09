@@ -81,6 +81,7 @@ dev = [
 
 [project.scripts]
 hahobot = "hahobot.cli.commands:app"
+nanobot = "nanobot.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -92,6 +93,7 @@ allow-direct-references = true
 [tool.hatch.build]
 include = [
     "hahobot/**/*.py",
+    "nanobot/**/*.py",
     "hahobot/locales/**/*.json",
     "hahobot/templates/**/*.md",
     "hahobot/skills/**/*.md",
@@ -99,10 +101,11 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["hahobot"]
+packages = ["hahobot", "nanobot"]
 
 [tool.hatch.build.targets.wheel.sources]
 "hahobot" = "hahobot"
+"nanobot" = "nanobot"
 
 [tool.hatch.build.targets.wheel.force-include]
 "bridge" = "hahobot/bridge"
@@ -110,6 +113,7 @@ packages = ["hahobot"]
 [tool.hatch.build.targets.sdist]
 include = [
     "hahobot/",
+    "nanobot/",
     "bridge/",
     "README.md",
     "LICENSE",

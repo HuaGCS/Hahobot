@@ -97,7 +97,7 @@ async def test_mem0_backend_resolves_query_context_from_search(tmp_path: Path) -
                         "vectorStore": {
                             "provider": "qdrant",
                             "url": "https://qdrant.example.com:6333",
-                            "config": {"collection_name": "nanobot_user_memory"},
+                            "config": {"collection_name": "hahobot_user_memory"},
                         },
                     },
                 }
@@ -150,7 +150,7 @@ async def test_mem0_backend_resolves_query_context_from_search(tmp_path: Path) -
         "vector_store": {
             "provider": "qdrant",
             "config": {
-                "collection_name": "nanobot_user_memory",
+                "collection_name": "hahobot_user_memory",
                 "url": "https://qdrant.example.com:6333",
                 "host": "qdrant.example.com",
                 "port": 6333,

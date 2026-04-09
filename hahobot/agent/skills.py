@@ -167,15 +167,19 @@ class SkillsLoader:
             return content[match.end():].strip()
         return content
 
-    def _parse_nanobot_metadata(self, raw: str) -> dict:
-        """Parse skill metadata JSON from frontmatter (supports hahobot and openclaw keys)."""
+    def _parse_project_metadata(self, raw: str) -> dict:
+        """Parse skill metadata JSON from frontmatter across current and legacy keys."""
         try:
             data = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             return {}
         if not isinstance(data, dict):
             return {}
-        payload = data.get("hahobot", data.get("openclaw", {}))
+        payload = data.get("hahobot")
+        if not isinstance(payload, dict):
+            payload = data.get("nanobot")
+        if not isinstance(payload, dict):
+            payload = data.get("openclaw", {})
         return payload if isinstance(payload, dict) else {}
 
     def _check_requirements(self, skill_meta: dict) -> bool:
@@ -190,7 +194,7 @@ class SkillsLoader:
     def _get_skill_meta(self, name: str) -> dict:
         """Get hahobot metadata for a skill (cached in frontmatter)."""
         meta = self.get_skill_metadata(name) or {}
-        return self._parse_nanobot_metadata(meta.get("metadata", ""))
+        return self._parse_project_metadata(meta.get("metadata", ""))
 
     def get_always_skills(self) -> list[str]:
         """Get skills marked as always=true that meet requirements."""
@@ -199,7 +203,7 @@ class SkillsLoader:
             for entry in self.list_skills(filter_unavailable=True)
             if (meta := self.get_skill_metadata(entry["name"]) or {})
             and (
-                self._parse_nanobot_metadata(meta.get("metadata", "")).get("always")
+                self._parse_project_metadata(meta.get("metadata", "")).get("always")
                 or meta.get("always")
             )
         ]
