@@ -15,6 +15,7 @@ def _write_skill(
     name: str,
     *,
     metadata_json: dict | None = None,
+    metadata_key: str = "hahobot",
     body: str = "# Skill\n",
 ) -> Path:
     """Create ``base / name / SKILL.md`` with optional hahobot metadata JSON."""
@@ -22,7 +23,7 @@ def _write_skill(
     skill_dir.mkdir(parents=True)
     lines = ["---"]
     if metadata_json is not None:
-        payload = json.dumps({"hahobot": metadata_json}, separators=(",", ":"))
+        payload = json.dumps({metadata_key: metadata_json}, separators=(",", ":"))
         lines.append(f'metadata: {payload}')
     lines.extend(["---", "", body])
     path = skill_dir / "SKILL.md"
@@ -133,13 +134,13 @@ def test_list_skills_filter_unavailable_excludes_unmet_bin_requirement(
     _write_skill(
         skills_root,
         "needs_bin",
-        metadata_json={"requires": {"bins": ["nanobot_test_fake_binary"]}},
+        metadata_json={"requires": {"bins": ["hahobot_test_fake_binary"]}},
     )
     builtin = tmp_path / "builtin"
     builtin.mkdir()
 
     def fake_which(cmd: str) -> str | None:
-        if cmd == "nanobot_test_fake_binary":
+        if cmd == "hahobot_test_fake_binary":
             return None
         return "/usr/bin/true"
 
@@ -158,14 +159,14 @@ def test_list_skills_filter_unavailable_includes_when_bin_requirement_met(
     skill_path = _write_skill(
         skills_root,
         "has_bin",
-        metadata_json={"requires": {"bins": ["nanobot_test_fake_binary"]}},
+        metadata_json={"requires": {"bins": ["hahobot_test_fake_binary"]}},
     )
     builtin = tmp_path / "builtin"
     builtin.mkdir()
 
     def fake_which(cmd: str) -> str | None:
-        if cmd == "nanobot_test_fake_binary":
-            return "/fake/nanobot_test_fake_binary"
+        if cmd == "hahobot_test_fake_binary":
+            return "/fake/hahobot_test_fake_binary"
         return None
 
     monkeypatch.setattr("hahobot.agent.skills.shutil.which", fake_which)
@@ -186,7 +187,7 @@ def test_list_skills_filter_unavailable_false_keeps_unmet_requirements(
     skill_path = _write_skill(
         skills_root,
         "blocked",
-        metadata_json={"requires": {"bins": ["nanobot_test_fake_binary"]}},
+        metadata_json={"requires": {"bins": ["hahobot_test_fake_binary"]}},
     )
     builtin = tmp_path / "builtin"
     builtin.mkdir()
@@ -209,12 +210,12 @@ def test_list_skills_filter_unavailable_excludes_unmet_env_requirement(
     _write_skill(
         skills_root,
         "needs_env",
-        metadata_json={"requires": {"env": ["NANOBOT_SKILLS_TEST_ENV_VAR"]}},
+        metadata_json={"requires": {"env": ["HAHOBOT_SKILLS_TEST_ENV_VAR"]}},
     )
     builtin = tmp_path / "builtin"
     builtin.mkdir()
 
-    monkeypatch.delenv("NANOBOT_SKILLS_TEST_ENV_VAR", raising=False)
+    monkeypatch.delenv("HAHOBOT_SKILLS_TEST_ENV_VAR", raising=False)
 
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     assert loader.list_skills(filter_unavailable=True) == []
@@ -229,7 +230,7 @@ def test_list_skills_openclaw_metadata_parsed_for_requirements(
     skill_dir = skills_root / "openclaw_skill"
     skill_dir.mkdir(parents=True)
     skill_path = skill_dir / "SKILL.md"
-    oc_payload = json.dumps({"openclaw": {"requires": {"bins": ["nanobot_oc_bin"]}}}, separators=(",", ":"))
+    oc_payload = json.dumps({"openclaw": {"requires": {"bins": ["hahobot_oc_bin"]}}}, separators=(",", ":"))
     skill_path.write_text(
         "\n".join(["---", f"metadata: {oc_payload}", "---", "", "# OC"]),
         encoding="utf-8",
@@ -244,9 +245,36 @@ def test_list_skills_openclaw_metadata_parsed_for_requirements(
 
     monkeypatch.setattr(
         "hahobot.agent.skills.shutil.which",
-        lambda cmd: "/x" if cmd == "nanobot_oc_bin" else None,
+        lambda cmd: "/x" if cmd == "hahobot_oc_bin" else None,
     )
     entries = loader.list_skills(filter_unavailable=True)
     assert entries == [
         {"name": "openclaw_skill", "path": str(skill_path), "source": "workspace"},
+    ]
+
+
+def test_list_skills_legacy_nanobot_metadata_parsed_for_requirements(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "ws"
+    skills_root = workspace / "skills"
+    skills_root.mkdir(parents=True)
+    skill_path = _write_skill(
+        skills_root,
+        "legacy_meta",
+        metadata_json={"requires": {"bins": ["hahobot_test_fake_binary"]}},
+        metadata_key="nanobot",
+    )
+    builtin = tmp_path / "builtin"
+    builtin.mkdir()
+
+    monkeypatch.setattr(
+        "hahobot.agent.skills.shutil.which",
+        lambda cmd: "/x" if cmd == "hahobot_test_fake_binary" else None,
+    )
+
+    loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
+    entries = loader.list_skills(filter_unavailable=True)
+    assert entries == [
+        {"name": "legacy_meta", "path": str(skill_path), "source": "workspace"},
     ]

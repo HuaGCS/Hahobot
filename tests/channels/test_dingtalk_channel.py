@@ -158,7 +158,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
             return _FakeFileChatbotMessage()
 
     async def fake_download(download_code, filename, sender_id):
-        return f"/tmp/nanobot_dingtalk/{sender_id}/{filename}"
+        return f"/tmp/hahobot_dingtalk/{sender_id}/{filename}"
 
     monkeypatch.setattr(dingtalk_module, "ChatbotMessage", _FakeFileChatbotMessage)
     monkeypatch.setattr(dingtalk_module, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
@@ -179,7 +179,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
 
     assert (status, body) == ("OK", "OK")
     assert "[File]" in msg.content
-    assert "/tmp/nanobot_dingtalk/user1/report.xlsx" in msg.content
+    assert "/tmp/hahobot_dingtalk/user1/report.xlsx" in msg.content
 
 
 @pytest.mark.asyncio

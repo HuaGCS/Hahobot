@@ -361,7 +361,7 @@ def _ensure_managed_target(path: Path, *, force: bool, description: str) -> None
 
 
 def _build_manifest(card: SillyTavernCharacterCard, source_path: Path, persona_name: str) -> dict[str, Any]:
-    ext = _nanobot_extensions(card.extensions)
+    ext = _project_extensions(card.extensions)
     reference_images = ext.get("reference_images")
     if not isinstance(reference_images, dict):
         reference_images = {}
@@ -473,8 +473,10 @@ def _extract_response_filter_tags(ext: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
-def _nanobot_extensions(extensions: dict[str, Any]) -> dict[str, Any]:
+def _project_extensions(extensions: dict[str, Any]) -> dict[str, Any]:
     raw = extensions.get("hahobot")
+    if not isinstance(raw, dict):
+        raw = extensions.get("nanobot")
     return raw if isinstance(raw, dict) else {}
 
 

@@ -73,6 +73,49 @@ def test_persona_import_st_card_creates_persona_files(tmp_path, monkeypatch) -> 
     assert "/persona set Aria" in result.stdout
 
 
+def test_persona_import_st_card_accepts_legacy_nanobot_extension_key(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    card_path = tmp_path / "aria-legacy.json"
+    card_path.write_text(
+        json.dumps(
+            {
+                "spec": "chara_card_v2",
+                "data": {
+                    "name": "Aria",
+                    "extensions": {
+                        "nanobot": {
+                            "responseFilterTags": "inner, thought",
+                            "reference_image": "/tmp/aria-legacy.png",
+                        }
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "hahobot.cli.commands._load_runtime_config",
+        lambda _config=None, workspace_override=None: _config_for_workspace(
+            Path(workspace_override) if workspace_override else workspace
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        ["persona", "import-st-card", str(card_path), "--workspace", str(workspace)],
+    )
+
+    assert result.exit_code == 0
+    manifest = json.loads(
+        (workspace / "personas" / "Aria" / ".hahobot" / "st_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["response_filter_tags"] == ["inner", "thought"]
+    assert manifest["reference_image"] == "/tmp/aria-legacy.png"
+
+
 def test_persona_import_st_card_rejects_existing_persona_without_force(tmp_path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     persona_dir = workspace / "personas" / "Aria"
