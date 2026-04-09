@@ -63,6 +63,40 @@ class _StalledStream:
         raise StopAsyncIteration
 
 
+class _CompatibilityError(Exception):
+    def __init__(self, body: str, status_code: int = 400) -> None:
+        super().__init__(body)
+        self.body = body
+        self.status_code = status_code
+
+
+class _ChunkStream:
+    def __init__(self, chunks: list[object]) -> None:
+        self._chunks = iter(chunks)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._chunks)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+
+def _fake_responses_output(content: str = "ok") -> dict:
+    return {
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": content}],
+            }
+        ],
+        "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+    }
+
+
 def test_openrouter_spec_is_gateway() -> None:
     spec = find_by_name("openrouter")
     assert spec is not None
@@ -81,7 +115,7 @@ def test_openrouter_sets_default_attribution_headers() -> None:
         )
 
     headers = MockClient.call_args.kwargs["default_headers"]
-    assert headers["HTTP-Referer"] == "https://github.com/HKUDS/nanobot"
+    assert headers["HTTP-Referer"] == "https://github.com/HKUDS/hahobot"
     assert headers["X-OpenRouter-Title"] == "hahobot"
     assert headers["X-OpenRouter-Categories"] == "cli-agent,personal-agent"
     assert "x-session-affinity" in headers
@@ -212,6 +246,110 @@ async def test_openai_compat_preserves_extra_content_on_tool_calls() -> None:
     serialized = tool_call.to_openai_tool_call()
     assert serialized["extra_content"] == {"google": {"thought_signature": "signed-token"}}
     assert serialized["function"]["provider_specific_fields"] == {"inner": "value"}
+
+
+@pytest.mark.asyncio
+async def test_openai_direct_reasoning_uses_responses_api() -> None:
+    spec = find_by_name("openai")
+
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI") as MockClient:
+        client_instance = MockClient.return_value
+        client_instance.responses.create = AsyncMock(return_value=_fake_responses_output("hello"))
+        client_instance.chat.completions.create = AsyncMock()
+
+        provider = OpenAICompatProvider(
+            api_key="sk-test-key",
+            default_model="gpt-5-chat",
+            spec=spec,
+        )
+        result = await provider.chat(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-5-chat",
+        )
+
+    assert result.content == "hello"
+    assert client_instance.responses.create.call_count == 1
+    assert client_instance.chat.completions.create.call_count == 0
+    assert "max_output_tokens" in client_instance.responses.create.call_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_openai_direct_reasoning_falls_back_when_responses_api_is_unsupported() -> None:
+    spec = find_by_name("openai")
+
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI") as MockClient:
+        client_instance = MockClient.return_value
+        client_instance.responses.create = AsyncMock(
+            side_effect=_CompatibilityError("Responses API not supported")
+        )
+        client_instance.chat.completions.create = AsyncMock(return_value=_fake_chat_response("fallback"))
+
+        provider = OpenAICompatProvider(
+            api_key="sk-test-key",
+            default_model="gpt-5-chat",
+            spec=spec,
+        )
+        result = await provider.chat(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-5-chat",
+        )
+
+    assert result.content == "fallback"
+    assert client_instance.responses.create.call_count == 1
+    assert client_instance.chat.completions.create.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_openai_direct_reasoning_stream_falls_back_when_responses_api_is_unsupported() -> None:
+    spec = find_by_name("openai")
+    deltas: list[str] = []
+
+    async def on_delta(text: str) -> None:
+        deltas.append(text)
+
+    chunks = [
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(content="hello", tool_calls=None, reasoning_content=None),
+                    finish_reason=None,
+                )
+            ],
+            usage=None,
+        ),
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(content=None, tool_calls=None, reasoning_content=None),
+                    finish_reason="stop",
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+        ),
+    ]
+
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI") as MockClient:
+        client_instance = MockClient.return_value
+        client_instance.responses.create = AsyncMock(
+            side_effect=_CompatibilityError("response api unsupported")
+        )
+        client_instance.chat.completions.create = AsyncMock(return_value=_ChunkStream(chunks))
+
+        provider = OpenAICompatProvider(
+            api_key="sk-test-key",
+            default_model="gpt-5-chat",
+            spec=spec,
+        )
+        result = await provider.chat_stream(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-5-chat",
+            on_content_delta=on_delta,
+        )
+
+    assert result.content == "hello"
+    assert deltas == ["hello"]
+    assert client_instance.responses.create.call_count == 1
+    assert client_instance.chat.completions.create.call_count == 1
 
 
 def test_openai_model_passthrough() -> None:

@@ -63,6 +63,10 @@ class TelegramConfig(Base):
     connection_pool_size: int = 32  # Outbound Telegram API HTTP pool size
     pool_timeout: float = 5.0  # Shared HTTP pool timeout for bot sends and getUpdates
     streaming: bool = True  # Progressive edit-based streaming for final text replies
+    stream_edit_interval: float = Field(
+        default=0.6,
+        ge=0.1,
+    )  # Minimum seconds between streamed edit_message_text calls
 
 
 class TelegramInstanceConfig(TelegramConfig):
@@ -139,6 +143,10 @@ class DiscordConfig(Base):
     gateway_url: str = "wss://gateway.discord.gg/?v=10&encoding=json"
     intents: int = 37377  # GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT
     group_policy: Literal["mention", "open"] = "mention"
+    read_receipt_emoji: str = "👀"
+    working_emoji: str = "🔧"
+    working_emoji_delay: float = 2.0
+    streaming: bool = True
 
 
 class DiscordInstanceConfig(DiscordConfig):
@@ -671,6 +679,12 @@ class HeartbeatConfig(Base):
     keep_recent_messages: int = 8
 
 
+class GatewayCronConfig(Base):
+    """Gateway cron scheduler configuration."""
+
+    max_sleep_ms: int = Field(default=300_000, ge=1_000)  # Periodic wake interval for store reload
+
+
 class ApiConfig(Base):
     """OpenAI-compatible API server configuration."""
 
@@ -733,6 +747,7 @@ class GatewayConfig(Base):
     host: str = "0.0.0.0"
     port: int = 18790
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
+    cron: GatewayCronConfig = Field(default_factory=GatewayCronConfig)
     admin: GatewayAdminConfig = Field(default_factory=GatewayAdminConfig)
     status: GatewayStatusConfig = Field(default_factory=GatewayStatusConfig)
 

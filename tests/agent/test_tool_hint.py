@@ -52,6 +52,13 @@ class TestToolHintKnownTools:
         assert result.startswith("$ ")
         assert len(result) <= 50  # reasonable limit
 
+    def test_exec_abbreviates_quoted_paths(self):
+        cmd = 'cat "/Users/demo/Documents/very long folder/notes.txt"'
+        result = _hint([_tc("exec", {"command": cmd})])
+        assert result.startswith("$ cat ")
+        assert "notes.txt" in result
+        assert "/Users/demo/Documents/very long folder/notes.txt" not in result
+
     def test_web_search(self):
         result = _hint([_tc("web_search", {"query": "Claude 4 vs GPT-4"})])
         assert result == 'search "Claude 4 vs GPT-4"'
@@ -98,26 +105,26 @@ class TestToolHintFallback:
 
 
 class TestToolHintFolding:
-    """Test consecutive same-tool calls are folded."""
+    """Test consecutive identical formatted hints are folded."""
 
     def test_single_call_no_fold(self):
         calls = [_tc("grep", {"pattern": "*.py"})]
         result = _hint(calls)
         assert "\u00d7" not in result
 
-    def test_two_consecutive_same_folded(self):
+    def test_two_consecutive_same_hint_folded(self):
         calls = [
             _tc("grep", {"pattern": "*.py"}),
-            _tc("grep", {"pattern": "*.ts"}),
+            _tc("grep", {"pattern": "*.py"}),
         ]
         result = _hint(calls)
         assert "\u00d7 2" in result
 
-    def test_three_consecutive_same_folded(self):
+    def test_three_consecutive_same_hint_folded(self):
         calls = [
             _tc("read_file", {"path": "a.py"}),
-            _tc("read_file", {"path": "b.py"}),
-            _tc("read_file", {"path": "c.py"}),
+            _tc("read_file", {"path": "a.py"}),
+            _tc("read_file", {"path": "a.py"}),
         ]
         result = _hint(calls)
         assert "\u00d7 3" in result
@@ -135,6 +142,14 @@ class TestToolHintFolding:
             _tc("grep", {"pattern": "a"}),
             _tc("read_file", {"path": "f.py"}),
             _tc("grep", {"pattern": "b"}),
+        ]
+        result = _hint(calls)
+        assert "\u00d7" not in result
+
+    def test_same_tool_different_formatted_hints_not_folded(self):
+        calls = [
+            _tc("read_file", {"path": "a.py"}),
+            _tc("read_file", {"path": "b.py"}),
         ]
         result = _hint(calls)
         assert "\u00d7" not in result
@@ -184,15 +199,15 @@ class TestToolHintEdgeCases:
 
 
 class TestToolHintMixedFolding:
-    """G4: Mixed folding groups with interleaved same-tool segments."""
+    """G4: Mixed folding groups depend on identical formatted hints."""
 
     def test_read_read_grep_grep_read(self):
         """read×2, grep×2, read — should produce two separate groups."""
         calls = [
             _tc("read_file", {"path": "a.py"}),
-            _tc("read_file", {"path": "b.py"}),
+            _tc("read_file", {"path": "a.py"}),
             _tc("grep", {"pattern": "x"}),
-            _tc("grep", {"pattern": "y"}),
+            _tc("grep", {"pattern": "x"}),
             _tc("read_file", {"path": "c.py"}),
         ]
         result = _hint(calls)

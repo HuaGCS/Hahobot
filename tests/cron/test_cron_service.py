@@ -4,7 +4,7 @@ import json
 import pytest
 
 from hahobot.cron.service import CronService
-from hahobot.cron.types import CronJob, CronPayload, CronSchedule
+from hahobot.cron.types import CronJob, CronPayload, CronRunRecord, CronSchedule
 
 
 def test_add_job_rejects_unknown_timezone(tmp_path) -> None:
@@ -178,6 +178,29 @@ def test_reload_jobs(tmp_path):
     assert len(service.list_jobs()) == 2
 
 
+def test_cron_job_from_dict_rehydrates_run_history() -> None:
+    job = CronJob.from_dict(
+        {
+            "id": "job-1",
+            "name": "demo",
+            "schedule": {"kind": "every", "every_ms": 1000},
+            "payload": {"kind": "agent_turn", "message": "hi"},
+            "state": {
+                "run_history": [
+                    {
+                        "run_at_ms": 1,
+                        "status": "ok",
+                        "duration_ms": 2,
+                        "error": None,
+                    }
+                ]
+            },
+        }
+    )
+
+    assert isinstance(job.state.run_history[0], CronRunRecord)
+
+
 @pytest.mark.asyncio
 async def test_running_service_picks_up_external_add(tmp_path):
     """A running service should detect and execute a job added by another instance."""
@@ -208,3 +231,73 @@ async def test_running_service_picks_up_external_add(tmp_path):
         assert "external" in called
     finally:
         service.stop()
+
+
+@pytest.mark.asyncio
+async def test_manual_run_preserves_running_scheduler_state(tmp_path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    called: list[str] = []
+
+    async def on_job(job) -> None:
+        called.append(job.id)
+
+    service = CronService(store_path, on_job=on_job)
+    job = service.add_job(
+        name="manual-run",
+        schedule=CronSchedule(kind="every", every_ms=60_000),
+        message="hello",
+    )
+    service._running = True
+
+    ok = await service.run_job(job.id)
+
+    assert ok is True
+    assert called == [job.id]
+    assert service._running is True
+
+
+@pytest.mark.asyncio
+async def test_running_service_periodically_wakes_for_external_earlier_job(tmp_path) -> None:
+    """A long-sleeping scheduler should still notice externally added earlier jobs."""
+    store_path = tmp_path / "cron" / "jobs.json"
+    called: list[str] = []
+
+    async def on_job(job) -> None:
+        called.append(job.name)
+
+    service = CronService(store_path, on_job=on_job, max_sleep_ms=50)
+    service.add_job(
+        name="far-future",
+        schedule=CronSchedule(kind="every", every_ms=60_000),
+        message="later",
+    )
+    await service.start()
+    try:
+        await asyncio.sleep(0.02)
+
+        external = CronService(store_path)
+        external.add_job(
+            name="external-soon",
+            schedule=CronSchedule(kind="every", every_ms=80),
+            message="soon",
+        )
+
+        await asyncio.sleep(0.35)
+        assert "external-soon" in called
+        assert "far-future" not in called
+    finally:
+        service.stop()
+
+
+def test_apply_runtime_config_updates_max_sleep_and_rearms_when_running(
+    monkeypatch, tmp_path
+) -> None:
+    service = CronService(tmp_path / "cron" / "jobs.json")
+    service._running = True
+    rearmed: list[bool] = []
+    monkeypatch.setattr(service, "_arm_timer", lambda: rearmed.append(True))
+
+    service.apply_runtime_config(12_345)
+
+    assert service.max_sleep_ms == 12_345
+    assert rearmed == [True]
