@@ -1,2518 +1,562 @@
 <div align="center">
-  <img src="hahobot_logo.png" alt="hahobot" width="500">
-  <h1>hahobot: Ultra-Lightweight Personal AI Agent</h1>
+  <img src="hahobot_logo.png" alt="hahobot" width="420">
+  <h1>hahobot</h1>
+  <p>Persona-first local AI agent runtime and companion framework.</p>
   <p>
-    <img src="https://img.shields.io/badge/status-local_fork-orange" alt="Local Fork">
-    <img src="https://img.shields.io/badge/package-unpublished-lightgrey" alt="Package">
-    <img src="https://img.shields.io/badge/python-≥3.11-blue" alt="Python">
+    <img src="https://img.shields.io/badge/status-local_project-orange" alt="Local Project">
+    <img src="https://img.shields.io/badge/python-%3E%3D3.11-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-    <img src="https://img.shields.io/badge/docs-in_repo-blue?style=flat&logo=readthedocs&logoColor=white" alt="Docs">
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat&logo=feishu&logoColor=white" alt="Feishu"></a>
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/WeChat-Group-C5EAB4?style=flat&logo=wechat&logoColor=white" alt="WeChat"></a>
-    <a href="https://discord.gg/MnCvHqpUGB"><img src="https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <img src="https://img.shields.io/badge/package-source_only-lightgrey" alt="Source Only">
   </p>
 </div>
 
-🐈 **hahobot** is an **ultra-lightweight** personal AI agent inspired by [OpenClaw](https://github.com/openclaw/openclaw).
+`hahobot` is the canonical local project in this repository.
 
-This repository is a renamed local fork derived from [HKUDS/nanobot](https://github.com/HKUDS/nanobot).
-Historical release notes below still point to the upstream nanobot project until hahobot publishes
-its own public releases, package index, and docs site.
+It started from the lightweight runtime and channel/tool/provider architecture of
+[HKUDS/nanobot](https://github.com/HKUDS/nanobot), moved toward the persona and companion
+workflow popularized by [shenmintao/NanoMate](https://github.com/shenmintao/NanoMate), and
+adapts the "context files + persistent memory + reflective self-maintenance" philosophy from
+[Hermes Agent](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart) into a
+workspace-first implementation that is easy to inspect and modify locally.
 
-⚡️ Delivers core agent functionality with **99% fewer lines of code**.
-
-📏 Real-time line count: run `bash core_agent_lines.sh` to verify anytime.
-
-## 📢 News
-
-- **2026-04-05** 🚀 Released **v0.1.5** — sturdier long-running tasks, Dream two-stage memory, production-ready sandboxing and programming Agent SDK. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5) for details.
-- **2026-04-04** 🚀 Jinja2 response templates, Dream memory hardened, smarter retry handling.
-- **2026-04-03** 🧠 Xiaomi MiMo provider, chain-of-thought reasoning visible, Telegram UX polish.
-- **2026-04-02** 🧱 Long-running tasks run more reliably — core runtime hardening.
-- **2026-04-01** 🔑 GitHub Copilot auth restored; stricter workspace paths; OpenRouter Claude caching fix.
-- **2026-03-31** 🛰️ WeChat multimodal alignment, Discord/Matrix polish, Python SDK facade, MCP and tool fixes.
-- **2026-03-30** 🧩 OpenAI-compatible API tightened; composable agent lifecycle hooks.
-- **2026-03-29** 💬 WeChat voice, typing, QR/media resilience; fixed-session OpenAI-compatible API.
-- **2026-03-28** 📚 Provider docs refresh; skill template wording fix.
-- **2026-03-27** 🚀 Released **v0.1.4.post6** — architecture decoupling, litellm removal, end-to-end streaming, WeChat channel, and a security fix. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post6) for details.
-
-
-<details>
-<summary>Earlier news</summary>
-
-- **2026-03-26** 🏗️ Agent runner extracted and lifecycle hooks unified; stream delta coalescing at boundaries.
-- **2026-03-25** 🌏 StepFun provider, configurable timezone, Gemini thought signatures.
-- **2026-03-24** 🔧 WeChat compatibility, Feishu CardKit streaming, test suite restructured.
-- **2026-03-23** 🔧 Command routing refactored for plugins, WhatsApp/WeChat media, unified channel login CLI.
-- **2026-03-22** ⚡ End-to-end streaming, WeChat channel, Anthropic cache optimization, `/status` command.
-- **2026-03-21** 🔒 Replace `litellm` with native `openai` + `anthropic` SDKs. Please see [commit](https://github.com/HKUDS/nanobot/commit/3dfdab7).
-- **2026-03-20** 🧙 Interactive setup wizard — pick your provider, model autocomplete, and you're good to go.
-- **2026-03-19** 💬 Telegram gets more resilient under load; Feishu now renders code blocks properly.
-- **2026-03-18** 📷 Telegram can now send media via URL. Cron schedules show human-readable details.
-- **2026-03-17** ✨ Feishu formatting glow-up, Slack reacts when done, custom endpoints support extra headers, and image handling is more reliable.
-- **2026-03-16** 🚀 Released **v0.1.4.post5** — a refinement-focused release with stronger reliability and channel support, and a more dependable day-to-day experience. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post5) for details.
-- **2026-03-15** 🧩 DingTalk rich media, smarter built-in skills, and cleaner model compatibility.
-- **2026-03-14** 💬 Channel plugins, Feishu replies, and steadier MCP, QQ, and media handling.
-- **2026-03-13** 🌐 Multi-provider web search, LangSmith, and broader reliability improvements.
-- **2026-03-12** 🚀 VolcEngine support, Telegram reply context, `/restart`, and sturdier memory.
-- **2026-03-11** 🔌 WeCom, Ollama, cleaner discovery, and safer tool behavior.
-- **2026-03-10** 🧠 Token-based memory, shared retries, and cleaner gateway and Telegram behavior.
-- **2026-03-09** 💬 Slack thread polish and better Feishu audio compatibility.
-- **2026-03-08** 🚀 Released **v0.1.4.post4** — a reliability-packed release with safer defaults, better multi-instance support, sturdier MCP, and major channel and provider improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post4) for details.
-- **2026-03-07** 🚀 Azure OpenAI provider, WhatsApp media, QQ group chats, and more Telegram/Feishu polish.
-- **2026-03-06** 🪄 Lighter providers, smarter media handling, and sturdier memory and CLI compatibility.
-- **2026-03-05** ⚡️ Telegram draft streaming, MCP SSE support, and broader channel reliability fixes.
-- **2026-03-04** 🛠️ Dependency cleanup, safer file reads, and another round of test and Cron fixes.
-- **2026-03-03** 🧠 Cleaner user-message merging, safer multimodal saves, and stronger Cron guards.
-- **2026-03-02** 🛡️ Safer default access control, sturdier Cron reloads, and cleaner Matrix media handling.
-- **2026-03-01** 🌐 Web proxy support, smarter Cron reminders, and Feishu rich-text parsing improvements.
-- **2026-02-28** 🚀 Released **v0.1.4.post3** — cleaner context, hardened session history, and smarter agent. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post3) for details.
-- **2026-02-27** 🧠 Experimental thinking mode support, DingTalk media messages, Feishu and QQ channel fixes.
-- **2026-02-26** 🛡️ Session poisoning fix, WhatsApp dedup, Windows path guard, Mistral compatibility.
-- **2026-02-25** 🧹 New Matrix channel, cleaner session context, auto workspace template sync.
-- **2026-02-24** 🚀 Released **v0.1.4.post2** — a reliability-focused release with a redesigned heartbeat, prompt cache optimization, and hardened provider & channel stability. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post2) for details.
-- **2026-02-23** 🔧 Virtual tool-call heartbeat, prompt cache optimization, Slack mrkdwn fixes.
-- **2026-02-22** 🛡️ Slack thread isolation, Discord typing fix, agent reliability improvements.
-- **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post1) for details.
-- **2026-02-20** 🐦 Feishu now receives multimodal files from users. More reliable memory under the hood.
-- **2026-02-19** ✨ Slack now sends files, Discord splits long messages, and subagents work in CLI mode.
-- **2026-02-18** ⚡️ hahobot now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
-- **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4) for details.
-- **2026-02-16** 🦞 hahobot now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
-- **2026-02-15** 🔑 hahobot now supports OpenAI Codex provider with OAuth login support.
-- **2026-02-14** 🔌 hahobot now supports MCP! See [MCP section](#mcp-model-context-protocol) for details.
-- **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post7) for more details.
-- **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/HKUDS/nanobot/discussions/566) about it!
-- **2026-02-11** ✨ Enhanced CLI experience and added MiniMax support!
-- **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/HKUDS/nanobot/discussions/431).
-- **2026-02-09** 💬 Added Slack, Email, and QQ support — hahobot now supports multiple chat platforms!
-- **2026-02-08** 🔧 Refactored Providers—adding a new LLM provider now takes just 2 simple steps! Check [here](#providers).
-- **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post5) for details.
-- **2026-02-06** ✨ Added Moonshot/Kimi provider, Discord integration, and enhanced security hardening!
-- **2026-02-05** ✨ Added Feishu channel, DeepSeek provider, and enhanced scheduled tasks support!
-- **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post4) for details.
-- **2026-02-03** ⚡ Integrated vLLM for local LLM support and improved natural language task scheduling!
-- **2026-02-02** 🎉 hahobot officially launched! Welcome to try 🐈 hahobot!
-
-</details>
-
-> 🐈 hahobot is for educational, research, and technical exchange purposes only. It is unrelated to crypto and does not involve any official token or coin.
-
-## Key Features of hahobot:
-
-🪶 **Ultra-Lightweight**: A lightweight implementation built for stable, long-running AI agents.
-
-🔬 **Research-Ready**: Clean, readable code that's easy to understand, modify, and extend for research.
-
-⚡️ **Lightning Fast**: Minimal footprint means faster startup, lower resource usage, and quicker iterations.
-
-💎 **Easy-to-Use**: One-click to deploy and you're ready to go.
-
-## 🏗️ Architecture
-
-<p align="center">
-  <img src="hahobot_arch.png" alt="hahobot architecture" width="800">
-</p>
+This repo is not a thin mirror of upstream `nanobot`. It is a reorganized local runtime with its
+own persona model, memory layout, gateway/admin workflow, compatibility layer, and companion
+oriented built-in skills.
 
 ## Table of Contents
 
-- [News](#-news)
-- [Key Features](#key-features-of-hahobot)
-- [Architecture](#️-architecture)
-- [Features](#-features)
-- [Install](#-install)
-- [Quick Start](#-quick-start)
-- [Chat Apps](#-chat-apps)
-- [Agent Social Network](#-agent-social-network)
-- [Configuration](#️-configuration)
-- [Multiple Instances](#-multiple-instances)
-- [Memory](#-memory)
-- [CLI Reference](#-cli-reference)
-- [In-Chat Commands](#-in-chat-commands)
-- [Python SDK](#-python-sdk)
-- [OpenAI-Compatible API](#-openai-compatible-api)
-- [Docker](#-docker)
-- [Linux Service](#-linux-service)
-- [Project Structure](#-project-structure)
-- [Contribute & Roadmap](#-contribute--roadmap)
-- [Star History](#-star-history)
+- [Project DNA](#project-dna)
+- [What Hahobot Ships](#what-hahobot-ships)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Workspace Model](#workspace-model)
+- [Personas and Companion Workflow](#personas-and-companion-workflow)
+- [Memory and Self-Iteration](#memory-and-self-iteration)
+- [Channels, Gateway, and API](#channels-gateway-and-api)
+- [Tools, Skills, and MCP](#tools-skills-and-mcp)
+- [Compatibility with nanobot](#compatibility-with-nanobot)
+- [Repository Layout](#repository-layout)
+- [Development](#development)
 
-## ✨ Features
+## Project DNA
 
-<table align="center">
-  <tr align="center">
-    <th><p align="center">📈 24/7 Real-Time Market Analysis</p></th>
-    <th><p align="center">🚀 Full-Stack Software Engineer</p></th>
-    <th><p align="center">📅 Smart Daily Routine Manager</p></th>
-    <th><p align="center">📚 Personal Knowledge Assistant</p></th>
-  </tr>
-  <tr>
-    <td align="center"><p align="center"><img src="case/search.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/code.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/schedule.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/memory.gif" width="180" height="400"></p></td>
-  </tr>
-  <tr>
-    <td align="center">Discovery • Insights • Trends</td>
-    <td align="center">Develop • Deploy • Scale</td>
-    <td align="center">Schedule • Automate • Organize</td>
-    <td align="center">Learn • Memory • Reasoning</td>
-  </tr>
-</table>
+| Source | Borrowed idea | Current hahobot implementation |
+| --- | --- | --- |
+| `HKUDS/nanobot` | Small, readable agent runtime; channel/provider/tool layering; gateway and CLI spirit | `hahobot agent`, `hahobot gateway`, `hahobot serve`, provider registry, channel manager, OpenAI-compatible API, WhatsApp bridge, `nanobot` compatibility entrypoints |
+| `shenmintao/NanoMate` | SillyTavern character workflow and companion orientation | Persona import commands, `STYLE.md` / `LORE.md`, persona-local `VOICE.json`, reference-image manifests, built-in `living-together` and `emotional-companion` skills |
+| Hermes Agent docs | Context-file driven memory, persistent long-term memory, reflective maintenance over time | Split memory files (`SOUL.md`, `USER.md`, `PROFILE.md`, `INSIGHTS.md`, `memory/MEMORY.md`), history archive, Dream phase 1/2 reflection, optional Mem0 backend and shadow-write mode |
 
-## 📦 Install
+## What Hahobot Ships
 
-> [!IMPORTANT]
-> This README may describe features that are available first in the latest source code.
-> If you want the newest features and experiments, install from source.
-> This renamed fork does not publish a public package yet, so the source tree is the canonical distribution.
+Hahobot is a local-first agent runtime centered on one workspace directory and optional named
+personas.
 
-**Install from source** (latest features, experimental changes may land here first; recommended for development)
+Core capabilities:
+
+- Direct CLI chat with a single local workspace as the source of truth.
+- Built-in gateway for messaging channels, status pages, and an admin UI.
+- Persona workspaces with SillyTavern import, voice overrides, reference images, and companion
+  focused skills.
+- Long-term memory split across stable user facts, learned collaboration patterns, relationship
+  framing, and project memory.
+- Dream-style reflective maintenance that can update memory files over time instead of only
+  appending chat history.
+- Structured archived history for lossless recall via `history_search` / `history_expand`.
+- Optional Mem0 integration for external long-term memory, with `file` fallback kept available.
+- Built-in tools for web, files, shell, image generation, history recall, cron, messaging, and
+  MCP.
+- OpenAI-compatible HTTP API for embedding the runtime behind other local systems.
+- A compatibility layer that still accepts legacy `nanobot` config paths, imports, CLI entrypoints,
+  and old admin cookie names.
+
+## Install
+
+This local project is source-first. The repository itself is the distribution.
+
+### Option 1: `uv` sync
 
 ```bash
 cd /path/to/Hahobot
+uv sync --extra api --extra matrix --extra weixin --extra mem0 --extra dev
+```
+
+Use fewer extras if you do not need them:
+
+- `api`: `hahobot serve` / gateway HTTP dependencies
+- `matrix`: Matrix support
+- `weixin`: Weixin QR login helpers
+- `mem0`: Mem0 backend
+- `dev`: pytest, ruff, and local development tooling
+
+### Option 2: editable install with `pip`
+
+```bash
+cd /path/to/Hahobot
+pip install -e ".[api,matrix,weixin,mem0]"
+```
+
+If you only want the base runtime:
+
+```bash
 pip install -e .
 ```
 
-**Install with [uv](https://github.com/astral-sh/uv)** (local checkout)
+### Optional runtime requirements
+
+- Node.js >= 18 if you use the local WhatsApp bridge.
+- `npm` available in `PATH` for `hahobot channels login whatsapp`.
+
+## Quick Start
+
+### 1. Create config and workspace
 
 ```bash
-uv tool install /path/to/Hahobot
+hahobot onboard --wizard
 ```
 
-### Update to latest version
-
-After syncing your local hahobot checkout, reinstall from the repo root:
-
-```bash
-pip install -e .
-hahobot --version
-```
-
-**Using WhatsApp?** Rebuild the local bridge after upgrading:
-
-```bash
-rm -rf ~/.hahobot/bridge
-hahobot channels login whatsapp
-```
-
-## 🚀 Quick Start
-
-> [!TIP]
-> Set your API key in `~/.hahobot/config.json`.
-> Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global)
->
-> For other LLM providers, please see the [Providers](#providers) section.
->
-> For web search capability setup (Brave Search or SearXNG), please see [Web Search](#web-search).
-
-**1. Initialize**
+If you want the non-interactive bootstrap:
 
 ```bash
 hahobot onboard
 ```
 
-Use `hahobot onboard --wizard` if you want the interactive setup wizard.
+By default hahobot uses:
 
-**2. Configure** (`~/.hahobot/config.json`)
+- Config: `~/.hahobot/config.json`
+- Workspace: `~/.hahobot/workspace`
 
-Configure these **two parts** in your config (other options have defaults).
+### 2. Set a provider and model
 
-*Set your API key* (e.g. OpenRouter, recommended for global users):
+Minimal config example:
+
 ```json
 {
   "providers": {
     "openrouter": {
       "apiKey": "sk-or-v1-xxx"
     }
-  }
-}
-```
-
-*Set your model* (optionally pin a provider — defaults to auto-detection):
-```json
-{
+  },
   "agents": {
     "defaults": {
-      "model": "anthropic/claude-opus-4-5",
-      "provider": "openrouter"
+      "provider": "openrouter",
+      "model": "openai/gpt-4.1-mini"
     }
   }
 }
 ```
 
-**3. Chat**
+### 3. Start chatting
+
+Interactive CLI:
 
 ```bash
 hahobot agent
 ```
 
-That's it! You have a working AI agent in 2 minutes.
+One-shot prompt:
 
-### Optional: Provider Pool
-
-If you want automatic failover or request-level rotation across multiple configured providers, add
-`agents.defaults.providerPool`:
-
-```json
-{
-  "providers": {
-    "openrouter": {
-      "apiKey": "sk-or-v1-xxx"
-    },
-    "deepseek": {
-      "apiKey": "sk-xxx"
-    }
-  },
-  "agents": {
-    "defaults": {
-      "providerPool": {
-        "strategy": "failover",
-        "targets": [
-          {
-            "provider": "openrouter",
-            "model": "openai/gpt-4o-mini"
-          },
-          {
-            "provider": "deepseek",
-            "model": "deepseek-chat"
-          }
-        ]
-      }
-    }
-  }
-}
+```bash
+hahobot agent -m "Summarize this repository."
 ```
 
-- `strategy: "failover"` tries the targets in order until one returns successfully.
-- `strategy: "round_robin"` rotates the starting target on each request and still falls through on
-  provider errors.
-- If a target omits `model`, hahobot uses `agents.defaults.model`.
-- A non-empty `providerPool` takes precedence over `agents.defaults.provider`.
+### 4. Start other surfaces
 
-If provider logs show `Error calling LLM`, hahobot now preserves nested transport causes such as
-DNS failures, TLS verification errors, and `Connection refused`. A plain connection failure usually
-means the configured `apiBase` or proxy path is unreachable, not that the remote endpoint merely
-rejected a model or route.
-
-### Optional: Web Search
-
-`web_search` supports both Brave Search and SearXNG.
-
-**Brave Search**
-
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "brave",
-        "apiKey": "your-brave-api-key"
-      }
-    }
-  }
-}
-```
-
-**SearXNG**
-
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "searxng",
-        "baseUrl": "http://localhost:8080"
-      }
-    }
-  }
-}
-```
-
-`baseUrl` can point either to the SearXNG root (for example `http://localhost:8080`) or directly to `/search`.
-
-### Optional: Image Generation
-
-Enable `tools.imageGen` when you want the agent to use the built-in `image_gen` tool.
-
-```json
-{
-  "tools": {
-    "imageGen": {
-      "enabled": true,
-      "apiKey": "your-image-api-key",
-      "baseUrl": "https://api.openai.com/v1",
-      "model": "gpt-image-1"
-    }
-  }
-}
-```
-
-`image_gen` writes generated files under `<workspace>/out/image_gen` and returns the saved file
-path. To actually deliver that image to the user, the model must then call the `message` tool with
-the returned path in `media`.
-
-If the active persona has `reference_image` or `reference_images` in
-`personas/<name>/.hahobot/st_manifest.json`, the tool also supports:
-
-- `reference_image="__default__"` to use the persona's default reference image
-- `reference_image="__default__:scene"` to use a scene-specific reference such as `beach` or
-  `winter`
-
-You can still provide explicit local reference image paths directly. When
-`tools.restrictToWorkspace` is enabled, those local reference paths must stay inside the workspace.
-
-### Optional: Voice Replies
-
-Enable `channels.voiceReply` when you want hahobot to attach a synthesized voice reply on
-supported outbound channels such as Telegram. QQ voice replies are also supported when your TTS
-endpoint can return `silk`. `channels.voiceReply.provider` currently supports `openai`, `edge`,
-and `sovits`.
-
-```json
-{
-  "channels": {
-    "voiceReply": {
-      "enabled": true,
-      "channels": ["telegram"],
-      "provider": "openai",
-      "url": "https://your-tts-endpoint.example.com/v1",
-      "model": "gpt-4o-mini-tts",
-      "voice": "alloy",
-      "instructions": "keep the delivery calm and clear",
-      "speed": 1.0,
-      "responseFormat": "opus"
-    }
-  }
-}
-```
-
-`voiceReply` currently adds a voice attachment while keeping the normal text reply. For QQ voice
-delivery, use `responseFormat: "silk"` because QQ local voice upload expects `.silk`. If `apiKey`
-and `apiBase` are omitted, hahobot falls back to the active provider credentials; use an
-OpenAI-compatible TTS endpoint for this.
-`voiceReply.url` is optional and can point either to a provider base URL such as
-`https://api.openai.com/v1` or directly to an `/audio/speech` endpoint. If omitted, hahobot uses
-the current conversation provider URL. `apiBase` remains supported as a legacy alias.
-
-Provider notes:
-
-- `provider: "openai"` keeps the current OpenAI-compatible TTS flow.
-- `provider: "edge"` uses local `edge-tts` synthesis and ignores API keys. Configure
-  `edgeVoice`, `edgeRate`, and `edgeVolume`.
-- `provider: "sovits"` calls a GPT-SoVITS HTTP endpoint for custom voice cloning. Configure
-  `sovitsApiUrl`, `sovitsReferWavPath`, `sovitsPromptText`, `sovitsPromptLanguage`,
-  `sovitsTextLanguage`, `sovitsCutPunc`, `sovitsTopK`, `sovitsTopP`, and
-  `sovitsTemperature`.
-
-Example `edge` profile:
-
-```json
-{
-  "channels": {
-    "voiceReply": {
-      "enabled": true,
-      "channels": ["telegram"],
-      "provider": "edge",
-      "edgeVoice": "zh-CN-XiaoxiaoNeural",
-      "edgeRate": "+8%",
-      "edgeVolume": "+0%"
-    }
-  }
-}
-```
-
-Example `sovits` profile:
-
-```json
-{
-  "channels": {
-    "voiceReply": {
-      "enabled": true,
-      "channels": ["telegram"],
-      "provider": "sovits",
-      "sovitsApiUrl": "http://127.0.0.1:9880",
-      "sovitsReferWavPath": "/data/voices/aria.wav",
-      "sovitsPromptText": "这是角色参考语音。",
-      "sovitsPromptLanguage": "zh",
-      "sovitsTextLanguage": "zh"
-    }
-  }
-}
-```
-
-Voice replies automatically follow the active session persona. hahobot builds TTS style
-instructions from that persona's `SOUL.md` and `USER.md`, so switching `/persona` changes both the
-text response style and the generated speech style together.
-
-If a specific persona needs a fixed voice or speaking pattern, add `VOICE.json` under the persona
-workspace:
-
-- Default persona: `<workspace>/VOICE.json`
-- Custom persona: `<workspace>/personas/<name>/VOICE.json`
-
-Example:
-
-```json
-{
-  "provider": "sovits",
-  "apiBase": "http://127.0.0.1:9880",
-  "voice": "nova",
-  "instructions": "sound crisp, confident, and slightly faster than normal",
-  "speed": 1.15,
-  "referWavPath": "assets/voice/aria.wav",
-  "promptText": "这是角色参考语音。",
-  "promptLanguage": "zh",
-  "textLanguage": "zh"
-}
-```
-
-`VOICE.json` accepts both snake_case and camelCase keys. Persona overrides can switch provider,
-voice, endpoint, Edge speaking style, or GPT-SoVITS cloning parameters without changing the global
-channel config.
-
-Bundled local companion skills now complement these persona features:
-
-- `living-together`: always-on shared-life image generation guidance using persona reference images
-- `emotional-companion`: empathy, follow-up, and heartbeat-style care prompts
-- `translate`: faithful full-text translation without summarization
-
-## 💬 Chat Apps
-
-Connect hahobot to your favorite chat platform. Want to build your own? See the [Channel Plugin Guide](./docs/CHANNEL_PLUGIN_GUIDE.md).
-
-| Channel | What you need |
-|---------|---------------|
-| **Telegram** | Bot token from @BotFather |
-| **Discord** | Bot token + Message Content intent |
-| **WhatsApp** | QR code scan (`hahobot channels login whatsapp`) |
-| **WeChat (Weixin)** | QR code scan (`hahobot channels login weixin`) |
-| **Feishu** | App ID + App Secret |
-| **DingTalk** | App Key + App Secret |
-| **Slack** | Bot token + App-Level token |
-| **Matrix** | Homeserver URL + Access token |
-| **Email** | IMAP/SMTP credentials |
-| **QQ** | App ID + App Secret |
-| **Wecom** | Bot ID + Bot Secret |
-| **Mochat** | Claw token (auto-setup available) |
-
-Multi-bot support is available for `whatsapp`, `telegram`, `discord`, `feishu`, `mochat`,
-`dingtalk`, `slack`, `email`, `qq`, `matrix`, and `wecom`.
-Use `instances` when you want more than one bot/account for the same channel; each instance is
-routed as `channel/name`.
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "instances": [
-        {
-          "name": "main",
-          "token": "BOT_TOKEN_A",
-          "allowFrom": ["YOUR_USER_ID"]
-        },
-        {
-          "name": "backup",
-          "token": "BOT_TOKEN_B",
-          "allowFrom": ["YOUR_USER_ID"]
-        }
-      ]
-    }
-  }
-}
-```
-
-For `whatsapp`, each instance should point to its own bridge process with its own `bridgeUrl`
-and bridge auth/session directory.
-
-Multi-instance notes:
-
-- Keep each `instances[].name` unique within the same channel.
-- Single-instance config is still supported; switch to `instances` only when you need multiple
-  bots/accounts for the same channel.
-- Replies, sessions, and routing use `channel/name`, for example `telegram/main` or `qq/bot-a`.
-- `matrix` instances automatically use isolated `matrix-store/<instance>` directories.
-- `mochat` instances automatically use isolated runtime cursor directories.
-- `whatsapp` instances require separate bridge processes, typically with different `BRIDGE_PORT`
-  and `AUTH_DIR` values.
-
-Example with two different multi-instance channels:
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "instances": [
-        {
-          "name": "main",
-          "token": "BOT_TOKEN_A",
-          "allowFrom": ["YOUR_USER_ID"]
-        },
-        {
-          "name": "backup",
-          "token": "BOT_TOKEN_B",
-          "allowFrom": ["YOUR_USER_ID"]
-        }
-      ]
-    },
-    "matrix": {
-      "enabled": true,
-      "instances": [
-        {
-          "name": "ops",
-          "homeserver": "https://matrix.org",
-          "userId": "@bot-ops:matrix.org",
-          "accessToken": "syt_ops",
-          "deviceId": "OPS01",
-          "allowFrom": ["@your_user:matrix.org"]
-        },
-        {
-          "name": "support",
-          "homeserver": "https://matrix.org",
-          "userId": "@bot-support:matrix.org",
-          "accessToken": "syt_support",
-          "deviceId": "SUPPORT01",
-          "allowFrom": ["@your_user:matrix.org"]
-        }
-      ]
-    }
-  }
-}
-```
-
-<details>
-<summary><b>Telegram</b> (Recommended)</summary>
-
-**1. Create a bot**
-- Open Telegram, search `@BotFather`
-- Send `/newbot`, follow prompts
-- Copy the token
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
-    }
-  }
-}
-```
-
-> You can find your **User ID** in Telegram settings. It is shown as `@yourUserId`.
-> Copy this value **without the `@` symbol** and paste it into the config file.
-
-
-**3. Run**
+Gateway:
 
 ```bash
 hahobot gateway
 ```
 
-</details>
-
-<details>
-<summary><b>Mochat (Claw IM)</b></summary>
-
-Uses **Socket.IO WebSocket** by default, with HTTP polling fallback.
-
-**1. Ask hahobot to set up Mochat for you**
-
-Simply send this message to hahobot (replace `xxx@xxx` with your real email):
-
-```
-Read https://raw.githubusercontent.com/HKUDS/MoChat/refs/heads/main/skills/hahobot/skill.md and register on MoChat. My Email account is xxx@xxx Bind me as your owner and DM me on MoChat.
-```
-
-hahobot will automatically register, configure `~/.hahobot/config.json`, and connect to Mochat.
-
-**2. Restart gateway**
+OpenAI-compatible API:
 
 ```bash
-hahobot gateway
-```
-
-That's it — hahobot handles the rest!
-
-<br>
-
-<details>
-<summary>Manual configuration (advanced)</summary>
-
-If you prefer to configure manually, add the following to `~/.hahobot/config.json`:
-
-> Keep `claw_token` private. It should only be sent in `X-Claw-Token` header to your Mochat API endpoint.
-
-```json
-{
-  "channels": {
-    "mochat": {
-      "enabled": true,
-      "base_url": "https://mochat.io",
-      "socket_url": "https://mochat.io",
-      "socket_path": "/socket.io",
-      "claw_token": "claw_xxx",
-      "agent_user_id": "6982abcdef",
-      "sessions": ["*"],
-      "panels": ["*"],
-      "reply_delay_mode": "non-mention",
-      "reply_delay_ms": 120000
-    }
-  }
-}
-```
-
-> Multi-account mode is also supported with `instances`; each instance keeps its Mochat runtime
-> cursors in its own state directory automatically.
-
-
-
-</details>
-
-</details>
-
-<details>
-<summary><b>Discord</b></summary>
-
-**1. Create a bot**
-- Go to https://discord.com/developers/applications
-- Create an application → Bot → Add Bot
-- Copy the bot token
-
-**2. Enable intents**
-- In the Bot settings, enable **MESSAGE CONTENT INTENT**
-- (Optional) Enable **SERVER MEMBERS INTENT** if you plan to use allow lists based on member data
-
-**3. Get your User ID**
-- Discord Settings → Advanced → enable **Developer Mode**
-- Right-click your avatar → **Copy User ID**
-
-**4. Configure**
-
-```json
-{
-  "channels": {
-    "discord": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"],
-      "groupPolicy": "mention"
-    }
-  }
-}
-```
-
-> `groupPolicy` controls how the bot responds in group channels:
-> - `"mention"` (default) — Only respond when @mentioned
-> - `"open"` — Respond to all messages
-> DMs always respond when the sender is in `allowFrom`.
-> - If you set group policy to open create new threads as private threads and then @ the bot into it. Otherwise the thread itself and the channel in which you spawned it will spawn a bot session.
-
-**5. Invite the bot**
-- OAuth2 → URL Generator
-- Scopes: `bot`
-- Bot Permissions: `Send Messages`, `Read Message History`
-- Open the generated invite URL and add the bot to your server
-
-**6. Run**
-
-```bash
-hahobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Matrix (Element)</b></summary>
-
-Install Matrix dependencies first:
-
-```bash
-pip install -e ".[matrix]"
-```
-
-**1. Create/choose a Matrix account**
-
-- Create or reuse a Matrix account on your homeserver (for example `matrix.org`).
-- Confirm you can log in with Element.
-
-**2. Get credentials**
-
-- You need:
-  - `userId` (example: `@hahobot:matrix.org`)
-  - `password`
-
-(Note: `accessToken` and `deviceId` are still supported for legacy reasons, but
-for reliable encryption, password login is recommended instead. If the
-`password` is provided, `accessToken` and `deviceId` will be ignored.)
-
-**3. Configure**
-
-```json
-{
-  "channels": {
-    "matrix": {
-      "enabled": true,
-      "homeserver": "https://matrix.org",
-      "userId": "@hahobot:matrix.org",
-      "password": "mypasswordhere",
-      "e2eeEnabled": true,
-      "allowFrom": ["@your_user:matrix.org"],
-      "groupPolicy": "open",
-      "groupAllowFrom": [],
-      "allowRoomMentions": false,
-      "maxMediaBytes": 20971520
-    }
-  }
-}
-```
-
-> Keep a persistent `matrix-store` and stable `deviceId` — encrypted session state is lost if these change across restarts.
-> In multi-account mode, hahobot isolates each instance into its own `matrix-store/<instance>`
-> directory automatically.
-
-| Option | Description |
-|--------|-------------|
-| `allowFrom` | User IDs allowed to interact. Empty denies all; use `["*"]` to allow everyone. |
-| `groupPolicy` | `open` (default), `mention`, or `allowlist`. |
-| `groupAllowFrom` | Room allowlist (used when policy is `allowlist`). |
-| `allowRoomMentions` | Accept `@room` mentions in mention mode. |
-| `e2eeEnabled` | E2EE support (default `true`). Set `false` for plaintext-only. |
-| `maxMediaBytes` | Max attachment size (default `20MB`). Set `0` to block all media. |
-
-
-
-
-**4. Run**
-
-```bash
-hahobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>WhatsApp</b></summary>
-
-Requires **Node.js ≥18**.
-
-**1. Link device**
-
-```bash
-hahobot channels login whatsapp
-# Scan QR with WhatsApp → Settings → Linked Devices
-```
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "whatsapp": {
-      "enabled": true,
-      "allowFrom": ["+1234567890"]
-    }
-  }
-}
-```
-
-> Multi-bot mode is supported with `instances`, but each bot must connect to its own bridge
-> process. Run separate bridge processes with different `BRIDGE_PORT` and `AUTH_DIR`, then point
-> each instance at its own `bridgeUrl`.
->
-> The local Node.js bridge now honors standard proxy environment variables such as `https_proxy`,
-> `http_proxy`, and `all_proxy`, including SOCKS5 URLs. Export them before running
-> `hahobot channels login whatsapp` when WhatsApp Web access must go through a proxy.
-
-**3. Run** (two terminals)
-
-```bash
-# Terminal 1
-hahobot channels login whatsapp
-
-# Terminal 2
-hahobot gateway
-```
-
-> WhatsApp bridge updates are not applied automatically for existing installations.
-> After upgrading hahobot, rebuild the local bridge with:
-> `rm -rf ~/.hahobot/bridge && hahobot channels login whatsapp`
-
-</details>
-
-<details>
-<summary><b>Feishu</b></summary>
-
-Uses **WebSocket** long connection — no public IP required.
-
-**1. Create a Feishu bot**
-- Visit [Feishu Open Platform](https://open.feishu.cn/app)
-- Create a new app → Enable **Bot** capability
-- **Permissions**:
-  - `im:message` (send messages) and `im:message.p2p_msg:readonly` (receive messages)
-  - **Streaming replies** (default in hahobot): add **`cardkit:card:write`** (often labeled **Create and update cards** in the Feishu developer console). Required for CardKit entities and streamed assistant text. Older apps may not have it yet — open **Permission management**, enable the scope, then **publish** a new app version if the console requires it.
-  - If you **cannot** add `cardkit:card:write`, set `"streaming": false` under `channels.feishu` (see below). The bot still works; replies use normal interactive cards without token-by-token streaming.
-- **Events**: Add `im.message.receive_v1` (receive messages)
-  - Select **Long Connection** mode (requires running hahobot first to establish connection)
-- Get **App ID** and **App Secret** from "Credentials & Basic Info"
-- Publish the app
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "feishu": {
-      "enabled": true,
-      "appId": "cli_xxx",
-      "appSecret": "xxx",
-      "encryptKey": "",
-      "verificationToken": "",
-      "allowFrom": ["ou_YOUR_OPEN_ID"],
-      "groupPolicy": "mention",
-      "streaming": true
-    }
-  }
-}
-```
-
-> `streaming` defaults to `true`. Use `false` if your app does not have **`cardkit:card:write`** (see permissions above).
-> `encryptKey` and `verificationToken` are optional for Long Connection mode.
-> `allowFrom`: Add your open_id (find it in hahobot logs when you message the bot). Use `["*"]` to allow all users.
-> `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all group messages). Private chats always respond.
-
-**3. Run**
-
-```bash
-hahobot gateway
-```
-
-> [!TIP]
-> Feishu uses WebSocket to receive messages — no webhook or public IP needed!
-
-</details>
-
-<details>
-<summary><b>QQ (QQ单聊)</b></summary>
-
-Uses **botpy SDK** with WebSocket — no public IP required. Currently supports **private messages only**.
-
-**1. Register & create bot**
-- Visit [QQ Open Platform](https://q.qq.com) → Register as a developer (personal or enterprise)
-- Create a new bot application
-- Go to **开发设置 (Developer Settings)** → copy **AppID** and **AppSecret**
-
-**2. Set up sandbox for testing**
-- In the bot management console, find **沙箱配置 (Sandbox Config)**
-- Under **在消息列表配置**, click **添加成员** and add your own QQ number
-- Once added, scan the bot's QR code with mobile QQ → open the bot profile → tap "发消息" to start chatting
-
-**3. Configure**
-
-> - `allowFrom`: Add your openid (find it in hahobot logs when you message the bot). Use `["*"]` for public access.
-> - For production: submit a review in the bot console and publish. See [QQ Bot Docs](https://bot.q.qq.com/wiki/) for the full publishing flow.
-> - Single-bot config is still supported. For multiple bots, use `instances`, and each bot is routed as `qq/<name>`.
-
-```json
-{
-  "channels": {
-    "qq": {
-      "enabled": true,
-      "appId": "YOUR_APP_ID",
-      "secret": "YOUR_APP_SECRET",
-      "allowFrom": ["YOUR_OPENID"],
-      "mediaBaseUrl": "https://files.example.com/out/"
-    }
-  }
-}
-```
-
-For local QQ media, hahobot uploads files directly with `file_data` from generated delivery
-artifacts under `workspace/out`. Local uploads do not require `mediaBaseUrl`, and hahobot does not
-fall back to URL-based upload for local files anymore. Supported local QQ rich media are images,
-`.mp4` video, and `.silk` voice.
-
-Multi-bot example:
-
-```json
-{
-  "channels": {
-    "qq": {
-      "enabled": true,
-      "instances": [
-        {
-          "name": "bot-a",
-          "appId": "YOUR_APP_ID_A",
-          "secret": "YOUR_APP_SECRET_A",
-          "allowFrom": ["YOUR_OPENID"]
-        },
-        {
-          "name": "bot-b",
-          "appId": "YOUR_APP_ID_B",
-          "secret": "YOUR_APP_SECRET_B",
-          "allowFrom": ["*"]
-        }
-      ]
-    }
-  }
-}
-```
-
-**4. Run**
-
-```bash
-hahobot gateway
-```
-
-Now send a message to the bot from QQ — it should respond!
-
-Outbound QQ media sends remote `http(s)` images through the QQ rich-media `url` flow directly.
-For local files, hahobot always tries `file_data` upload first and does not fall back to URL-based
-upload for local delivery artifacts. If the final QQ delivery call fails, the channel raises so the
-global `channels.sendMaxRetries` policy can retry the outbound send. Tools and skills should write
-deliverable files under `workspace/out`; QQ accepts only local image files from that directory.
-
-When an agent uses shell/browser tools to create screenshots or other temporary files for delivery,
-it should write them under `workspace/out` instead of the workspace root so channel publishing rules
-can apply consistently.
-
-</details>
-
-<details>
-<summary><b>DingTalk (钉钉)</b></summary>
-
-Uses **Stream Mode** — no public IP required.
-
-**1. Create a DingTalk bot**
-- Visit [DingTalk Open Platform](https://open-dev.dingtalk.com/)
-- Create a new app -> Add **Robot** capability
-- **Configuration**:
-  - Toggle **Stream Mode** ON
-- **Permissions**: Add necessary permissions for sending messages
-- Get **AppKey** (Client ID) and **AppSecret** (Client Secret) from "Credentials"
-- Publish the app
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "dingtalk": {
-      "enabled": true,
-      "clientId": "YOUR_APP_KEY",
-      "clientSecret": "YOUR_APP_SECRET",
-      "allowFrom": ["YOUR_STAFF_ID"]
-    }
-  }
-}
-```
-
-> `allowFrom`: Add your staff ID. Use `["*"]` to allow all users.
-
-**3. Run**
-
-```bash
-hahobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Slack</b></summary>
-
-Uses **Socket Mode** — no public URL required.
-
-**1. Create a Slack app**
-- Go to [Slack API](https://api.slack.com/apps) → **Create New App** → "From scratch"
-- Pick a name and select your workspace
-
-**2. Configure the app**
-- **Socket Mode**: Toggle ON → Generate an **App-Level Token** with `connections:write` scope → copy it (`xapp-...`)
-- **OAuth & Permissions**: Add bot scopes: `chat:write`, `reactions:write`, `app_mentions:read`
-- **Event Subscriptions**: Toggle ON → Subscribe to bot events: `message.im`, `message.channels`, `app_mention` → Save Changes
-- **App Home**: Scroll to **Show Tabs** → Enable **Messages Tab** → Check **"Allow users to send Slash commands and messages from the messages tab"**
-- **Install App**: Click **Install to Workspace** → Authorize → copy the **Bot Token** (`xoxb-...`)
-
-**3. Configure hahobot**
-
-```json
-{
-  "channels": {
-    "slack": {
-      "enabled": true,
-      "botToken": "xoxb-...",
-      "appToken": "xapp-...",
-      "allowFrom": ["YOUR_SLACK_USER_ID"],
-      "groupPolicy": "mention"
-    }
-  }
-}
-```
-
-**4. Run**
-
-```bash
-hahobot gateway
-```
-
-DM the bot directly or @mention it in a channel — it should respond!
-
-> [!TIP]
-> - `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all channel messages), or `"allowlist"` (restrict to specific channels).
-> - DM policy defaults to open. Set `"dm": {"enabled": false}` to disable DMs.
-
-</details>
-
-<details>
-<summary><b>Email</b></summary>
-
-Give hahobot its own email account. It polls **IMAP** for incoming mail and replies via **SMTP** — like a personal email assistant.
-
-**1. Get credentials (Gmail example)**
-- Create a dedicated Gmail account for your bot (e.g. `my-hahobot@gmail.com`)
-- Enable 2-Step Verification → Create an [App Password](https://myaccount.google.com/apppasswords)
-- Use this app password for both IMAP and SMTP
-
-**2. Configure**
-
-> - `consentGranted` must be `true` to allow mailbox access. This is a safety gate — set `false` to fully disable.
-> - `allowFrom`: Add your email address. Use `["*"]` to accept emails from anyone.
-> - `smtpUseTls` and `smtpUseSsl` default to `true` / `false` respectively, which is correct for Gmail (port 587 + STARTTLS). No need to set them explicitly.
-> - Set `"autoReplyEnabled": false` if you only want to read/analyze emails without sending automatic replies.
-> - `allowedAttachmentTypes`: Save inbound attachments matching these MIME types — `["*"]` for all, e.g. `["application/pdf", "image/*"]` (default `[]` = disabled).
-> - `maxAttachmentSize`: Max size per attachment in bytes (default `2000000` / 2MB).
-> - `maxAttachmentsPerEmail`: Max attachments to save per email (default `5`).
-
-```json
-{
-  "channels": {
-    "email": {
-      "enabled": true,
-      "consentGranted": true,
-      "imapHost": "imap.gmail.com",
-      "imapPort": 993,
-      "imapUsername": "my-hahobot@gmail.com",
-      "imapPassword": "your-app-password",
-      "smtpHost": "smtp.gmail.com",
-      "smtpPort": 587,
-      "smtpUsername": "my-hahobot@gmail.com",
-      "smtpPassword": "your-app-password",
-      "fromAddress": "my-hahobot@gmail.com",
-      "allowFrom": ["your-real-email@gmail.com"],
-      "allowedAttachmentTypes": ["application/pdf", "image/*"]
-    }
-  }
-}
-```
-
-
-**3. Run**
-
-```bash
-hahobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>WeChat (微信 / Weixin)</b></summary>
-
-Uses **HTTP long-poll** with QR-code login via the ilinkai personal WeChat API. No local WeChat desktop client is required.
-
-**1. Install with WeChat support**
-
-```bash
-pip install -e ".[weixin]"
-```
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "weixin": {
-      "enabled": true,
-      "allowFrom": ["YOUR_WECHAT_USER_ID"]
-    }
-  }
-}
-```
-
-> - `allowFrom`: Add the sender ID you see in hahobot logs for your WeChat account. Use `["*"]` to allow all users.
-> - `token`: Optional. If omitted, log in interactively and hahobot will save the token for you.
-> - `routeTag`: Optional. When your upstream Weixin deployment requires request routing, hahobot will send it as the `SKRouteTag` header.
-> - `stateDir`: Optional. Defaults to hahobot's runtime directory for Weixin state.
-> - `pollTimeout`: Optional long-poll timeout in seconds.
-
-**3. Login**
-
-```bash
-hahobot channels login weixin
-```
-
-Use `--force` to re-authenticate and ignore any saved token:
-
-```bash
-hahobot channels login weixin --force
-```
-
-**4. Run**
-
-```bash
-hahobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Wecom (企业微信)</b></summary>
-
-> Here we use [wecom-aibot-sdk-python](https://github.com/chengyongru/wecom_aibot_sdk) (community Python version of the official [@wecom/aibot-node-sdk](https://www.npmjs.com/package/@wecom/aibot-node-sdk)).
->
-> Uses **WebSocket** long connection — no public IP required.
-
-**1. Install the optional dependency**
-
-```bash
-pip install -e ".[wecom]"
-```
-
-**2. Create a WeCom AI Bot**
-
-Go to the WeCom admin console → Intelligent Robot → Create Robot → select **API mode** with **long connection**. Copy the Bot ID and Secret.
-
-**3. Configure**
-
-```json
-{
-  "channels": {
-    "wecom": {
-      "enabled": true,
-      "botId": "your_bot_id",
-      "secret": "your_bot_secret",
-      "allowFrom": ["your_id"]
-    }
-  }
-}
-```
-
-**4. Run**
-
-```bash
-hahobot gateway
-```
-
-</details>
-
-## 🌐 Agent Social Network
-
-🐈 hahobot is capable of linking to the agent social network (agent community). **Just send one message and your hahobot joins automatically!**
-
-| Platform | How to Join (send this message to your bot) |
-|----------|-------------|
-| [**Moltbook**](https://www.moltbook.com/) | `Read https://moltbook.com/skill.md and follow the instructions to join Moltbook` |
-| [**ClawdChat**](https://clawdchat.ai/) | `Read https://clawdchat.ai/skill.md and follow the instructions to join ClawdChat` |
-
-Simply send the command above to your hahobot (via CLI or any chat channel), and it will handle the rest.
-
-## ⚙️ Configuration
-
-Config file: `~/.hahobot/config.json`
-
-> [!NOTE]
-> If your config file is older than the current schema, you can refresh it without overwriting your existing values:
-> run `hahobot onboard`, then answer `N` when asked whether to overwrite the config.
-> hahobot will merge in missing default fields and keep your current settings.
-
-### Environment Variables for Secrets
-
-Instead of storing secrets directly in `config.json`, you can use `${VAR_NAME}` references that are resolved from environment variables at startup:
-
-```json
-{
-  "channels": {
-    "telegram": { "token": "${TELEGRAM_TOKEN}" },
-    "email": {
-      "imapPassword": "${IMAP_PASSWORD}",
-      "smtpPassword": "${SMTP_PASSWORD}"
-    }
-  },
-  "providers": {
-    "groq": { "apiKey": "${GROQ_API_KEY}" }
-  }
-}
-```
-
-For **systemd** deployments, use `EnvironmentFile=` in the service unit to load variables from a file that only the deploying user can read:
-
-```ini
-# /etc/systemd/system/hahobot.service (excerpt)
-[Service]
-EnvironmentFile=/home/youruser/nanobot_secrets.env
-User=hahobot
-ExecStart=...
-```
-
-```bash
-# /home/youruser/nanobot_secrets.env (mode 600, owned by youruser)
-TELEGRAM_TOKEN=your-token-here
-IMAP_PASSWORD=your-password-here
-```
-
-### Providers
-
-> [!TIP]
-> - **Voice transcription**: Voice messages (Telegram, WhatsApp) are automatically transcribed using Whisper. By default Groq is used (free tier). Set `"transcriptionProvider": "openai"` under `channels` to use OpenAI Whisper instead — the API key is picked from the matching provider config.
-> - **MiniMax Coding Plan**: Exclusive discount links for the hahobot community: [Overseas](https://platform.minimax.io/subscribe/coding-plan?code=9txpdXw04g&source=link) · [Mainland China](https://platform.minimaxi.com/subscribe/token-plan?code=GILTJpMTqZ&source=link)
-> - **MiniMax (Mainland China)**: If your API key is from MiniMax's mainland China platform (minimaxi.com), set `"apiBase": "https://api.minimaxi.com/v1"` in your minimax provider config.
-> - **VolcEngine / BytePlus Coding Plan**: Use dedicated providers `volcengineCodingPlan` or `byteplusCodingPlan` instead of the pay-per-use `volcengine` / `byteplus` providers.
-> - **Zhipu Coding Plan**: If you're on Zhipu's coding plan, set `"apiBase": "https://open.bigmodel.cn/api/coding/paas/v4"` in your zhipu provider config.
-> - **Alibaba Cloud Coding Plan**: If you're on the Alibaba Cloud Coding Plan (BaiLian), set `"apiBase": "https://coding.dashscope.aliyuncs.com/v1"` in your dashscope provider config.
-> - **Alibaba Cloud BaiLian**: If you're using Alibaba Cloud BaiLian's OpenAI-compatible endpoint, set `"apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1"` in your dashscope provider config.
-> - **Step Fun (Mainland China)**: If your API key is from Step Fun's mainland China platform (stepfun.com), set `"apiBase": "https://api.stepfun.com/v1"` in your stepfun provider config.
-
-| Provider | Purpose | Get API Key |
-|----------|---------|-------------|
-| `custom` | Any OpenAI-compatible endpoint | — |
-| `openrouter` | LLM (recommended, access to all models) | [openrouter.ai](https://openrouter.ai) |
-| `volcengine` | LLM (VolcEngine, pay-per-use) | [Coding Plan](https://www.volcengine.com/activity/codingplan?utm_campaign=hahobot&utm_content=hahobot&utm_medium=devrel&utm_source=OWO&utm_term=hahobot) · [volcengine.com](https://www.volcengine.com) |
-| `byteplus` | LLM (VolcEngine international, pay-per-use) | [Coding Plan](https://www.byteplus.com/en/activity/codingplan?utm_campaign=hahobot&utm_content=hahobot&utm_medium=devrel&utm_source=OWO&utm_term=hahobot) · [byteplus.com](https://www.byteplus.com) |
-| `anthropic` | LLM (Claude direct) | [console.anthropic.com](https://console.anthropic.com) |
-| `azure_openai` | LLM (Azure OpenAI) | [portal.azure.com](https://portal.azure.com) |
-| `openai` | LLM + Voice transcription (Whisper) | [platform.openai.com](https://platform.openai.com) |
-| `deepseek` | LLM (DeepSeek direct) | [platform.deepseek.com](https://platform.deepseek.com) |
-| `groq` | LLM + Voice transcription (Whisper, default) | [console.groq.com](https://console.groq.com) |
-| `minimax` | LLM (MiniMax direct) | [platform.minimaxi.com](https://platform.minimaxi.com) |
-| `gemini` | LLM (Gemini direct) | [aistudio.google.com](https://aistudio.google.com) |
-| `aihubmix` | LLM (API gateway, access to all models) | [aihubmix.com](https://aihubmix.com) |
-| `siliconflow` | LLM (SiliconFlow/硅基流动) | [siliconflow.cn](https://siliconflow.cn) |
-| `dashscope` | LLM (Qwen) | [dashscope.console.aliyun.com](https://dashscope.console.aliyun.com) |
-| `moonshot` | LLM (Moonshot/Kimi) | [platform.moonshot.cn](https://platform.moonshot.cn) |
-| `zhipu` | LLM (Zhipu GLM) | [open.bigmodel.cn](https://open.bigmodel.cn) |
-| `mimo` | LLM (MiMo) | [platform.xiaomimimo.com](https://platform.xiaomimimo.com) |
-| `ollama` | LLM (local, Ollama) | — |
-| `mistral` | LLM | [docs.mistral.ai](https://docs.mistral.ai/) |
-| `stepfun` | LLM (Step Fun/阶跃星辰) | [platform.stepfun.com](https://platform.stepfun.com) |
-| `ovms` | LLM (local, OpenVINO Model Server) | [docs.openvino.ai](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html) |
-| `vllm` | LLM (local, any OpenAI-compatible server) | — |
-| `openai_codex` | LLM (Codex, OAuth) | `hahobot provider login openai-codex` |
-| `github_copilot` | LLM (GitHub Copilot, OAuth) | `hahobot provider login github-copilot` |
-| `qianfan` | LLM (Baidu Qianfan) | [cloud.baidu.com](https://cloud.baidu.com/doc/qianfan/s/Hmh4suq26) |
-
-
-<details>
-<summary><b>OpenAI Codex (OAuth)</b></summary>
-
-Codex uses OAuth instead of API keys. Requires a ChatGPT Plus or Pro account.
-No `providers.openaiCodex` block is needed in `config.json`; `hahobot provider login` stores the OAuth session outside config.
-
-**1. Login:**
-```bash
-hahobot provider login openai-codex
-```
-
-**2. Set model** (merge into `~/.hahobot/config.json`):
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": "openai-codex/gpt-5.1-codex"
-    }
-  }
-}
-```
-
-**3. Chat:**
-```bash
-hahobot agent -m "Hello!"
-
-# Target a specific workspace/config locally
-hahobot agent -c ~/.hahobot-telegram/config.json -m "Hello!"
-
-# One-off workspace override on top of that config
-hahobot agent -c ~/.hahobot-telegram/config.json -w /tmp/hahobot-telegram-test -m "Hello!"
-```
-
-> Docker users: use `docker run -it` for interactive OAuth login.
-
-</details>
-
-
-<details>
-<summary><b>GitHub Copilot (OAuth)</b></summary>
-
-GitHub Copilot uses OAuth instead of API keys. Requires a [GitHub account with a plan](https://github.com/features/copilot/plans) configured.
-No `providers.githubCopilot` block is needed in `config.json`; `hahobot provider login` stores the OAuth session outside config.
-
-**1. Login:**
-```bash
-hahobot provider login github-copilot
-```
-
-**2. Set model** (merge into `~/.hahobot/config.json`):
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": "github-copilot/gpt-4.1"
-    }
-  }
-}
-```
-
-**3. Chat:**
-```bash
-hahobot agent -m "Hello!"
-
-# Target a specific workspace/config locally
-hahobot agent -c ~/.hahobot-telegram/config.json -m "Hello!"
-
-# One-off workspace override on top of that config
-hahobot agent -c ~/.hahobot-telegram/config.json -w /tmp/hahobot-telegram-test -m "Hello!"
-```
-
-> Docker users: use `docker run -it` for interactive OAuth login.
-
-</details>
-
-<details>
-<summary><b>Custom Provider (Any OpenAI-compatible API)</b></summary>
-
-Connects directly to any OpenAI-compatible endpoint — LM Studio, llama.cpp, Together AI, Fireworks, Azure OpenAI, or any self-hosted server. Model name is passed as-is.
-
-```json
-{
-  "providers": {
-    "custom": {
-      "apiKey": "your-api-key",
-      "apiBase": "https://api.your-provider.com/v1"
-    }
-  },
-  "agents": {
-    "defaults": {
-      "model": "your-model-name"
-    }
-  }
-}
-```
-
-> For local servers that don't require a key, set `apiKey` to any non-empty string (e.g. `"no-key"`).
-
-</details>
-
-<details>
-<summary><b>Ollama (local)</b></summary>
-
-Run a local model with Ollama, then add to config:
-
-**1. Start Ollama** (example):
-```bash
-ollama run llama3.2
-```
-
-**2. Add to config** (partial — merge into `~/.hahobot/config.json`):
-```json
-{
-  "providers": {
-    "ollama": {
-      "apiBase": "http://localhost:11434"
-    }
-  },
-  "agents": {
-    "defaults": {
-      "provider": "ollama",
-      "model": "llama3.2"
-    }
-  }
-}
-```
-
-> `provider: "auto"` also works when `providers.ollama.apiBase` is configured, but setting `"provider": "ollama"` is the clearest option.
-
-</details>
-
-<details>
-<summary><b>OpenVINO Model Server (local / OpenAI-compatible)</b></summary>
-
-Run LLMs locally on Intel GPUs using [OpenVINO Model Server](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html). OVMS exposes an OpenAI-compatible API at `/v3`.
-
-> Requires Docker and an Intel GPU with driver access (`/dev/dri`).
-
-**1. Pull the model** (example):
-
-```bash
-mkdir -p ov/models && cd ov
-
-docker run -d \
-  --rm \
-  --user $(id -u):$(id -g) \
-  -v $(pwd)/models:/models \
-  openvino/model_server:latest-gpu \
-  --pull \
-  --model_name openai/gpt-oss-20b \
-  --model_repository_path /models \
-  --source_model OpenVINO/gpt-oss-20b-int4-ov \
-  --task text_generation \
-  --tool_parser gptoss \
-  --reasoning_parser gptoss \
-  --enable_prefix_caching true \
-  --target_device GPU
-```
-
-> This downloads the model weights. Wait for the container to finish before proceeding.
-
-**2. Start the server** (example):
-
-```bash
-docker run -d \
-  --rm \
-  --name ovms \
-  --user $(id -u):$(id -g) \
-  -p 8000:8000 \
-  -v $(pwd)/models:/models \
-  --device /dev/dri \
-  --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
-  openvino/model_server:latest-gpu \
-  --rest_port 8000 \
-  --model_name openai/gpt-oss-20b \
-  --model_repository_path /models \
-  --source_model OpenVINO/gpt-oss-20b-int4-ov \
-  --task text_generation \
-  --tool_parser gptoss \
-  --reasoning_parser gptoss \
-  --enable_prefix_caching true \
-  --target_device GPU
-```
-
-**3. Add to config** (partial — merge into `~/.hahobot/config.json`):
-
-```json
-{
-  "providers": {
-    "ovms": {
-      "apiBase": "http://localhost:8000/v3"
-    }
-  },
-  "agents": {
-    "defaults": {
-      "provider": "ovms",
-      "model": "openai/gpt-oss-20b"
-    }
-  }
-}
-```
-
-> OVMS is a local server — no API key required. Supports tool calling (`--tool_parser gptoss`), reasoning (`--reasoning_parser gptoss`), and streaming.
-> See the [official OVMS docs](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html) for more details.
-</details>
-
-<details>
-<summary><b>vLLM (local / OpenAI-compatible)</b></summary>
-
-Run your own model with vLLM or any OpenAI-compatible server, then add to config:
-
-**1. Start the server** (example):
-```bash
-vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
-```
-
-**2. Add to config** (partial — merge into `~/.hahobot/config.json`):
-
-*Provider (key can be any non-empty string for local):*
-```json
-{
-  "providers": {
-    "vllm": {
-      "apiKey": "dummy",
-      "apiBase": "http://localhost:8000/v1"
-    }
-  }
-}
-```
-
-*Model:*
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": "meta-llama/Llama-3.1-8B-Instruct"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><b>Adding a New Provider (Developer Guide)</b></summary>
-
-hahobot uses a **Provider Registry** (`hahobot/providers/registry.py`) as the single source of truth.
-Adding a new provider only takes **2 steps** — no if-elif chains to touch.
-
-**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `hahobot/providers/registry.py`:
-
-```python
-ProviderSpec(
-    name="myprovider",                   # config field name
-    keywords=("myprovider", "mymodel"),  # model-name keywords for auto-matching
-    env_key="MYPROVIDER_API_KEY",        # env var name
-    display_name="My Provider",          # shown in `hahobot status`
-    default_api_base="https://api.myprovider.com/v1",  # OpenAI-compatible endpoint
-)
-```
-
-**Step 2.** Add a field to `ProvidersConfig` in `hahobot/config/schema.py`:
-
-```python
-class ProvidersConfig(BaseModel):
-    ...
-    myprovider: ProviderConfig = ProviderConfig()
-```
-
-That's it! Environment variables, model routing, config matching, and `hahobot status` display will all work automatically.
-
-**Common `ProviderSpec` options:**
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| `default_api_base` | OpenAI-compatible base URL | `"https://api.deepseek.com"` |
-| `env_extras` | Additional env vars to set | `(("ZHIPUAI_API_KEY", "{api_key}"),)` |
-| `model_overrides` | Per-model parameter overrides | `(("kimi-k2.5", {"temperature": 1.0}),)` |
-| `is_gateway` | Can route any model (like OpenRouter) | `True` |
-| `detect_by_key_prefix` | Detect gateway by API key prefix | `"sk-or-"` |
-| `detect_by_base_keyword` | Detect gateway by API base URL | `"openrouter"` |
-| `strip_model_prefix` | Strip provider prefix before sending to gateway | `True` (for AiHubMix) |
-| `supports_max_completion_tokens` | Use `max_completion_tokens` instead of `max_tokens`; required for providers that reject both being set simultaneously (e.g. VolcEngine) | `True` |
-
-</details>
-
-### Channel Settings
-
-Global settings that apply to all channels. Configure under the `channels` section in `~/.hahobot/config.json`:
-
-```json
-{
-  "channels": {
-    "sendProgress": true,
-    "sendToolHints": false,
-    "sendMaxRetries": 3,
-    "transcriptionProvider": "groq",
-    "telegram": { ... }
-  }
-}
-```
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sendProgress` | `true` | Stream agent's text progress to the channel |
-| `sendToolHints` | `false` | Stream tool-call hints (e.g. `read_file("…")`) |
-| `sendMaxRetries` | `3` | Max delivery attempts per outbound message, including the initial send (0-10 configured, minimum 1 actual attempt) |
-| `transcriptionProvider` | `"groq"` | Voice transcription backend: `"groq"` (free tier, default) or `"openai"`. API key is auto-resolved from the matching provider config, and runtime config reload updates the active channels in place. |
-
-#### Retry Behavior
-
-Retry is intentionally simple.
-
-When a channel `send()` raises, hahobot retries at the channel-manager layer. By default, `channels.sendMaxRetries` is `3`, and that count includes the initial send.
-
-- **Attempt 1**: Send immediately
-- **Attempt 2**: Retry after `1s`
-- **Attempt 3**: Retry after `2s`
-- **Higher retry budgets**: Backoff continues as `1s`, `2s`, `4s`, then stays capped at `4s`
-- **Transient failures**: Network hiccups and temporary API limits often recover on the next attempt
-- **Permanent failures**: Invalid tokens, revoked access, or banned channels will exhaust the retry budget and fail cleanly
-
-> [!NOTE]
-> This design is deliberate: channel implementations should raise on delivery failure, and the channel manager owns the shared retry policy.
->
-> Some channels may still apply small API-specific retries internally. For example, Telegram separately retries timeout and flood-control errors before surfacing a final failure to the manager.
->
-> If a channel is completely unreachable, hahobot cannot notify the user through that same channel. Watch logs for `Failed to send to {channel} after N attempts` to spot persistent delivery failures.
-
-### MCP (Model Context Protocol)
-
-> [!TIP]
-> The config format is compatible with Claude Desktop / Cursor. You can copy MCP server configs directly from any MCP server's README.
-
-hahobot supports [MCP](https://modelcontextprotocol.io/) — connect external tool servers and use them as native agent tools.
-
-Add MCP servers to your `config.json`:
-
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "filesystem": {
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
-      },
-      "my-remote-mcp": {
-        "url": "https://example.com/mcp/",
-        "headers": {
-          "Authorization": "Bearer xxxxx"
-        }
-      }
-    }
-  }
-}
-```
-
-Two transport modes are supported:
-
-| Mode | Config | Example |
-|------|--------|---------|
-| **Stdio** | `command` + `args` | Local process via `npx` / `uvx` |
-| **HTTP** | `url` + `headers` (optional) | Remote endpoint (`https://mcp.example.com/sse`) |
-
-Use `toolTimeout` to override the default 30s per-call timeout for slow servers:
-
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "my-slow-server": {
-        "url": "https://example.com/mcp/",
-        "toolTimeout": 120
-      }
-    }
-  }
-}
-```
-
-MCP tools are automatically discovered and registered on startup. The LLM can use them alongside built-in tools — no extra configuration needed.
-hahobot hot-reloads agent runtime config from the active `config.json` on the next message, including `tools.mcpServers`, `tools.web.*`, `tools.exec.*`, `tools.imageGen.*`, `tools.restrictToWorkspace`, `agents.defaults.workspace`, `agents.defaults.model`, `agents.defaults.maxToolIterations`, `agents.defaults.contextWindowTokens`, `agents.defaults.maxTokens`, `agents.defaults.temperature`, `agents.defaults.reasoningEffort`, `agents.defaults.timezone`, `channels.sendProgress`, `channels.sendToolHints`, `channels.sendMaxRetries`, and `channels.voiceReply.*`. Channel connection settings and provider credentials still require a restart.
-`agents.defaults.providerPool` also requires a restart because it changes provider routing.
-`agents.defaults.dream` also requires a restart because it changes the built-in Dream system job. Configure Dream under `agents.defaults.dream` with `intervalH` as the normal schedule field; legacy `cron` and `model` inputs are still accepted for compatibility.
-During long tool-using turns, hahobot now compacts older tool results on demand so the system prompt, long-term memory, and recent working context stay inside the active context window.
-When old conversation chunks are consolidated, hahobot now also keeps structured archive sidecars under `memory/archive/` so the agent can use `history_search` and `history_expand` to recall archived details after `/new`, persona switches, or long-token compaction.
-
-### Memorix via MCP
-
-[Memorix](https://github.com/AVIDS2/memorix) fits hahobot as workspace memory, not as the
-user-profile memory backend. Connect it through `tools.mcpServers` and keep the existing
-`memory/MEMORY.md` user memory path unchanged.
-
-Stdio example:
-
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "memorix": {
-        "command": "memorix",
-        "args": ["serve"],
-        "toolTimeout": 60
-      }
-    }
-  }
-}
-```
-
-HTTP example:
-
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "memorix": {
-        "type": "streamableHttp",
-        "url": "http://127.0.0.1:3211/mcp",
-        "toolTimeout": 60
-      }
-    }
-  }
-}
-```
-
-When Memorix tools are present, hahobot automatically:
-
-- loads the built-in `memorix` skill into the system prompt
-- calls `memorix_session_start` once per runtime MCP connection and chat session
-- binds `projectRoot` to the active hahobot workspace path
-
-That means code/history questions can use Memorix without replacing hahobot's current file-based
-long-term user memory. For local setup, follow the official Memorix install/init flow and prefer a
-real `memorix` binary or background server instead of `npx`. The built-in admin UI also exposes a
-dedicated visual `Memorix MCP` section for `tools.mcpServers.memorix`; other MCP servers still use
-the raw JSON editor.
-
-### Mem0 User Memory
-
-hahobot now supports Mem0 as a real user-memory backend.
-
-- `memory.user.backend: "file" | "mem0"` selects the primary user-memory backend. `file` remains
-  the default and keeps using persona `MEMORY.md` for prompt injection.
-- `memory.user.backend: "mem0"` resolves prompt memory from Mem0 search results and writes each
-  completed turn to Mem0.
-- When `memory.user.backend` is `mem0`, hahobot still keeps file-backed `MEMORY.md` as the prompt
-  fallback. If Mem0 returns no useful context or the lookup fails, prompt injection falls back to
-  the existing file memory instead of going blank.
-- `memory.user.shadowWriteMem0: true` keeps `file` as the primary backend while also writing
-  completed turns to Mem0 in parallel.
-- Install the optional runtime dependency with `uv sync --extra mem0` or
-  `pip install -e ".[mem0]"`.
-- Inside `memory.user.mem0`, prefer explicit `provider`, `apiKey`, `url`, `model`, and `headers`
-  fields for `llm`, `embedder`, and `vectorStore`; keep provider-specific extras under `config`.
-- Top-level `memory.user.mem0.metadata` is attached to Mem0 writes as extra tags.
-
-The built-in admin UI also exposes a dedicated visual `Mem0 User Memory` section for
-`memory.user.backend`, `shadowWriteMem0`, and the common Mem0 provider fields.
-
-```json
-{
-  "memory": {
-    "user": {
-      "backend": "mem0",
-      "shadowWriteMem0": false,
-      "mem0": {
-        "llm": {
-          "provider": "openai",
-          "apiKey": "mem0-llm-key",
-          "url": "https://api.mem0.ai/v1",
-          "model": "gpt-4.1-mini"
-        },
-        "embedder": {
-          "provider": "openai",
-          "apiKey": "embed-key",
-          "url": "https://embed.example.com/v1",
-          "model": "text-embedding-3-small"
-        },
-        "vectorStore": {
-          "provider": "qdrant",
-          "url": "https://qdrant.example.com",
-          "headers": {
-            "api-key": "qdrant-key"
-          },
-          "config": {
-            "collectionName": "nanobot_user_memory"
-          }
-        },
-        "metadata": {
-          "tenant": "prod"
-        }
-      }
-    }
-  }
-}
-```
-
-
-
-
-### Security
-
-> [!TIP]
-> For production deployments, set `"restrictToWorkspace": true` and `"tools.exec.sandbox": "bwrap"` in your config to sandbox the agent.
-> In `v0.1.4.post3` and earlier, an empty `allowFrom` allowed all senders. Since `v0.1.4.post4`, empty `allowFrom` denies all access by default. To allow all senders, set `"allowFrom": ["*"]`.
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `tools.restrictToWorkspace` | `false` | When `true`, restricts **all** agent tools (shell, file read/write/edit, list) to the workspace directory. Prevents path traversal and out-of-scope access. |
-| `tools.exec.sandbox` | `""` | Sandbox backend for shell commands. Set to `"bwrap"` to wrap exec calls in a [bubblewrap](https://github.com/containers/bubblewrap) sandbox — the process can only see the workspace (read-write) and media directory (read-only); config files and API keys are hidden. Automatically enables `restrictToWorkspace` for file tools. **Linux only** — requires `bwrap` installed (`apt install bubblewrap`; pre-installed in the Docker image). Not available on macOS or Windows (bwrap depends on Linux kernel namespaces). |
-| `tools.exec.enable` | `true` | When `false`, the shell `exec` tool is not registered at all. Use this to completely disable shell command execution. |
-| `tools.exec.pathAppend` | `""` | Extra directories to append to `PATH` when running shell commands (e.g. `/usr/sbin` for `ufw`). |
-| `tools.imageGen.enabled` | `false` | When `true`, registers the built-in `image_gen` tool. Generated images are written under `<workspace>/out/image_gen`. |
-| `channels.*.allowFrom` | `[]` (deny all) | Whitelist of user IDs. Empty denies all; use `["*"]` to allow everyone. |
-
-### Admin UI
-
-hahobot includes a built-in admin page for the active instance. It is disabled by default and must
-be explicitly enabled in the same `config.json` that starts that gateway process.
-
-```json
-{
-  "gateway": {
-    "admin": {
-      "enabled": true,
-      "authKey": "replace-with-a-long-random-key"
-    }
-  }
-}
-```
-
-Behavior:
-
-- The page is served from the same gateway process at `/admin`
-- When `gateway.admin.enabled` is `false`, `/admin` returns `404`
-- When enabled, the page requires the configured authorization key before access
-- The admin UI defaults to Chinese, supports an English switch, and follows the system light/dark theme automatically
-- Saving from the admin config page force-reloads hot-reloadable runtime settings for the current instance
-- The admin UI edits the active instance's `config.json` plus the runtime workspace/persona files
-- In multi-instance setups, each `--config` process gets its own admin switch, key, and workspace scope
-
-The built-in admin UI currently covers:
-
-- Visual `config.json` editing with validation, plus an advanced raw JSON fallback
-- Visual `gateway.status` editing for Star-Office-UI-style dashboard access, including the optional bearer token used by `GET /status` and the optional direct HTTP push settings
-- Visual `agents.defaults.providerPool` editing with a row-based target editor for failover / round-robin strategy, plus add/remove and reorder controls for ordered targets
-- Visual editing for common `providers.*` blocks such as `openrouter`, `openai`, `anthropic`, `deepseek`, `custom`, `ollama`, and `vllm`, grouped into per-provider collapsible cards with safe at-a-glance summaries
-- Visual editing for common single-instance channel credential blocks such as `whatsapp`, `telegram`, `discord`, `feishu`, `dingtalk`, `slack`, `qq`, `matrix`, `weixin`, and `wecom`; channels already using `instances` stay read-only here and remain editable through raw JSON
-- A dedicated Weixin QR-login page inside admin, so the current instance can request and poll a personal Weixin login QR code without leaving the UI; successful scans save the token into the current instance's Weixin state file
-- Visual `tools.exec` editing for enabling/disabling shell execution, command timeout, and extra PATH entries
-- Visual `Mem0 User Memory` editing for `memory.user.backend`, `shadowWriteMem0`, and the common `memory.user.mem0.*` provider fields
-- A dedicated command reference page with a left-side command list and right-side detail view for all chat slash commands, aliases, and usage
-- Hover help for every visual config field, so operators can inspect the effect of each option before saving
-- Every visual config field is marked directly as either `Hot reload` or `Requires restart`
-- Persona file editing for the current runtime workspace: `SOUL.md`, `USER.md`, optional `PROFILE.md`, optional `INSIGHTS.md`, `STYLE.md`, `LORE.md`
-- Persona-local `VOICE.json`
-- Persona-local `.hahobot/st_manifest.json`
-- Inline explanations in the persona detail editor, so each file block explains what it controls before you edit it
-- A persona-page metadata summary for `PROFILE.md` / `INSIGHTS.md`, including structured `confidence` / `last_verified` counts and leftover legacy `(verify)` markers
-- A persona-page migration preview/action for older profile-style `USER.md` files, which shows the exact resulting `USER.md` / `PROFILE.md` / `INSIGHTS.md` content before splitting obvious user-profile content into `PROFILE.md` and workflow guidance into `INSIGHTS.md`
-
-If you change `agents.defaults.workspace` in the admin config editor, the current gateway instance
-now rebinds its runtime workspace immediately after saving. Fields explicitly marked `Requires
-restart` still need a process restart before they take effect.
-
-### Star Office UI Status
-
-hahobot can expose a small HTTP status endpoint for dashboards such as
-[`Star-Office-UI`](https://github.com/ringhyacinth/Star-Office-UI). The endpoint is disabled by
-default and is served by the same `hahobot gateway` process.
-
-```json
-{
-  "gateway": {
-    "status": {
-      "enabled": true,
-      "authKey": "optional-bearer-token",
-      "push": {
-        "enabled": true,
-        "mode": "guest",
-        "officeUrl": "https://office.example.com",
-        "joinKey": "replace-with-your-join-key",
-        "agentName": "hahobot",
-        "timeout": 10
-      }
-    }
-  }
-}
-```
-
-Behavior:
-
-- The route is `GET /status` on the active gateway process
-- When `gateway.status.enabled` is `false`, `/status` returns `404`
-- When `gateway.status.authKey` is non-empty, send `Authorization: Bearer <authKey>`
-- Script/API requests keep returning JSON with stable dashboard fields such as `state`, `detail`, `updatedAt`, and `activeRuns`
-- Browser requests render a built-in status page showing whether hahobot is running normally, total uptime, the most recently processed task, and the current heartbeat/model check status
-- hahobot updates this status automatically from the agent lifecycle and uses states such as `idle`, `researching`, `executing`, `syncing`, `writing`, and `error`
-- `gateway.status.push.mode=guest` pushes as an invited agent by calling `join-agent` / `agent-push`, and requires `joinKey`
-- `gateway.status.push.mode=main` drives the built-in main office agent by calling `set_state`, and does not require `joinKey`
-
-For `Star-Office-UI`, point its local status fetch/push script at your running gateway, for example:
-
-```bash
-python office-agent-push.py --status-url http://127.0.0.1:18790/status
-```
-
-If you configured `gateway.status.authKey`, also attach the matching bearer token in the Star Office
-side script or proxy.
-
-If you prefer direct URL push instead of polling `/status`, enable `gateway.status.push`. hahobot
-can either register itself as a guest agent or drive the main office state directly over HTTP.
-
-Main-agent example:
-
-```json
-{
-  "gateway": {
-    "status": {
-      "push": {
-        "enabled": true,
-        "mode": "main",
-        "officeUrl": "http://127.0.0.1:19000",
-        "timeout": 10
-      }
-    }
-  }
-}
-```
-
-
-### Timezone
-
-Time is context. Context should be precise.
-
-By default, hahobot uses `UTC` for runtime time context. If you want the agent to think in your local time, set `agents.defaults.timezone` to a valid [IANA timezone name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "timezone": "Asia/Shanghai"
-    }
-  }
-}
-```
-
-This affects runtime time strings shown to the model, such as runtime context and heartbeat prompts. It also becomes the default timezone for cron schedules when a cron expression omits `tz`, and for one-shot `at` times when the ISO datetime has no explicit offset.
-
-Common examples: `UTC`, `America/New_York`, `America/Los_Angeles`, `Europe/London`, `Europe/Berlin`, `Asia/Tokyo`, `Asia/Shanghai`, `Asia/Singapore`, `Australia/Sydney`.
-
-> Need another timezone? Browse the full [IANA Time Zone Database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
-
-## 🧩 Multiple Instances
-
-Run multiple hahobot instances simultaneously with separate configs and runtime data. Use `--config` as the main entrypoint. Optionally pass `--workspace` during `onboard` when you want to initialize or update the saved workspace for a specific instance.
-
-### Quick Start
-
-If you want each instance to have its own dedicated workspace from the start, pass both `--config` and `--workspace` during onboarding.
-
-**Initialize instances:**
-
-```bash
-# Create separate instance configs and workspaces
-hahobot onboard --config ~/.hahobot-telegram/config.json --workspace ~/.hahobot-telegram/workspace
-hahobot onboard --config ~/.hahobot-discord/config.json --workspace ~/.hahobot-discord/workspace
-hahobot onboard --config ~/.hahobot-feishu/config.json --workspace ~/.hahobot-feishu/workspace
-```
-
-**Configure each instance:**
-
-Edit `~/.hahobot-telegram/config.json`, `~/.hahobot-discord/config.json`, etc. with different channel settings. The workspace you passed during `onboard` is saved into each config as that instance's default workspace.
-
-**Run instances:**
-
-```bash
-# Instance A - Telegram bot
-hahobot gateway --config ~/.hahobot-telegram/config.json
-
-# Instance B - Discord bot  
-hahobot gateway --config ~/.hahobot-discord/config.json
-
-# Instance C - Feishu bot with custom port
-hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
-```
-
-### Path Resolution
-
-When using `--config`, hahobot derives its runtime data directory from the config file location.
-The default workspace also follows that config directory as `<config-dir>/workspace`. If
-`agents.defaults.workspace` is set in the config, that explicit value wins unless you override it
-with `--workspace`.
-
-To open a CLI session against one of these instances locally:
-
-```bash
-hahobot agent -c ~/.hahobot-telegram/config.json -m "Hello from Telegram instance"
-hahobot agent -c ~/.hahobot-discord/config.json -m "Hello from Discord instance"
-
-# Optional one-off workspace override
-hahobot agent -c ~/.hahobot-telegram/config.json -w /tmp/hahobot-telegram-test
-```
-
-> `hahobot agent` starts a local CLI agent using the selected workspace/config. It does not attach to or proxy through an already running `hahobot gateway` process.
-
-| Component | Resolved From | Example |
-|-----------|---------------|---------|
-| **Config** | `--config` path | `~/.hahobot-A/config.json` |
-| **Workspace** | `--workspace`, `agents.defaults.workspace`, or `<config-dir>/workspace` | `~/.hahobot-A/workspace/` |
-| **Cron Jobs** | config directory | `~/.hahobot-A/cron/` |
-| **Media / runtime state** | config directory | `~/.hahobot-A/media/` |
-
-### How It Works
-
-- `--config` selects which config file to load
-- By default, the workspace is `<config-dir>/workspace`
-- If `agents.defaults.workspace` is set, it overrides the config-derived default
-- If you pass `--workspace`, it overrides the workspace from the config file
-- `gateway.admin` is also per-instance because it lives in that same active config file
-
-### Minimal Setup
-
-1. Copy your base config into a new instance directory.
-2. Optionally set a different `agents.defaults.workspace` for that instance if you do not want to
-   use `<config-dir>/workspace`.
-3. Start the instance with `--config`.
-
-Example config:
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "workspace": "~/.hahobot-telegram/workspace",
-      "model": "anthropic/claude-sonnet-4-6"
-    }
-  },
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "YOUR_TELEGRAM_BOT_TOKEN"
-    }
-  },
-  "gateway": {
-    "port": 18790
-  }
-}
-```
-
-Start separate instances:
-
-```bash
-hahobot gateway --config ~/.hahobot-telegram/config.json
-hahobot gateway --config ~/.hahobot-discord/config.json
-```
-
-Override workspace for one-off runs when needed:
-
-```bash
-hahobot gateway --config ~/.hahobot-telegram/config.json --workspace /tmp/hahobot-telegram-test
-```
-
-### Common Use Cases
-
-- Run separate bots for Telegram, Discord, Feishu, and other platforms
-- Keep testing and production instances isolated
-- Use different models or providers for different teams
-- Serve multiple tenants with separate configs and runtime data
-
-### Notes
-
-- hahobot does not expose local files itself. If you rely on local media delivery such as QQ
-  screenshots, serve the relevant delivery-artifact directory with your own HTTP server and point
-  `mediaBaseUrl` at it.
-
-- Each instance must use a different port if they run at the same time
-- Use a different workspace per instance if you want isolated memory, sessions, and skills
-- `--workspace` overrides the workspace defined in the config file
-- Cron jobs and runtime media/state are derived from the config directory
-
-## 🧠 Memory
-
-hahobot uses a layered memory system designed to stay light in the moment and durable over
-time.
-
-- `memory/history.jsonl` stores append-only summarized history
-- `SOUL.md`, `USER.md`, optional `PROFILE.md`, optional `INSIGHTS.md`, and `memory/MEMORY.md` store long-term knowledge managed by Dream
-- `Dream` runs on a schedule and can also be triggered manually
-- memory changes can be inspected and restored with built-in commands
-
-`USER.md` remains the persona-to-user relationship layer. Use optional `PROFILE.md` for stable user
-facts and preferences, and optional `INSIGHTS.md` for validated collaboration heuristics. When a
-remembered detail is tentative, prefer one canonical bullet with structured metadata such as
-`<!-- hahobot-meta: confidence=low -->`. When a fact or pattern is explicitly reconfirmed, add or
-update `last_verified=YYYY-MM-DD`. Legacy `(verify)` markers are still understood, but touched
-bullets should prefer structured metadata over free-form suffixes.
-
-If you want the full design, see [docs/MEMORY.md](docs/MEMORY.md).
-
-## 💻 CLI Reference
-
-| Command | Description |
-|---------|-------------|
-| `hahobot onboard` | Initialize the default config and workspace |
-| `hahobot onboard --wizard` | Launch the interactive onboarding wizard |
-| `hahobot onboard -c <config> -w <workspace>` | Initialize or refresh a specific instance config and workspace |
-| `hahobot agent -m "..."` | Chat with the agent |
-| `hahobot agent -w <workspace>` | Chat against a specific workspace |
-| `hahobot agent -w <workspace> -c <config>` | Chat against a specific workspace/config |
-| `hahobot agent` | Interactive chat mode |
-| `hahobot agent --no-markdown` | Show plain-text replies |
-| `hahobot agent --logs` | Show runtime logs during chat |
-| `hahobot serve` | Start the OpenAI-compatible API |
-| `hahobot gateway` | Start the gateway |
-| `hahobot status` | Show status |
-| `hahobot persona import-st-card <file>` | Import a SillyTavern character card into the active workspace personas |
-| `hahobot persona import-st-preset <file> --persona <name>` | Import a SillyTavern preset into `STYLE.md` for an existing persona |
-| `hahobot persona import-st-worldinfo <file> --persona <name>` | Import SillyTavern world info into `LORE.md` for an existing persona |
-| `hahobot provider login openai-codex` | OAuth login for providers |
-| `hahobot channels login <channel>` | Authenticate a channel interactively |
-| `hahobot channels status` | Show channel status |
-
-Interactive mode exits: `exit`, `quit`, `/exit`, `/quit`, `:q`, or `Ctrl+D`.
-
-### Persona Assets
-
-Import a SillyTavern character card into the active workspace persona tree:
-
-```bash
-hahobot persona import-st-card /path/to/aria.json -w <workspace>
-```
-
-If the persona directory already exists, re-run with `--force` to overwrite the managed import
-files:
-
-```bash
-hahobot persona import-st-card /path/to/aria.json -w <workspace> --force
-```
-
-The importer writes into `<workspace>/personas/<name>/` and generates:
-
-- `SOUL.md`
-- `USER.md`
-- `memory/MEMORY.md`
-- `memory/HISTORY.md`
-- `memory/archive/index.jsonl`
-- `memory/archive/chunks/*.json`
-- `.hahobot/st_character.json`
-- `.hahobot/st_manifest.json`
-
-`st_manifest.json` stores normalized import metadata such as `response_filter_tags`. When present,
-those tags are stripped from the final user-visible reply but preserved in saved session history so
-context continuity is not lost.
-
-The same manifest can also define `reference_image` and `reference_images`. When
-`tools.imageGen.enabled` is on, the `image_gen` tool can resolve `__default__` and
-`__default__:scene` against the active persona manifest and write the generated image to
-`<workspace>/out/image_gen`.
-
-Persona workspaces can also include optional `STYLE.md` and `LORE.md`. When present, hahobot loads
-them into the persona system prompt after `SOUL.md` and `USER.md`. They can also include optional
-`PROFILE.md`, which is loaded as a separate user-profile layer for stable user facts and
-preferences instead of persona identity, plus optional `INSIGHTS.md`, which stores learned
-collaboration guidance such as proven workflows, strategy notes, and recurring pitfalls. `USER.md`
-should stay focused on relationship framing; conflicting profile/insight bullets should be
-replaced rather than accumulated. For tentative or revalidated bullets, prefer structured metadata
-comments such as `<!-- hahobot-meta: confidence=medium last_verified=2026-04-08 -->` over raw
-`(verify)` suffixes. These optional overlays are not seeded into a fresh workspace by default;
-create them when you actually need them.
-
-Import a SillyTavern preset into an existing persona:
-
-```bash
-hahobot persona import-st-preset /path/to/preset.json --persona Aria -w <workspace>
-```
-
-This writes:
-
-- `personas/Aria/STYLE.md`
-- `personas/Aria/.hahobot/st_preset.json`
-
-Import SillyTavern world info into an existing persona:
-
-```bash
-hahobot persona import-st-worldinfo /path/to/worldinfo.json --persona Aria -w <workspace>
-```
-
-This writes:
-
-- `personas/Aria/LORE.md`
-- `personas/Aria/.hahobot/st_world_info.json`
-
-### Chat Slash Commands
-
-These commands are available inside chats handled by `hahobot agent` or `hahobot gateway`:
-
-| Command | Description |
-|---------|-------------|
-| `/new` | Start a new conversation |
-| `/lang current` | Show the active command language |
-| `/lang list` | List available command languages |
-| `/lang set <en\|zh>` | Switch command language |
-| `/persona current` | Show the active persona |
-| `/persona list` | List available personas |
-| `/persona set <name>` | Switch persona and start a new session |
-| `/skill search <query>` | Search public skills on ClawHub |
-| `/skill install <slug>` | Install a ClawHub skill into the active workspace |
-| `/skill uninstall <slug>` | Remove a locally installed workspace skill from the active workspace |
-| `/skill list` | List ClawHub-managed skills in the active workspace |
-| `/skill update` | Update all ClawHub-managed skills in the active workspace |
-| `/mcp [list]` | List configured MCP servers and registered MCP tools |
-| `/stop` | Stop the current task |
-| `/restart` | Restart the bot process |
-| `/status` | Show runtime status, token usage, and session context estimate |
-| `/help` | Show command help |
-
-`/skill` uses the active workspace for the current process, not a hard-coded global workspace path.
-If you start hahobot with `--workspace`, skill install/uninstall/list/update operate on that
-workspace's `skills/` directory. Otherwise the default is `<config-dir>/workspace` unless
-`agents.defaults.workspace` is set in the config.
-
-`/skill search` queries the live ClawHub registry API directly at
-`https://lightmake.site/api/skills` using the same sort order as the SkillHub web UI, so search
-does not depend on `npm` or `npx`.
-
-For `install`, `list`, and `update`, hahobot still shells out to `npx clawhub@latest`
-using ClawHub global options first: `--workdir <workspace> --no-input ...`. `/skill uninstall`
-removes the local `<workspace>/skills/<slug>` directory directly and best-effort prunes
-`<workspace>/.clawhub/lock.json`, because current ClawHub docs do not document an uninstall
-subcommand.
-
-`/skill search` can legitimately return no matches. In that case hahobot now replies with a
-clear "no skills found" message instead of leaving the channel on a transient searching state.
-If the ClawHub registry API or `npx clawhub@latest` cannot be reached, hahobot also surfaces the
-underlying network or HTTP error directly so the failure is visible to the user.
-
-<details>
-<summary><b>Heartbeat (Periodic Tasks)</b></summary>
-
-The gateway wakes up every 30 minutes and checks `HEARTBEAT.md` in your workspace
-(`<workspace>/HEARTBEAT.md`, default `<config-dir>/workspace/HEARTBEAT.md`). If the file has tasks,
-the agent executes them and delivers results to your most recently active chat channel.
-
-**Setup:** edit `<workspace>/HEARTBEAT.md` (created automatically by `hahobot onboard`):
-
-```markdown
-## Periodic Tasks
-
-- [ ] Check weather forecast and send a summary
-- [ ] Scan inbox for urgent emails
-```
-
-The agent can also manage this file itself — ask it to "add a periodic task" and it will update `HEARTBEAT.md` for you.
-
-> **Note:** The gateway must be running (`hahobot gateway`) and you must have chatted with the bot at least once so it knows which channel to deliver to.
-
-</details>
-
-## 🐍 Python SDK
-
-Use hahobot as a library — no CLI, no gateway, just Python:
-
-```python
-from hahobot import Hahobot
-
-bot = Hahobot.from_config()
-result = await bot.run("Summarize the README")
-print(result.content)
-```
-
-Each call carries a `session_key` for conversation isolation — different keys get independent history:
-
-```python
-await bot.run("hi", session_key="user-alice")
-await bot.run("hi", session_key="task-42")
-```
-
-Add lifecycle hooks to observe or customize the agent:
-
-```python
-from hahobot.agent import AgentHook, AgentHookContext
-
-class AuditHook(AgentHook):
-    async def before_execute_tools(self, ctx: AgentHookContext) -> None:
-        for tc in ctx.tool_calls:
-            print(f"[tool] {tc.name}")
-
-result = await bot.run("Hello", hooks=[AuditHook()])
-```
-
-See [docs/PYTHON_SDK.md](docs/PYTHON_SDK.md) for the full SDK reference.
-
-## 🔌 OpenAI-Compatible API
-
-hahobot can expose a minimal OpenAI-compatible endpoint for local integrations:
-
-```bash
-pip install -e ".[api]"
 hahobot serve
 ```
 
-By default, the API binds to `127.0.0.1:8900`. You can change this in `config.json`.
+Useful checks:
 
-### Behavior
+```bash
+hahobot status
+hahobot channels status
+hahobot companion init --persona Aria
+hahobot companion doctor --persona Aria
+```
 
-- Session isolation: pass `"session_id"` in the request body to isolate conversations; omit for a shared default session (`api:default`)
-- Single-message input: each request must contain exactly one `user` message
-- Fixed model: omit `model`, or pass the same model shown by `/v1/models`
-- No streaming: `stream=true` is not supported
+## Workspace Model
 
-### Endpoints
+The workspace is the runtime brain. Hahobot reads and writes files there directly instead of
+hiding behavior in opaque internal state.
 
-- `GET /health`
-- `GET /v1/models`
+Typical layout:
+
+```text
+~/.hahobot/
+  config.json
+  workspace/
+    AGENTS.md
+    TOOLS.md
+    HEARTBEAT.md
+    SOUL.md
+    USER.md
+    memory/
+      MEMORY.md
+      history.jsonl
+      archive/
+    personas/
+      Aria/
+        SOUL.md
+        USER.md
+        PROFILE.md
+        INSIGHTS.md
+        STYLE.md
+        LORE.md
+        VOICE.json
+        .hahobot/
+          st_manifest.json
+    skills/
+    out/
+```
+
+Important files:
+
+| File | Role |
+| --- | --- |
+| `SOUL.md` | Core identity, tone, values, and long-lived persona behavior |
+| `USER.md` | Relationship framing, boundaries, and interaction stance |
+| `PROFILE.md` | Stable user facts and preferences |
+| `INSIGHTS.md` | Proven collaboration heuristics, recurring pitfalls, and working patterns |
+| `memory/MEMORY.md` | Project and long-term task context |
+| `memory/history.jsonl` | Consolidated conversation history |
+| `memory/archive/` | Structured archive chunks for search/expand recall |
+| `skills/` | Workspace-local skills; these override built-ins with the same slug |
+| `out/` | Delivery artifacts such as generated images and files prepared for outbound channels |
+
+`PROFILE.md` and `INSIGHTS.md` are optional overlays. Hahobot will create or update them only when
+the workflow requires them.
+
+## Personas and Companion Workflow
+
+The default persona is the workspace root. Named personas live under `personas/<name>/` and can
+override prompts, voice behavior, and companion metadata without affecting the default persona.
+
+### SillyTavern asset import
+
+Import a character card:
+
+```bash
+hahobot persona import-st-card ./aria.character.json
+```
+
+Import a preset into an existing persona as `STYLE.md`:
+
+```bash
+hahobot persona import-st-preset ./preset.json --persona Aria
+```
+
+Import world info into `LORE.md`:
+
+```bash
+hahobot persona import-st-worldinfo ./world.json --persona Aria
+```
+
+Inside chat you can switch personas with the slash-command layer, for example:
+
+```text
+/persona set Aria
+```
+
+Companion-oriented aliases are also available:
+
+```text
+/stchar list
+/stchar show Aria
+/stchar load Aria
+/preset
+/preset show Aria
+/scene list
+/scene daily
+/scene comfort
+/scene date
+/scene rainy_walk
+/scene generate rainy bookstore evening together
+```
+
+`/scene` is a direct shortcut over the built-in `image_gen` tool. It returns an actual generated
+image when `tools.imageGen.enabled` is configured, and it automatically prefers the active
+persona's reference images when available. If `.hahobot/st_manifest.json` defines custom
+`scene_prompts`, `scene_captions`, or scene-specific `reference_images`, those scene names also
+become valid `/scene <name>` shortcuts.
+
+The admin persona page can preview a `/scene` result with the current runtime image settings and
+save that preview back into `.hahobot/st_manifest.json` as a named scene template.
+
+If you want a fresh persona scaffold for companion use, bootstrap it first:
+
+```bash
+hahobot companion init --persona Aria
+hahobot companion init --persona Aria --reference-image ./aria.png
+```
+
+Before wiring up voice, heartbeat, and image generation for a persona, you can run a read-only
+diagnostic pass:
+
+```bash
+hahobot companion doctor --persona Aria
+hahobot companion doctor --persona Aria --json
+```
+
+### Persona-local extras
+
+- `VOICE.json`: persona-specific TTS overrides
+- `.hahobot/st_manifest.json`: imported SillyTavern metadata plus response filters and reference
+  images, plus optional `scene_prompts` / `scene_captions` overrides for `/scene`
+- `STYLE.md`: style/preset guidance
+- `LORE.md`: world knowledge or setting notes
+
+This is the main place where hahobot follows the NanoMate direction: companion-facing personas,
+SillyTavern interoperability, character-consistent image generation, and voice behavior that tracks
+the active persona rather than a single global bot identity.
+
+## Memory and Self-Iteration
+
+Hahobot does not treat memory as a single dump file.
+
+It separates:
+
+- identity (`SOUL.md`)
+- relationship framing (`USER.md`)
+- user facts (`PROFILE.md`)
+- collaboration insights (`INSIGHTS.md`)
+- project memory (`memory/MEMORY.md`)
+- archived interaction history (`history.jsonl` + `memory/archive/`)
+
+### File backend by default
+
+The default user-memory backend is file-based. That keeps state inspectable and reviewable in the
+workspace.
+
+### Optional Mem0 backend
+
+You can switch `memory.user.backend` to `mem0` and optionally keep
+`memory.user.shadowWriteMem0: true` to dual-write completed turns while preserving the file-backed
+context fallback.
+
+### Consolidation and archive recall
+
+When context grows too large, older turns are consolidated into durable memory and archived into
+structured chunks. Those archives can later be searched and expanded through tools such as:
+
+- `history_search`
+- `history_expand`
+
+This gives hahobot a lossless recall path without keeping every old turn in the active prompt.
+
+### Dream-style reflective maintenance
+
+The built-in Dream workflow reviews history and current memory files in two phases:
+
+1. analyze what should be added, corrected, merged, or removed
+2. apply targeted edits to `SOUL.md`, `USER.md`, `PROFILE.md`, `INSIGHTS.md`, and `memory/MEMORY.md`
+
+That design is closer to Hermes Agent's "persistent files as long-term state" philosophy than to a
+simple rolling transcript. In practice this means hahobot can gradually refine stable facts,
+validated working preferences, and stale memory cleanup instead of endlessly appending notes.
+
+For `PROFILE.md` and `INSIGHTS.md`, hahobot supports structured metadata comments such as:
+
+```md
+- Prefers short review loops. <!-- hahobot-meta: confidence=high last_verified=2026-04-08 -->
+```
+
+## Channels, Gateway, and API
+
+### Built-in channel surfaces
+
+Hahobot includes built-in support for:
+
+- Telegram
+- WhatsApp
+- Discord
+- Feishu
+- DingTalk
+- Slack
+- QQ
+- Matrix
+- Weixin
+- WeCom
+- Email
+- Mochat
+
+Several channels support multi-instance configuration through `channels.<name>.instances`.
+
+Recent upstream nanobot syncs already included here:
+
+- Telegram progressive reply editing now uses `channels.telegram.streamEditInterval` to throttle
+  `edit_message_text` frequency instead of a hardcoded interval.
+- Discord supports progressive streamed replies when `channels.discord.streaming` is enabled; the
+  same config block also exposes `readReceiptEmoji`, `workingEmoji`, and
+  `workingEmojiDelay`.
+- Direct OpenAI requests for GPT-5 / o1 / o3 / o4 models, or requests with
+  `reasoningEffort`, auto-try the Responses API first and fall back to Chat Completions when a
+  compatibility error indicates the route is unsupported.
+
+### Gateway
+
+`hahobot gateway` starts the messaging runtime, cron service, HTTP routes, and status tracking.
+
+Notable gateway features:
+
+- `/status` endpoint for machine-readable or browser-readable runtime state
+- optional status push integration for Star-Office-UI style dashboards
+- optional built-in admin UI at `/admin`
+- built-in slash-command reference in the admin page
+- persona editor in the admin page, including companion scene fields for `/scene` reference images,
+  prompt overrides, and caption overrides
+- one-click `/scene` preview generation in the persona editor, using the current runtime imageGen
+  configuration
+- save the current `/scene` preview back into persona `scene_prompts` / `scene_captions` as a named
+  template from the same editor
+- Weixin QR login helper in the admin page
+- workspace-scoped cron periodically reloads its store, so jobs added by another process can still
+  be picked up even when the current scheduler was idle or waiting on a far-future task
+- that periodic wake interval is configurable through `gateway.cron.maxSleepMs`
+
+Admin and status routes are disabled by default and should be explicitly configured.
+
+### OpenAI-compatible API
+
+`hahobot serve` exposes:
+
 - `POST /v1/chat/completions`
 
-### curl
+This API is intentionally narrow:
+
+- local bind by default
+- fixed session key `api:default`
+- exactly one `user` message per request
+- `stream=true` is not supported unless the API contract is deliberately expanded later
+
+## Tools, Skills, and MCP
+
+### Built-in tools
+
+The runtime can expose:
+
+- web search and fetch
+- file reads/writes and directory listing
+- grep / glob style search
+- shell execution
+- image generation
+- cron scheduling
+- outbound messaging
+- history search and expansion
+- subagent spawning
+
+Workspace restrictions for shell/file tools can be enforced through config.
+
+### Skills
+
+Built-in skills currently include:
+
+- `living-together`
+- `emotional-companion`
+- `translate`
+- `memory`
+- `memorix`
+- `summarize`
+- `cron`
+- `weather`
+- `github`
+- `tmux`
+- `clawhub`
+- `skill-creator`
+
+Workspace-local skills live under `workspace/skills/` and override built-ins with the same name.
+
+### MCP
+
+Hahobot supports MCP servers through `tools.mcpServers`. When Memorix MCP tools are connected,
+hahobot can auto-load the built-in `memorix` skill and initialize the session against the active
+workspace.
+
+## Compatibility with nanobot
+
+This repo keeps a deliberate compatibility layer for the rename transition.
+
+What still works:
+
+- `nanobot` CLI entrypoint
+- `python -m nanobot`
+- `from nanobot import Nanobot`
+- legacy config fallback from `~/.nanobot/config.json`
+- legacy default workspace preservation for `~/.nanobot/workspace`
+- legacy admin cookie names
+- legacy metadata keys accepted during import / skill parsing
+
+Config-path behavior is intentionally conservative:
+
+- if no config path is specified, hahobot checks `~/.hahobot/config.json` first
+- only if that file is missing does it fall back to `~/.nanobot/config.json`
+- when the legacy path is used, the config is copied into the hahobot location instead of moved
+
+Legacy upstream runtime behaviors also kept in sync here include:
+
+- Telegram streaming reply edits can now be tuned through config rather than code constants
+- Discord streaming replies follow the same edit-then-finalize model as upstream nanobot
+- direct OpenAI reasoning requests keep the upstream Responses-API-first fallback strategy
+
+This lets existing `nanobot` automation keep running while new installs converge on `hahobot`.
+
+## Repository Layout
+
+High-level layout:
+
+- `hahobot/`: Python package
+- `hahobot/agent/`: loop, memory, personas, tools, hooks, skills
+- `hahobot/channels/`: built-in messaging channels
+- `hahobot/providers/`: model providers and registry
+- `hahobot/config/`: config schema, path helpers, loader
+- `hahobot/gateway/`: HTTP server, admin UI, status routes
+- `hahobot/templates/`: seeded workspace templates such as `SOUL.md`, `USER.md`, `AGENTS.md`,
+  `TOOLS.md`, and Dream prompts
+- `hahobot/skills/`: bundled skills
+- `bridge/`: TypeScript WhatsApp bridge
+- `tests/`: pytest suite
+- `nanobot/`: compatibility package for legacy imports and CLI usage
+
+## Development
+
+Set up the development environment:
 
 ```bash
-curl http://127.0.0.1:8900/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [{"role": "user", "content": "hi"}],
-    "session_id": "my-session"
-  }'
+uv sync --extra api --extra matrix --extra weixin --extra mem0 --extra dev
 ```
 
-### Python (`requests`)
-
-```python
-import requests
-
-resp = requests.post(
-    "http://127.0.0.1:8900/v1/chat/completions",
-    json={
-        "messages": [{"role": "user", "content": "hi"}],
-        "session_id": "my-session",  # optional: isolate conversation
-    },
-    timeout=120,
-)
-resp.raise_for_status()
-print(resp.json()["choices"][0]["message"]["content"])
-```
-
-### Python (`openai`)
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://127.0.0.1:8900/v1",
-    api_key="dummy",
-)
-
-resp = client.chat.completions.create(
-    model="MiniMax-M2.7",
-    messages=[{"role": "user", "content": "hi"}],
-    extra_body={"session_id": "my-session"},  # optional: isolate conversation
-)
-print(resp.choices[0].message.content)
-```
-
-## 🐳 Docker
-
-> [!TIP]
-> The `-v ~/.hahobot:/home/hahobot/.hahobot` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
-> The container runs as user `hahobot` (UID 1000). If you get **Permission denied**, fix ownership on the host first: `sudo chown -R 1000:1000 ~/.hahobot`, or pass `--user $(id -u):$(id -g)` to match your host UID. Podman users can use `--userns=keep-id` instead.
-
-### Docker Compose
+Run tests:
 
 ```bash
-docker compose run --rm hahobot-cli onboard   # first-time setup
-vim ~/.hahobot/config.json                     # add API keys
-docker compose up -d hahobot-gateway           # start gateway
+./.venv/bin/python -m pytest
 ```
+
+Run a focused test file:
 
 ```bash
-docker compose run --rm hahobot-cli agent -m "Hello!"   # run CLI
-docker compose logs -f hahobot-gateway                   # view logs
-docker compose down                                      # stop
+./.venv/bin/python -m pytest tests/test_gateway_http.py -q
 ```
 
-### Docker
+Lint:
 
 ```bash
-# Build the image
-docker build -t hahobot .
-
-# Initialize config (first time only)
-docker run -v ~/.hahobot:/home/hahobot/.hahobot --rm hahobot onboard
-
-# Edit config on host to add API keys
-vim ~/.hahobot/config.json
-
-# Run gateway (connects to enabled channels, e.g. Telegram/Discord/Mochat)
-docker run -v ~/.hahobot:/home/hahobot/.hahobot -p 18790:18790 hahobot gateway
-
-# Or run a single command
-docker run -v ~/.hahobot:/home/hahobot/.hahobot --rm hahobot agent -m "Hello!"
-docker run -v ~/.hahobot:/home/hahobot/.hahobot --rm hahobot status
+uv run ruff check .
 ```
 
-## 🐧 Linux Service
-
-Run the gateway as a systemd user service so it starts automatically and restarts on failure.
-
-**1. Find the hahobot binary path:**
+Build the WhatsApp bridge:
 
 ```bash
-which hahobot   # e.g. /home/user/.local/bin/hahobot
+cd bridge
+npm install
+npm run build
 ```
 
-**2. Create the service file** at `~/.config/systemd/user/hahobot-gateway.service` (replace `ExecStart` path if needed):
-
-```ini
-[Unit]
-Description=Hahobot Gateway
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=%h/.local/bin/hahobot gateway
-Restart=always
-RestartSec=10
-NoNewPrivileges=yes
-ProtectSystem=strict
-ReadWritePaths=%h
-
-[Install]
-WantedBy=default.target
-```
-
-**3. Enable and start:**
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now hahobot-gateway
-```
-
-**Common operations:**
-
-```bash
-systemctl --user status hahobot-gateway        # check status
-systemctl --user restart hahobot-gateway       # restart after config changes
-journalctl --user -u hahobot-gateway -f        # follow logs
-```
-
-If you edit the `.service` file itself, run `systemctl --user daemon-reload` before restarting.
-
-> **Note:** User services only run while you are logged in. To keep the gateway running after logout, enable lingering:
->
-> ```bash
-> loginctl enable-linger $USER
-> ```
-
-## 📁 Project Structure
-
-```
-hahobot/
-├── agent/          # 🧠 Core agent logic
-│   ├── loop.py     #    Agent loop (LLM ↔ tool execution)
-│   ├── context.py  #    Prompt builder
-│   ├── memory.py   #    Persistent memory
-│   ├── skills.py   #    Skills loader
-│   ├── subagent.py #    Background task execution
-│   └── tools/      #    Built-in tools (incl. spawn)
-├── skills/         # 🎯 Bundled skills (github, weather, tmux...)
-├── channels/       # 📱 Chat channel integrations
-├── bus/            # 🚌 Message routing
-├── cron/           # ⏰ Scheduled tasks
-├── heartbeat/      # 💓 Proactive wake-up
-├── providers/      # 🤖 LLM providers (OpenRouter, etc.)
-├── session/        # 💬 Conversation sessions
-├── config/         # ⚙️ Configuration
-└── cli/            # 🖥️ Commands
-```
-
-## 🤝 Contribute & Roadmap
-
-PRs welcome! The codebase is intentionally small and readable. 🤗
-
-### Branching Strategy
-
-| Branch | Purpose |
-|--------|---------|
-| `main` | Stable releases — bug fixes and minor improvements |
-| `nightly` | Experimental features — new features and breaking changes |
-
-**Unsure which branch to target?** See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
-
-**Roadmap** — Pick an item and open a PR in your own hahobot remote once you publish one.
-
-- [ ] **Multi-modal** — See and hear (images, voice, video)
-- [ ] **Long-term memory** — Never forget important context
-- [ ] **Better reasoning** — Multi-step planning and reflection
-- [ ] **More integrations** — Calendar and more
-- [ ] **Self-improvement** — Learn from feedback and mistakes
-
-### Contributors
-
-Contributor, star-history, and visitor widgets are intentionally omitted until hahobot has its own
-public remote and release infrastructure.
-
-<p align="center">
-  <em> Thanks for visiting ✨ hahobot!</em>
-</p>
-
-
-<p align="center">
-  <sub>hahobot is for educational, research, and technical exchange purposes only</sub>
-</p>
+For a Chinese summary focused on local deployment and companion workflows, see
+[`README_ZH.md`](./README_ZH.md).

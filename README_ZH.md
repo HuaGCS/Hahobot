@@ -9,9 +9,14 @@
   </p>
 </div>
 
-`hahobot` 是一个超轻量级的个人 AI 助手框架，整体设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，但体量更小、启动更快，也更适合本地化定制。
+`hahobot` 是一个以 workspace 为中心、面向 persona / companion 工作流的本地 AI agent runtime。
 
-当前目录里的 `hahobot` 是基于 [HKUDS/nanobot](https://github.com/HKUDS/nanobot) 整理并重命名出的本地工作仓库，历史发布记录和上游讨论仍以 `nanobot` 为准；在此基础上又落地了更偏陪伴型与本地化的能力，例如：
+当前目录里的 `hahobot` 不是上游 `nanobot` 的简单镜像，而是在
+[HKUDS/nanobot](https://github.com/HKUDS/nanobot) 的轻量 runtime 基础上，继续吸收
+[shenmintao/NanoMate](https://github.com/shenmintao/NanoMate) 的角色陪伴与 SillyTavern 工作流，
+并参考 [Hermes Agent](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart)
+那种“上下文文件 + 持久记忆 + 反思式自维护”的思路整理出的本地项目。历史发布记录和上游讨论仍以
+`nanobot` 为准；在此基础上，这个仓库又落地了更偏陪伴型与本地化的能力，例如：
 
 - SillyTavern 角色资产导入到 persona 工作区
 - persona 级参考图与角色一致性生图
@@ -20,7 +25,7 @@
 - `living-together` / `emotional-companion` / `translate` 内置技能
 - WhatsApp 本地 bridge 代理支持
 
-完整英文文档与更详细的发布记录见 [README.md](./README.md)。
+完整英文说明见 [README.md](./README.md)。
 
 ## 目录
 
@@ -71,6 +76,17 @@ uv tool install /path/to/Hahobot
 pip install -e .
 hahobot --version
 ```
+
+### 旧配置自动复制
+
+hahobot 启动时会自动规范化兼容配置和已废弃字段。如果检测到
+未显式指定配置文件路径，hahobot 会先检查 `~/.hahobot/config.json`，只有在它不存在时才回退到
+`~/.nanobot/config.json`。此时会自动把旧配置复制到新的 hahobot 目录里。如果旧的默认工作区
+`~/.nanobot/workspace` 已经存在，复制后的配置会把
+`agents.defaults.workspace` 固定到这个路径，避免现有数据因为目录名变更而失联。
+
+为了兼容旧自动化，项目也保留了 `nanobot` 入口：`nanobot` 命令、
+`python -m nanobot`，以及 `from nanobot import Nanobot` 这类导入仍然会映射到 hahobot。
 
 如果你在使用 WhatsApp，升级后建议重建本地 bridge：
 
@@ -172,6 +188,11 @@ hahobot gateway
 如果 provider 日志里出现 `Error calling LLM`，hahobot 现在会尽量保留底层传输错误原因，
 例如 DNS 失败、TLS 校验失败、`Connection refused` 等。纯粹的连接错误通常更像
 `apiBase` / 代理 / 网关不可达，而不是远端接口单纯“不支持这个模型或路由”。
+
+对于直连 OpenAI 的请求，当前实现也已经同步了上游新逻辑：
+
+- 当模型属于 `gpt-5` / `o1` / `o3` / `o4` 系列，或显式设置了 `reasoningEffort` 时，会优先尝试 Responses API
+- 如果目标 OpenAI 兼容网关并不支持这条路由，会自动回退到 Chat Completions，而不是直接把兼容性报错暴露给最终用户
 
 ### Web 搜索
 
@@ -413,11 +434,18 @@ OpenAI 兼容 TTS 示例：
     "telegram": {
       "enabled": true,
       "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
+      "allowFrom": ["YOUR_USER_ID"],
+      "streaming": true,
+      "streamEditInterval": 0.6
     }
   }
 }
 ```
+
+补充说明：
+
+- `streaming` 默认就是 `true`，表示最终回复会优先走“先发一条、后续逐步编辑”的流式体验
+- `streamEditInterval` 控制 Telegram `edit_message_text` 的最小节流间隔，适合按自己的频率/限流情况调整
 
 运行：
 
@@ -459,7 +487,11 @@ hahobot gateway
       "enabled": true,
       "token": "YOUR_BOT_TOKEN",
       "allowFrom": ["YOUR_USER_ID"],
-      "groupPolicy": "mention"
+      "groupPolicy": "mention",
+      "streaming": true,
+      "readReceiptEmoji": "👀",
+      "workingEmoji": "🔧",
+      "workingEmojiDelay": 2.0
     }
   }
 }
@@ -469,6 +501,11 @@ hahobot gateway
 
 - `mention`
 - `open`
+
+补充说明：
+
+- `streaming` 默认开启，Discord 现在支持和上游 nanobot 一样的流式回复编辑
+- `readReceiptEmoji` / `workingEmoji` / `workingEmojiDelay` 用来控制收到消息后的已读/处理中反应提示
 
 ### Matrix
 
@@ -1003,7 +1040,7 @@ hahobot 现在可以把 Mem0 作为真正的用户记忆后端使用。
           "apiKey": "mem0-vs-key",
           "url": "https://qdrant.mem0.ai",
           "config": {
-            "collectionName": "nanobot_user_memory"
+            "collectionName": "hahobot_user_memory"
           }
         },
         "metadata": {
@@ -1075,6 +1112,9 @@ hahobot 现在可以把 Mem0 作为真正的用户记忆后端使用。
 - 每个可视化配置项都会直接标注“可热重载”或“需重启”
 - 编辑当前 runtime workspace 下 persona 的 `SOUL.md`、`USER.md`、可选 `PROFILE.md`、可选 `INSIGHTS.md`、`STYLE.md`、`LORE.md`
 - 编辑 persona 的 `VOICE.json`
+- 可视化编辑 persona 的 companion scene 字段，例如 `/scene` 的默认参考图、分场景参考图、prompt 覆盖和配文覆盖
+- 在 persona 页面里直接生成 `/scene` 预览图，复用当前 runtime 的 imageGen 配置
+- 在 persona 页面里把当前 `/scene` 预览直接保存成具名 scene 模板，回写 `scene_prompts` / `scene_captions`
 - 编辑 persona 的 `.hahobot/st_manifest.json`
 - 在 persona 页面查看 `PROFILE.md` / `INSIGHTS.md` 的 metadata 摘要，包括结构化 `confidence` / `last_verified` 统计和遗留 `(verify)` 标记数量
 - 在 persona 页面提供旧版 `USER.md` 迁移预览/执行操作，先显示迁移后 `USER.md` / `PROFILE.md` / `INSIGHTS.md` 的实际内容，再把明显的用户画像内容拆到 `PROFILE.md`，把协作/工作方式提示拆到 `INSIGHTS.md`
@@ -1221,6 +1261,8 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 | `hahobot serve` | 启动 OpenAI 兼容 API |
 | `hahobot gateway` | 启动网关 |
 | `hahobot status` | 查看状态 |
+| `hahobot companion init [--persona <name>]` | 初始化 companion persona 脚手架 |
+| `hahobot companion doctor [--persona <name>]` | 检查 companion 工作流所需配置与资产 |
 | `hahobot channels login <channel>` | 交互式登录某个渠道 |
 | `hahobot channels status` | 查看渠道状态 |
 | `hahobot persona import-st-card <file>` | 导入 SillyTavern 角色卡 |
@@ -1250,6 +1292,40 @@ hahobot persona import-st-preset /path/to/preset.json --persona Aria -w <workspa
 ```bash
 hahobot persona import-st-worldinfo /path/to/worldinfo.json --persona Aria -w <workspace>
 ```
+
+导入完角色、语音和参考图后，可以先跑一遍只读诊断：
+
+```bash
+hahobot companion init --persona Aria
+hahobot companion init --persona Aria --reference-image ./aria.png
+hahobot companion doctor --persona Aria
+hahobot companion doctor --persona Aria --json
+```
+
+聊天里也有一组偏 NanoMate 风格的 companion 快捷命令：
+
+```text
+/stchar list
+/stchar show Aria
+/stchar load Aria
+/preset
+/preset show Aria
+/scene list
+/scene daily
+/scene comfort
+/scene date
+/scene rainy_walk
+/scene generate 雨天书店一起避雨
+```
+
+其中 `/scene` 会直接调用内置 `image_gen` 工具返回图片；如果当前 persona 配了参考图，
+会优先复用对应 reference image 来保持角色外观一致。manifest 里额外定义的自定义 scene 名
+也可以直接用 `/scene <name>` 调用。
+
+如果你想让某个 persona 的 `/scene daily`、`/scene comfort`、`/scene date` 更贴近它自己的世界观，
+可以直接在 `.hahobot/st_manifest.json` 里补 `scene_prompts`，也可以用 `scene_captions` 覆盖默认配文。
+admin 的 persona 页面也可以直接生成 `/scene` 预览，并把当前预览一键保存回
+`.hahobot/st_manifest.json` 作为具名 scene 模板。
 
 生成的典型目录结构：
 
@@ -1290,6 +1366,17 @@ manifest 中可声明：
 | `/persona current` | 查看当前 persona |
 | `/persona list` | 列出 persona |
 | `/persona set <name>` | 切换 persona |
+| `/stchar list` | 以 NanoMate 风格列出可用角色 |
+| `/stchar show <name>` | 查看某个角色的资产摘要 |
+| `/stchar load <name>` | 将该角色载入当前会话 |
+| `/preset` | 查看当前 persona 的 preset 资产 |
+| `/preset show [persona]` | 查看指定 persona 的 preset 资产 |
+| `/scene list` | 查看当前 persona 可用的内置与自定义场景 |
+| `/scene daily` | 直接生成日常陪伴场景图 |
+| `/scene comfort` | 直接生成安慰陪伴场景图 |
+| `/scene date` | 直接生成约会场景图 |
+| `/scene <custom_scene>` | 生成 persona manifest 里定义的自定义场景图 |
+| `/scene generate <brief>` | 按自定义描述生成陪伴场景图 |
 | `/skill search <query>` | 搜索公共技能 |
 | `/skill install <slug>` | 安装 workspace 技能 |
 | `/skill uninstall <slug>` | 卸载 workspace 技能 |
@@ -1378,6 +1465,20 @@ print(resp.choices[0].message.content)
 ## 周期任务
 
 `HEARTBEAT.md` 用来描述周期性任务。agent 也可以自己维护它，例如让它“添加一个周期任务”，它会直接更新 `HEARTBEAT.md`。
+
+运行中的 workspace 级 cron service 现在也会周期性重新读取自己的 `cron/jobs.json`。这意味着即使当前调度器手里只有很远之后才触发的任务，另一个进程后面新增的更早任务也能被及时发现，不需要重启 gateway。
+
+如果需要调节这个轮询上限，可以配置：
+
+```json
+{
+  "gateway": {
+    "cron": {
+      "maxSleepMs": 300000
+    }
+  }
+}
+```
 
 前提：
 
