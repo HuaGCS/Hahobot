@@ -12,9 +12,15 @@ from loguru import logger
 
 DEFAULT_PERSONA = "default"
 PERSONAS_DIRNAME = "personas"
+PERSONA_SOUL_FILENAME = "SOUL.md"
+PERSONA_USER_FILENAME = "USER.md"
+PERSONA_STYLE_FILENAME = "STYLE.md"
+PERSONA_LORE_FILENAME = "LORE.md"
 PERSONA_VOICE_FILENAME = "VOICE.json"
 PERSONA_METADATA_DIRNAME = ".hahobot"
 PERSONA_ST_MANIFEST_FILENAME = "st_manifest.json"
+PERSONA_ST_PRESET_FILENAME = "st_preset.json"
+PERSONA_ST_WORLD_INFO_FILENAME = "st_world_info.json"
 _VALID_PERSONA_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _VOICE_MARKDOWN_RE = re.compile(r"(```[\s\S]*?```|`[^`]*`|!\[[^\]]*\]\([^)]+\)|[#>*_~-]+)")
 _VOICE_WHITESPACE_RE = re.compile(r"\s+")
@@ -48,6 +54,32 @@ class PersonaReferenceImages:
 
     default: str | None = None
     scenes: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PersonaSceneSettings:
+    """Optional persona-local overrides for companion scene shortcuts."""
+
+    prompts: dict[str, str] = field(default_factory=dict)
+    captions: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PersonaAssetSummary:
+    """Lightweight summary of persona files exposed to slash commands."""
+
+    resolved_name: str
+    persona_dir: Path
+    has_soul: bool
+    has_user: bool
+    has_style: bool
+    has_lore: bool
+    has_voice: bool
+    has_manifest: bool
+    has_preset: bool
+    has_world_info: bool
+    reference_image_count: int = 0
+    response_filter_tags: tuple[str, ...] = ()
 
 
 def normalize_persona_name(name: str | None) -> str | None:
@@ -199,6 +231,22 @@ def normalize_reference_image_map(value: Any) -> dict[str, str]:
     return normalized
 
 
+def normalize_scene_text_map(value: Any) -> dict[str, str]:
+    """Normalize scene -> free-text mapping from persona metadata."""
+    if not isinstance(value, dict):
+        return {}
+
+    normalized: dict[str, str] = {}
+    for raw_key, raw_value in value.items():
+        if not isinstance(raw_key, str):
+            continue
+        key = raw_key.strip().lower()
+        text_value = _string_or_none(raw_value)
+        if key and text_value:
+            normalized[key] = text_value
+    return normalized
+
+
 def resolve_persona_asset_path(workspace: Path, persona: str | None, value: str | None) -> str | None:
     """Resolve a persona-related asset path from either persona or workspace scope."""
     raw = _string_or_none(value)
@@ -259,6 +307,21 @@ def resolve_persona_reference_image(
     return images.default
 
 
+def load_persona_scene_settings(workspace: Path, persona: str | None) -> PersonaSceneSettings:
+    """Load optional scene prompt/caption overrides for the active persona."""
+    manifest = load_persona_manifest(workspace, persona)
+    raw_prompts = manifest.get("scene_prompts")
+    if raw_prompts is None:
+        raw_prompts = manifest.get("scenePrompts")
+    raw_captions = manifest.get("scene_captions")
+    if raw_captions is None:
+        raw_captions = manifest.get("sceneCaptions")
+    return PersonaSceneSettings(
+        prompts=normalize_scene_text_map(raw_prompts),
+        captions=normalize_scene_text_map(raw_captions),
+    )
+
+
 def normalize_response_filter_tags(value: Any) -> tuple[str, ...]:
     """Normalize response filter tags from strings or string lists."""
     values: list[str] = []
@@ -286,6 +349,35 @@ def load_persona_response_filter_tags(workspace: Path, persona: str | None) -> t
     """Return response filter tags configured for the active persona."""
     manifest = load_persona_manifest(workspace, persona)
     return normalize_response_filter_tags(manifest.get("response_filter_tags"))
+
+
+def summarize_persona_assets(workspace: Path, persona: str | None) -> PersonaAssetSummary | None:
+    """Return a compact summary of persona files for user-facing command output."""
+    resolved = resolve_persona_name(workspace, persona)
+    if resolved is None:
+        return None
+
+    root = persona_workspace(workspace, resolved)
+    metadata_dir = persona_metadata_dir(workspace, resolved)
+    manifest_path = metadata_dir / PERSONA_ST_MANIFEST_FILENAME
+    manifest = load_persona_manifest(workspace, resolved)
+    images = load_persona_reference_images(workspace, resolved)
+    reference_count = len(images.scenes) + int(images.default is not None)
+
+    return PersonaAssetSummary(
+        resolved_name=resolved,
+        persona_dir=root,
+        has_soul=(root / PERSONA_SOUL_FILENAME).exists(),
+        has_user=(root / PERSONA_USER_FILENAME).exists(),
+        has_style=(root / PERSONA_STYLE_FILENAME).exists(),
+        has_lore=(root / PERSONA_LORE_FILENAME).exists(),
+        has_voice=(root / PERSONA_VOICE_FILENAME).exists(),
+        has_manifest=manifest_path.exists(),
+        has_preset=(metadata_dir / PERSONA_ST_PRESET_FILENAME).exists(),
+        has_world_info=(metadata_dir / PERSONA_ST_WORLD_INFO_FILENAME).exists(),
+        reference_image_count=reference_count,
+        response_filter_tags=normalize_response_filter_tags(manifest.get("response_filter_tags")),
+    )
 
 
 def strip_tagged_response_content(content: str, tags: tuple[str, ...]) -> str:

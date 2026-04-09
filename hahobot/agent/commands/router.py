@@ -39,6 +39,18 @@ async def _cmd_persona(ctx: CommandContext):
     return await ctx.loop._handle_persona_command(ctx.msg, _session(ctx))
 
 
+async def _cmd_stchar(ctx: CommandContext):
+    return await ctx.loop._handle_stchar_command(ctx.msg, _session(ctx))
+
+
+async def _cmd_preset(ctx: CommandContext):
+    return await ctx.loop._handle_preset_command(ctx.msg, _session(ctx))
+
+
+async def _cmd_scene(ctx: CommandContext):
+    return await ctx.loop._handle_scene_command(ctx.msg, _session(ctx))
+
+
 async def _cmd_skill(ctx: CommandContext):
     return await ctx.loop._handle_skill_command(ctx.msg, _session(ctx))
 
@@ -76,6 +88,15 @@ def build_agent_command_router() -> CommandRouter:
 
     router.exact("/persona", _cmd_persona)
     router.prefix("/persona ", _cmd_persona)
+
+    router.exact("/stchar", _cmd_stchar)
+    router.prefix("/stchar ", _cmd_stchar)
+
+    router.exact("/preset", _cmd_preset)
+    router.prefix("/preset ", _cmd_preset)
+
+    router.exact("/scene", _cmd_scene)
+    router.prefix("/scene ", _cmd_scene)
 
     router.exact("/skill", _cmd_skill)
     router.prefix("/skill ", _cmd_skill)

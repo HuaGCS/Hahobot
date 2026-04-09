@@ -45,7 +45,7 @@ class _FakeBot:
 
     async def get_me(self):
         self.get_me_calls += 1
-        return SimpleNamespace(id=999, username="nanobot_test")
+        return SimpleNamespace(id=999, username="hahobot_test")
 
     async def set_my_commands(self, commands, language_code=None) -> None:
         self.commands = commands
@@ -191,6 +191,9 @@ async def test_start_creates_separate_pools_with_proxy(monkeypatch) -> None:
     assert any(cmd.command == "dream" for cmd in app.bot.commands)
     assert any(cmd.command == "dream_log" for cmd in app.bot.commands)
     assert any(cmd.command == "dream_restore" for cmd in app.bot.commands)
+    assert any(cmd.command == "stchar" for cmd in app.bot.commands)
+    assert any(cmd.command == "preset" for cmd in app.bot.commands)
+    assert any(cmd.command == "scene" for cmd in app.bot.commands)
 
 
 @pytest.mark.asyncio
@@ -467,6 +470,29 @@ async def test_send_delta_initial_send_keeps_message_in_thread() -> None:
     assert channel._app.bot.sent_messages[0]["message_thread_id"] == 42
 
 
+@pytest.mark.asyncio
+async def test_send_delta_uses_configured_stream_edit_interval(monkeypatch) -> None:
+    channel = TelegramChannel(
+        TelegramConfig(
+            enabled=True,
+            token="123:abc",
+            allow_from=["*"],
+            stream_edit_interval=10.0,
+        ),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.edit_message_text = AsyncMock()
+
+    times = iter([1.0, 2.0])
+    monkeypatch.setattr("hahobot.channels.telegram.time.monotonic", lambda: next(times, 2.0))
+
+    await channel.send_delta("123", "hello", {"_stream_delta": True, "_stream_id": "s:0"})
+    await channel.send_delta("123", " world", {"_stream_delta": True, "_stream_id": "s:0"})
+
+    channel._app.bot.edit_message_text.assert_not_called()
+
+
 def test_derive_topic_session_key_uses_thread_id() -> None:
     message = SimpleNamespace(
         chat=SimpleNamespace(type="supergroup"),
@@ -667,8 +693,8 @@ async def test_group_policy_mention_accepts_text_mention_and_caches_bot_identity
     channel._start_typing = lambda _chat_id: None
 
     mention = SimpleNamespace(type="mention", offset=0, length=13)
-    await channel._on_message(_make_telegram_update(text="@nanobot_test hi", entities=[mention]), None)
-    await channel._on_message(_make_telegram_update(text="@nanobot_test again", entities=[mention]), None)
+    await channel._on_message(_make_telegram_update(text="@hahobot_test hi", entities=[mention]), None)
+    await channel._on_message(_make_telegram_update(text="@hahobot_test again", entities=[mention]), None)
 
     assert len(handled) == 2
     assert channel._app.bot.get_me_calls == 1
@@ -692,12 +718,12 @@ async def test_group_policy_mention_accepts_caption_mention() -> None:
 
     mention = SimpleNamespace(type="mention", offset=0, length=13)
     await channel._on_message(
-        _make_telegram_update(caption="@nanobot_test photo", caption_entities=[mention]),
+        _make_telegram_update(caption="@hahobot_test photo", caption_entities=[mention]),
         None,
     )
 
     assert len(handled) == 1
-    assert handled[0]["content"] == "@nanobot_test photo"
+    assert handled[0]["content"] == "@hahobot_test photo"
 
 
 @pytest.mark.asyncio
@@ -1022,7 +1048,7 @@ async def test_forward_command_preserves_dream_log_args_and_strips_bot_suffix() 
         handled.append(kwargs)
 
     channel._handle_message = capture_handle
-    update = _make_telegram_update(text="/dream-log@nanobot_test deadbeef", reply_to_message=None)
+    update = _make_telegram_update(text="/dream-log@hahobot_test deadbeef", reply_to_message=None)
 
     await channel._forward_command(update, None)
 
@@ -1043,7 +1069,7 @@ async def test_forward_command_normalizes_telegram_safe_dream_aliases() -> None:
         handled.append(kwargs)
 
     channel._handle_message = capture_handle
-    update = _make_telegram_update(text="/dream_restore@nanobot_test deadbeef", reply_to_message=None)
+    update = _make_telegram_update(text="/dream_restore@hahobot_test deadbeef", reply_to_message=None)
 
     await channel._forward_command(update, None)
 

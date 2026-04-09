@@ -18,7 +18,10 @@ from hahobot.agent.commands import (
     LanguageCommandHandler,
     MCPCommandHandler,
     PersonaCommandHandler,
+    PresetCommandHandler,
+    SceneCommandHandler,
     SkillCommandHandler,
+    STCharCommandHandler,
     SystemCommandHandler,
     build_agent_command_router,
 )
@@ -94,6 +97,7 @@ class _LoopHook(AgentHook):
         chat_id: str = "direct",
         message_id: str | None = None,
     ) -> None:
+        super().__init__(reraise=True)
         self._loop = agent_loop
         self._on_progress = on_progress
         self._on_stream = on_stream
@@ -155,6 +159,7 @@ class _LoopHookChain(AgentHook):
     __slots__ = ("_primary", "_extras")
 
     def __init__(self, primary: AgentHook, extra_hooks: list[AgentHook]) -> None:
+        super().__init__(reraise=True)
         self._primary = primary
         self._extras = CompositeHook(extra_hooks)
 
@@ -313,7 +318,10 @@ class AgentLoop:
         self._language_commands = LanguageCommandHandler(self)
         self._mcp_commands = MCPCommandHandler(self)
         self._persona_commands = PersonaCommandHandler(self)
+        self._preset_commands = PresetCommandHandler(self)
+        self._scene_commands = SceneCommandHandler(self)
         self._skill_commands = SkillCommandHandler(self)
+        self._stchar_commands = STCharCommandHandler(self)
         self._system_commands = SystemCommandHandler(self)
         self._command_router = build_agent_command_router()
 
@@ -474,6 +482,14 @@ class AgentLoop:
             text(language, "cmd_persona_list"),
             text(language, "cmd_persona_set"),
         ])
+
+    def _stchar_usage(self, language: str) -> str:
+        """Return ST-style persona alias help text."""
+        return text(language, "stchar_usage")
+
+    def _preset_usage(self, language: str) -> str:
+        """Return preset command help text."""
+        return text(language, "preset_usage")
 
     def _language_usage(self, language: str) -> str:
         """Return language command help text."""
@@ -1298,6 +1314,7 @@ class AgentLoop:
 
         class _LoopHook(AgentHook):
             def __init__(self) -> None:
+                super().__init__(reraise=True)
                 self._stream_buf = ""
 
             def wants_streaming(self) -> bool:
@@ -1560,6 +1577,70 @@ class AgentLoop:
             )
 
         return await self._persona_commands.set(msg, session, parts[2])
+
+    async def _handle_stchar_command(self, msg: InboundMessage, session: Session) -> OutboundMessage:
+        """Handle companion-friendly persona aliases."""
+        language = self._get_session_language(session)
+        parts = msg.content.strip().split()
+        if len(parts) == 1:
+            return self._stchar_commands.usage(msg, language)
+
+        subcommand = parts[1].lower()
+        if subcommand == "list":
+            return self._stchar_commands.list(msg, session)
+        if subcommand == "show":
+            if len(parts) < 3:
+                return self._stchar_commands.missing_name(msg, language)
+            return self._stchar_commands.show(msg, session, parts[2])
+        if subcommand == "load":
+            if len(parts) < 3:
+                return self._stchar_commands.missing_name(msg, language)
+            return await self._stchar_commands.load(msg, session, parts[2])
+
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=self._stchar_usage(language),
+        )
+
+    async def _handle_preset_command(self, msg: InboundMessage, session: Session) -> OutboundMessage:
+        """Handle preset inspection commands."""
+        language = self._get_session_language(session)
+        parts = msg.content.strip().split()
+        if len(parts) == 1:
+            return self._preset_commands.show(msg, session)
+
+        subcommand = parts[1].lower()
+        if subcommand == "show":
+            return self._preset_commands.show(msg, session, parts[2] if len(parts) > 2 else None)
+
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=self._preset_usage(language),
+        )
+
+    async def _handle_scene_command(self, msg: InboundMessage, session: Session) -> OutboundMessage:
+        """Handle companion scene shortcut commands."""
+        language = self._get_session_language(session)
+        parts = msg.content.strip().split(maxsplit=2)
+        if len(parts) == 1:
+            return self._scene_commands.usage(msg, language)
+
+        subcommand = parts[1].lower()
+        if subcommand == "list":
+            return self._scene_commands.list(msg, session)
+        if subcommand == "generate":
+            if len(parts) < 3 or not parts[2].strip():
+                return self._scene_commands.missing_brief(msg, language)
+            return await self._scene_commands.generate(
+                msg,
+                session,
+                subcommand=subcommand,
+                brief=parts[2],
+            )
+
+        return await self._scene_commands.generate(msg, session, subcommand=subcommand)
 
     async def close_mcp(self) -> None:
         """Drain pending background archives, then close MCP connections."""

@@ -82,6 +82,9 @@ class TestPersonaCommands:
         assert response is not None
         assert "/persona current" in response.content
         assert "/persona set <name>" in response.content
+        assert "/stchar <list|show|load>" in response.content
+        assert "/preset [show [persona]]" in response.content
+        assert "/scene <list|daily|comfort|date|generate|custom>" in response.content
 
     @pytest.mark.asyncio
     async def test_language_switch_localizes_help(self, tmp_path: Path) -> None:
@@ -99,6 +102,9 @@ class TestPersonaCommands:
         assert help_response is not None
         assert "/lang current — 查看当前语言" in help_response.content
         assert "/persona current — 查看当前人格" in help_response.content
+        assert "/stchar <list|show|load>" in help_response.content
+        assert "/preset [show [persona]]" in help_response.content
+        assert "/scene <list|daily|comfort|date|generate|custom>" in help_response.content
 
     @pytest.mark.asyncio
     async def test_active_persona_changes_prompt_memory_scope(self, tmp_path: Path) -> None:
@@ -140,3 +146,83 @@ class TestPersonaCommands:
         assert "coder soul" in messages[0]["content"]
         assert "coder memory" in messages[0]["content"]
         assert "root soul" not in messages[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_stchar_show_reports_persona_asset_summary(self, tmp_path: Path) -> None:
+        persona_dir = tmp_path / "personas" / "coder"
+        (persona_dir / ".hahobot").mkdir(parents=True)
+        (persona_dir / "SOUL.md").write_text("coder soul", encoding="utf-8")
+        (persona_dir / "STYLE.md").write_text("short replies", encoding="utf-8")
+        (persona_dir / "VOICE.json").write_text("{}", encoding="utf-8")
+        (persona_dir / ".hahobot" / "st_preset.json").write_text("{}", encoding="utf-8")
+        (persona_dir / ".hahobot" / "st_manifest.json").write_text(
+            '{"reference_image": "avatar.png", "response_filter_tags": ["inner"]}',
+            encoding="utf-8",
+        )
+
+        loop, _provider = _make_loop(tmp_path)
+        response = await loop._process_message(
+            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/stchar show coder")
+        )
+
+        assert response is not None
+        assert "Persona assets: coder" in response.content
+        assert "- SOUL.md: present" in response.content
+        assert "- STYLE.md: present" in response.content
+        assert "- st_preset.json: present" in response.content
+        assert "response_filter_tags: inner" in response.content
+
+    @pytest.mark.asyncio
+    async def test_stchar_load_reuses_persona_switch_flow(self, tmp_path: Path) -> None:
+        _make_persona(tmp_path, "coder", "You are coder persona.")
+        loop, _provider = _make_loop(tmp_path)
+        loop.memory_consolidator.archive_unconsolidated = AsyncMock(return_value=True)
+        loop._flush_memory_session = AsyncMock()
+
+        session = loop.sessions.get_or_create("cli:direct")
+        session.add_message("user", "hello")
+        loop.sessions.save(session)
+
+        response = await loop._process_message(
+            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/stchar load coder")
+        )
+
+        assert response is not None
+        assert response.content == "Switched persona to coder. New session started."
+        switched = loop.sessions.get_or_create("cli:direct")
+        assert switched.metadata["persona"] == "coder"
+        assert switched.messages == []
+
+    @pytest.mark.asyncio
+    async def test_preset_show_uses_current_persona(self, tmp_path: Path) -> None:
+        persona_dir = tmp_path / "personas" / "coder"
+        (persona_dir / ".hahobot").mkdir(parents=True)
+        (persona_dir / "SOUL.md").write_text("coder soul", encoding="utf-8")
+        (persona_dir / "STYLE.md").write_text("short replies", encoding="utf-8")
+        (persona_dir / ".hahobot" / "st_preset.json").write_text("{}", encoding="utf-8")
+
+        loop, _provider = _make_loop(tmp_path)
+        session = loop.sessions.get_or_create("cli:direct")
+        session.metadata["persona"] = "coder"
+        loop.sessions.save(session)
+
+        response = await loop._process_message(
+            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/preset")
+        )
+
+        assert response is not None
+        assert "Preset assets: coder" in response.content
+        assert "- STYLE.md: present" in response.content
+        assert "- st_preset.json: present" in response.content
+
+    @pytest.mark.asyncio
+    async def test_preset_show_reports_missing_assets_cleanly(self, tmp_path: Path) -> None:
+        _make_persona(tmp_path, "coder", "You are coder persona.")
+        loop, _provider = _make_loop(tmp_path)
+
+        response = await loop._process_message(
+            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/preset show coder")
+        )
+
+        assert response is not None
+        assert "No preset data found for persona coder." in response.content
