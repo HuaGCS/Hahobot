@@ -115,6 +115,42 @@ async def test_composite_error_isolation_on_stream():
 
 
 @pytest.mark.asyncio
+async def test_composite_reraises_marked_hooks() -> None:
+    class FatalHook(AgentHook):
+        def __init__(self) -> None:
+            super().__init__(reraise=True)
+
+        async def before_iteration(self, context: AgentHookContext) -> None:
+            raise RuntimeError("fatal")
+
+    hook = CompositeHook([FatalHook()])
+
+    with pytest.raises(RuntimeError, match="fatal"):
+        await hook.before_iteration(_ctx())
+
+
+@pytest.mark.asyncio
+async def test_composite_legacy_hook_without_super_stays_backward_compatible() -> None:
+    calls: list[str] = []
+
+    class LegacyBadHook(AgentHook):
+        def __init__(self) -> None:
+            self.legacy = True
+
+        async def before_iteration(self, context: AgentHookContext) -> None:
+            raise RuntimeError("legacy boom")
+
+    class GoodHook(AgentHook):
+        async def before_iteration(self, context: AgentHookContext) -> None:
+            calls.append("good")
+
+    hook = CompositeHook([LegacyBadHook(), GoodHook()])
+    await hook.before_iteration(_ctx())
+
+    assert calls == ["good"]
+
+
+@pytest.mark.asyncio
 async def test_composite_error_isolation_all_async():
     """Error isolation for on_stream_end, before_execute_tools, after_iteration."""
     calls: list[str] = []

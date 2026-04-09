@@ -76,6 +76,7 @@ class CronService:
         self,
         store_path: Path,
         on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None,
+        max_sleep_ms: int = 300_000,  # 5 minutes
     ):
         self.store_path = store_path
         self.on_job = on_job
@@ -83,6 +84,7 @@ class CronService:
         self._last_mtime: float = 0.0
         self._timer_task: asyncio.Task | None = None
         self._running = False
+        self.max_sleep_ms = max_sleep_ms
 
     def _load_store(self) -> CronStore:
         """Load jobs from disk. Reloads automatically if file was modified externally."""
@@ -229,6 +231,14 @@ class CronService:
             self._save_store()
             self._arm_timer()
 
+    def apply_runtime_config(self, max_sleep_ms: int) -> None:
+        """Apply hot-reloadable scheduler settings."""
+        if max_sleep_ms == self.max_sleep_ms:
+            return
+        self.max_sleep_ms = max_sleep_ms
+        if self._running:
+            self._arm_timer()
+
     def _recompute_next_runs(self) -> None:
         """Recompute next run times for all enabled jobs."""
         if not self._store:
@@ -247,15 +257,23 @@ class CronService:
         return min(times) if times else None
 
     def _arm_timer(self) -> None:
-        """Schedule the next timer tick."""
+        """Schedule the next timer tick.
+
+        Wake periodically even when the next known job is far away or absent,
+        so externally added/updated jobs are picked up without requiring a
+        second scheduler process restart.
+        """
         if self._timer_task:
             self._timer_task.cancel()
 
-        next_wake = self._get_next_wake_ms()
-        if not next_wake or not self._running:
+        if not self._running:
             return
 
-        delay_ms = max(0, next_wake - _now_ms())
+        next_wake = self._get_next_wake_ms()
+        if next_wake is None:
+            delay_ms = self.max_sleep_ms
+        else:
+            delay_ms = min(self.max_sleep_ms, max(0, next_wake - _now_ms()))
         delay_s = delay_ms / 1000
 
         async def tick():
@@ -431,9 +449,12 @@ class CronService:
             if job.id == job_id:
                 if not force and not job.enabled:
                     return False
+                was_running = self._running
                 await self._execute_job(job)
                 self._save_store()
-                self._arm_timer()
+                self._running = was_running
+                if was_running:
+                    self._arm_timer()
                 return True
         return False
 

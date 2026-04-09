@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
-import websockets
 from loguru import logger
-from pydantic import Field
 
 from hahobot.bus.events import OutboundMessage
 from hahobot.bus.queue import MessageBus
@@ -18,11 +17,231 @@ from hahobot.channels.base import BaseChannel
 from hahobot.command.builtin import build_help_text
 from hahobot.config.paths import get_media_dir
 from hahobot.config.schema import DiscordConfig, DiscordInstanceConfig
-from hahobot.utils.helpers import split_message
+from hahobot.utils.helpers import safe_filename, split_message
+
+DISCORD_AVAILABLE = importlib.util.find_spec("discord") is not None
+if TYPE_CHECKING:
+    import discord
+    from discord import app_commands
+    from discord.abc import Messageable
+
+if DISCORD_AVAILABLE:
+    import discord
+    from discord import app_commands
+    from discord.abc import Messageable
 
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024  # 20MB
 MAX_MESSAGE_LEN = 2000  # Discord message character limit
 TYPING_INTERVAL_S = 8
+
+
+@dataclass
+class _StreamBuf:
+    """Per-chat streaming accumulator for progressive Discord message edits."""
+
+    text: str = ""
+    message: Any | None = None
+    last_edit: float = 0.0
+    stream_id: str | None = None
+
+
+if DISCORD_AVAILABLE:
+
+    class DiscordBotClient(discord.Client):
+        """discord.py client that forwards events to the channel."""
+
+        def __init__(self, channel: DiscordChannel, *, intents: discord.Intents) -> None:
+            super().__init__(intents=intents)
+            self._channel = channel
+            self.tree = app_commands.CommandTree(self)
+            self._register_app_commands()
+
+        async def on_ready(self) -> None:
+            self._channel._bot_user_id = str(self.user.id) if self.user else None
+            logger.info("Discord bot connected as user {}", self._channel._bot_user_id)
+            try:
+                synced = await self.tree.sync()
+                logger.info("Discord app commands synced: {}", len(synced))
+            except Exception as e:
+                logger.warning("Discord app command sync failed: {}", e)
+
+        async def on_message(self, message: discord.Message) -> None:
+            await self._channel._handle_discord_message(message)
+
+        async def _reply_ephemeral(self, interaction: discord.Interaction, text: str) -> bool:
+            """Send an ephemeral interaction response and report success."""
+            try:
+                await interaction.response.send_message(text, ephemeral=True)
+                return True
+            except Exception as e:
+                logger.warning("Discord interaction response failed: {}", e)
+                return False
+
+        async def _forward_slash_command(
+            self,
+            interaction: discord.Interaction,
+            command_text: str,
+        ) -> None:
+            sender_id = str(interaction.user.id)
+            channel_id = interaction.channel_id
+
+            if channel_id is None:
+                logger.warning("Discord slash command missing channel_id: {}", command_text)
+                return
+
+            if not self._channel.is_allowed(sender_id):
+                await self._reply_ephemeral(interaction, "You are not allowed to use this bot.")
+                return
+
+            await self._reply_ephemeral(interaction, f"Processing {command_text}...")
+
+            await self._channel._handle_message(
+                sender_id=sender_id,
+                chat_id=str(channel_id),
+                content=command_text,
+                metadata={
+                    "interaction_id": str(interaction.id),
+                    "guild_id": str(interaction.guild_id) if interaction.guild_id else None,
+                    "is_slash_command": True,
+                },
+            )
+
+        def _register_app_commands(self) -> None:
+            commands = (
+                ("new", "Start a new conversation", "/new"),
+                ("stop", "Stop the current task", "/stop"),
+                ("restart", "Restart the bot", "/restart"),
+                ("status", "Show bot status", "/status"),
+            )
+
+            for name, description, command_text in commands:
+
+                @self.tree.command(name=name, description=description)
+                async def command_handler(
+                    interaction: discord.Interaction,
+                    _command_text: str = command_text,
+                ) -> None:
+                    await self._forward_slash_command(interaction, _command_text)
+
+            @self.tree.command(name="help", description="Show available commands")
+            async def help_command(interaction: discord.Interaction) -> None:
+                sender_id = str(interaction.user.id)
+                if not self._channel.is_allowed(sender_id):
+                    await self._reply_ephemeral(interaction, "You are not allowed to use this bot.")
+                    return
+                await self._reply_ephemeral(interaction, build_help_text())
+
+            @self.tree.error
+            async def on_app_command_error(
+                interaction: discord.Interaction,
+                error: app_commands.AppCommandError,
+            ) -> None:
+                command_name = interaction.command.qualified_name if interaction.command else "?"
+                logger.warning(
+                    "Discord app command failed user={} channel={} cmd={} error={}",
+                    interaction.user.id,
+                    interaction.channel_id,
+                    command_name,
+                    error,
+                )
+
+        async def send_outbound(self, msg: OutboundMessage) -> None:
+            """Send a Hahobot outbound message using Discord transport rules."""
+            channel_id = int(msg.chat_id)
+
+            channel = self.get_channel(channel_id)
+            if channel is None:
+                try:
+                    channel = await self.fetch_channel(channel_id)
+                except Exception as e:
+                    logger.warning("Discord channel {} unavailable: {}", msg.chat_id, e)
+                    return
+
+            reference, mention_settings = self._build_reply_context(channel, msg.reply_to)
+            sent_media = False
+            failed_media: list[str] = []
+
+            for index, media_path in enumerate(msg.media or []):
+                if await self._send_file(
+                    channel,
+                    media_path,
+                    reference=reference if index == 0 else None,
+                    mention_settings=mention_settings,
+                ):
+                    sent_media = True
+                else:
+                    failed_media.append(Path(media_path).name)
+
+            for index, chunk in enumerate(self._build_chunks(msg.content or "", failed_media, sent_media)):
+                kwargs: dict[str, Any] = {"content": chunk}
+                if index == 0 and reference is not None and not sent_media:
+                    kwargs["reference"] = reference
+                    kwargs["allowed_mentions"] = mention_settings
+                await channel.send(**kwargs)
+
+        async def _send_file(
+            self,
+            channel: Messageable,
+            file_path: str,
+            *,
+            reference: discord.PartialMessage | None,
+            mention_settings: discord.AllowedMentions,
+        ) -> bool:
+            """Send a file attachment via discord.py."""
+            path = Path(file_path)
+            if not path.is_file():
+                logger.warning("Discord file not found, skipping: {}", file_path)
+                return False
+
+            if path.stat().st_size > MAX_ATTACHMENT_BYTES:
+                logger.warning("Discord file too large (>20MB), skipping: {}", path.name)
+                return False
+
+            try:
+                kwargs: dict[str, Any] = {"file": discord.File(path)}
+                if reference is not None:
+                    kwargs["reference"] = reference
+                    kwargs["allowed_mentions"] = mention_settings
+                await channel.send(**kwargs)
+                logger.info("Discord file sent: {}", path.name)
+                return True
+            except Exception as e:
+                logger.error("Error sending Discord file {}: {}", path.name, e)
+                return False
+
+        @staticmethod
+        def _build_chunks(content: str, failed_media: list[str], sent_media: bool) -> list[str]:
+            """Build outbound text chunks, including attachment-failure fallback text."""
+            chunks = split_message(content, MAX_MESSAGE_LEN)
+            if chunks or not failed_media or sent_media:
+                return chunks
+            fallback = "\n".join(f"[attachment: {name} - send failed]" for name in failed_media)
+            return split_message(fallback, MAX_MESSAGE_LEN)
+
+        @staticmethod
+        def _build_reply_context(
+            channel: Messageable,
+            reply_to: str | None,
+        ) -> tuple[discord.PartialMessage | None, discord.AllowedMentions]:
+            """Build reply context for outbound messages."""
+            mention_settings = discord.AllowedMentions(replied_user=False)
+            if not reply_to:
+                return None, mention_settings
+            try:
+                message_id = int(reply_to)
+            except ValueError:
+                logger.warning("Invalid Discord reply target: {}", reply_to)
+                return None, mention_settings
+
+            return channel.get_partial_message(message_id), mention_settings
+
+else:
+
+    class DiscordBotClient:
+        """Fallback placeholder when discord.py is unavailable."""
+
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            raise RuntimeError("discord.py not installed")
 
 
 class DiscordChannel(BaseChannel):
@@ -30,27 +249,34 @@ class DiscordChannel(BaseChannel):
 
     name = "discord"
     display_name = "Discord"
+    _STREAM_EDIT_INTERVAL = 0.8
 
     @classmethod
     def default_config(cls) -> dict[str, object]:
         return DiscordConfig().model_dump(by_alias=True)
 
-    def __init__(self, config: DiscordConfig | DiscordInstanceConfig, bus: MessageBus):
+    @staticmethod
+    def _channel_key(channel_or_id: Any) -> str:
+        """Normalize channel-like objects and ids to a stable string key."""
+        channel_id = getattr(channel_or_id, "id", channel_or_id)
+        return str(channel_id)
+
+    def __init__(self, config: DiscordConfig | DiscordInstanceConfig | dict[str, Any], bus: MessageBus):
+        if isinstance(config, dict):
+            config = DiscordConfig.model_validate(config)
         super().__init__(config, bus)
         self.config: DiscordConfig | DiscordInstanceConfig = config
-        self._ws: websockets.WebSocketClientProtocol | None = None
-        self._seq: int | None = None
-        self._heartbeat_task: asyncio.Task | None = None
-        self._typing_tasks: dict[str, asyncio.Task] = {}
-        self._http: httpx.AsyncClient | None = None
+        self._client: DiscordBotClient | None = None
+        self._typing_tasks: dict[str, asyncio.Task[None]] = {}
         self._bot_user_id: str | None = None
-        self._pending_reactions: dict[str, Any] = {}  # chat_id -> message object
+        self._pending_reactions: dict[str, Any] = {}
         self._working_emoji_tasks: dict[str, asyncio.Task[None]] = {}
+        self._stream_bufs: dict[str, _StreamBuf] = {}
 
     async def start(self) -> None:
         """Start the Discord client."""
         if not DISCORD_AVAILABLE:
-            logger.error("discord.py not installed. Run: pip install -e \".[discord]\"")
+            logger.error("discord.py not installed")
             return
 
         if not self.config.token:
@@ -103,6 +329,61 @@ class DiscordChannel(BaseChannel):
                 await self._stop_typing(msg.chat_id)
                 await self._clear_reactions(msg.chat_id)
 
+    async def send_delta(self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None) -> None:
+        """Progressive Discord delivery: send once, then edit until the stream ends."""
+        client = self._client
+        if client is None or not client.is_ready():
+            logger.warning("Discord client not ready; dropping stream delta")
+            return
+
+        meta = metadata or {}
+        stream_id = meta.get("_stream_id")
+
+        if meta.get("_stream_end"):
+            buf = self._stream_bufs.get(chat_id)
+            if not buf or buf.message is None or not buf.text:
+                return
+            if stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id:
+                return
+            await self._finalize_stream(chat_id, buf)
+            return
+
+        buf = self._stream_bufs.get(chat_id)
+        if buf is None or (stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id):
+            buf = _StreamBuf(stream_id=stream_id)
+            self._stream_bufs[chat_id] = buf
+        elif buf.stream_id is None:
+            buf.stream_id = stream_id
+
+        buf.text += delta
+        if not buf.text.strip():
+            return
+
+        target = await self._resolve_channel(chat_id)
+        if target is None:
+            logger.warning("Discord stream target {} unavailable", chat_id)
+            return
+
+        now = time.monotonic()
+        if buf.message is None:
+            try:
+                buf.message = await target.send(content=buf.text)
+                buf.last_edit = now
+            except Exception as e:
+                logger.warning("Discord stream initial send failed: {}", e)
+                raise
+            return
+
+        if (now - buf.last_edit) < self._STREAM_EDIT_INTERVAL:
+            return
+
+        try:
+            await buf.message.edit(content=DiscordBotClient._build_chunks(buf.text, [], False)[0])
+            buf.last_edit = now
+        except Exception as e:
+            logger.warning("Discord stream edit failed: {}", e)
+            raise
+
     async def _handle_discord_message(self, message: discord.Message) -> None:
         """Handle incoming Discord messages from discord.py."""
         if message.author.bot:
@@ -121,15 +402,12 @@ class DiscordChannel(BaseChannel):
 
         await self._start_typing(message.channel)
 
-        # Add read receipt reaction immediately, working emoji after delay
-        channel_id = self._channel_key(message.channel)
         try:
             await message.add_reaction(self.config.read_receipt_emoji)
             self._pending_reactions[channel_id] = message
         except Exception as e:
             logger.debug("Failed to add read receipt reaction: {}", e)
 
-        # Delayed working indicator (cosmetic — not tied to subagent lifecycle)
         async def _delayed_working_emoji() -> None:
             await asyncio.sleep(self.config.working_emoji_delay)
             try:
@@ -155,6 +433,50 @@ class DiscordChannel(BaseChannel):
     async def _on_message(self, message: discord.Message) -> None:
         """Backward-compatible alias for legacy tests/callers."""
         await self._handle_discord_message(message)
+
+    async def _resolve_channel(self, chat_id: str) -> Any | None:
+        """Resolve a Discord channel from cache first, then network fetch."""
+        client = self._client
+        if client is None or not client.is_ready():
+            return None
+        channel_id = int(chat_id)
+        channel = client.get_channel(channel_id)
+        if channel is not None:
+            return channel
+        fetch_channel = getattr(client, "fetch_channel", None)
+        if not callable(fetch_channel):
+            return None
+        try:
+            return await fetch_channel(channel_id)
+        except Exception as e:
+            logger.warning("Discord channel {} unavailable: {}", chat_id, e)
+            return None
+
+    async def _finalize_stream(self, chat_id: str, buf: _StreamBuf) -> None:
+        """Commit the final streamed content and flush overflow chunks."""
+        chunks = DiscordBotClient._build_chunks(buf.text, [], False)
+        if not chunks:
+            self._stream_bufs.pop(chat_id, None)
+            return
+
+        try:
+            await buf.message.edit(content=chunks[0])
+        except Exception as e:
+            logger.warning("Discord final stream edit failed: {}", e)
+            raise
+
+        target = getattr(buf.message, "channel", None) or await self._resolve_channel(chat_id)
+        if target is None:
+            logger.warning("Discord stream follow-up target {} unavailable", chat_id)
+            self._stream_bufs.pop(chat_id, None)
+            return
+
+        for extra_chunk in chunks[1:]:
+            await target.send(content=extra_chunk)
+
+        self._stream_bufs.pop(chat_id, None)
+        await self._stop_typing(chat_id)
+        await self._clear_reactions(chat_id)
 
     def _should_accept_inbound(
         self,
@@ -263,10 +585,8 @@ class DiscordChannel(BaseChannel):
         except asyncio.CancelledError:
             pass
 
-
     async def _clear_reactions(self, chat_id: str) -> None:
         """Remove all pending reactions after bot replies."""
-        # Cancel delayed working emoji if it hasn't fired yet
         task = self._working_emoji_tasks.pop(chat_id, None)
         if task and not task.done():
             task.cancel()
@@ -290,6 +610,7 @@ class DiscordChannel(BaseChannel):
     async def _reset_runtime_state(self, close_client: bool) -> None:
         """Reset client and typing state."""
         await self._cancel_all_typing()
+        self._stream_bufs.clear()
         if close_client and self._client is not None and not self._client.is_closed():
             try:
                 await self._client.close()
