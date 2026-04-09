@@ -295,13 +295,13 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     )
     assert login.status == 302
     assert login.headers["Location"] == "/admin"
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     config_page = await _call_route(
         app,
         "GET",
         "/admin/config",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
     )
     assert config_page.status == 200
     assert "配置编辑" in config_page.text
@@ -364,7 +364,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
         app,
         "GET",
         "/admin/commands",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
     )
     assert commands_page.status == 200
     assert "命令总览" in commands_page.text
@@ -380,7 +380,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
         app,
         "POST",
         "/admin/config",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
         data=[
             ("mode", "visual"),
             ("__bool_fields", "tools_mcp_memorix_enabled"),
@@ -429,7 +429,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
             ("memory_user_mem0_vector_store_api_key", "mem0-vs-key"),
             ("memory_user_mem0_vector_store_url", "https://qdrant.mem0.ai"),
             ("memory_user_mem0_vector_store_headers", '{"api-key":"vector-header"}'),
-            ("memory_user_mem0_vector_store_config", '{"collectionName":"nanobot_user_memory"}'),
+            ("memory_user_mem0_vector_store_config", '{"collectionName":"hahobot_user_memory"}'),
             ("memory_user_mem0_metadata", '{"tenant":"paid-mem0","env":"prod"}'),
             ("tools_mcp_memorix_enabled", "1"),
             ("tools_mcp_memorix_type", "streamableHttp"),
@@ -486,7 +486,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
         "api-key": "vector-header"
     }
     assert saved["memory"]["user"]["mem0"]["vectorStore"]["config"] == {
-        "collectionName": "nanobot_user_memory"
+        "collectionName": "hahobot_user_memory"
     }
     assert saved["memory"]["user"]["mem0"]["metadata"] == {"tenant": "paid-mem0", "env": "prod"}
     assert saved["tools"]["mcpServers"]["memorix"]["type"] == "streamableHttp"
@@ -537,11 +537,34 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
         app,
         "GET",
         "/admin",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
     )
     assert overview_page.status == 200
     assert "providerPool/failover" in overview_page.text
     assert "openrouter, deepseek" in overview_page.text
+
+
+@pytest.mark.asyncio
+async def test_gateway_admin_login_sets_hahobot_and_legacy_cookie_names(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    workspace = tmp_path / "workspace"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+
+    assert login.status == 302
+    assert login.cookies["hahobot_admin_session"].value
+    assert login.cookies["nanobot_admin_session"].value
 
 
 @pytest.mark.asyncio
@@ -558,23 +581,23 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
     login_page = await _call_route(app, "GET", "/admin/login?lang=en")
     assert login_page.status == 200
     assert "Admin Login" in login_page.text
-    assert login_page.cookies["nanobot_admin_lang"].value == "en"
+    assert login_page.cookies["hahobot_admin_lang"].value == "en"
 
     login = await _call_route(
         app,
         "POST",
         "/admin/login",
-        cookies={"nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_lang": "en"},
         data={"auth_key": "secret-key", "next": "/admin"},
     )
     assert login.status == 302
-    session_cookie = login.cookies["nanobot_admin_session"].value
+    session_cookie = login.cookies["hahobot_admin_session"].value
 
     config_page = await _call_route(
         app,
         "GET",
         "/admin/config",
-        cookies={"nanobot_admin_session": session_cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": session_cookie, "hahobot_admin_lang": "en"},
     )
     assert config_page.status == 200
     assert "Config Editor" in config_page.text
@@ -612,7 +635,7 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
         app,
         "GET",
         "/admin/commands",
-        cookies={"nanobot_admin_session": session_cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": session_cookie, "hahobot_admin_lang": "en"},
     )
     assert commands_page.status == 200
     assert "Command Reference" in commands_page.text
@@ -631,7 +654,7 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
         app,
         "POST",
         "/admin/config",
-        cookies={"nanobot_admin_session": session_cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": session_cookie, "hahobot_admin_lang": "en"},
         data={
             "mode": "raw",
             "config_json": json.dumps(updated, ensure_ascii=False, indent=2),
@@ -643,6 +666,72 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["agents"]["defaults"]["model"] == "openai/gpt-5-mini"
     assert saved["gateway"]["host"] == "127.0.0.1"
+
+
+@pytest.mark.asyncio
+async def test_gateway_admin_accepts_hahobot_cookie_names(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    workspace = tmp_path / "workspace"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+
+    login_page = await _call_route(app, "GET", "/admin/login?lang=en")
+    assert login_page.cookies["hahobot_admin_lang"].value == "en"
+
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        cookies={"hahobot_admin_lang": "en"},
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    session_cookie = login.cookies["hahobot_admin_session"].value
+
+    config_page = await _call_route(
+        app,
+        "GET",
+        "/admin/config",
+        cookies={"hahobot_admin_session": session_cookie, "hahobot_admin_lang": "en"},
+    )
+    assert config_page.status == 200
+    assert "Config Editor" in config_page.text
+
+
+@pytest.mark.asyncio
+async def test_gateway_admin_accepts_legacy_cookie_names(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    workspace = tmp_path / "workspace"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+
+    login_page = await _call_route(app, "GET", "/admin/login?lang=en")
+    assert login_page.cookies["nanobot_admin_lang"].value == "en"
+
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        cookies={"nanobot_admin_lang": "en"},
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    session_cookie = login.cookies["nanobot_admin_session"].value
+
+    config_page = await _call_route(
+        app,
+        "GET",
+        "/admin/config",
+        cookies={"nanobot_admin_session": session_cookie, "nanobot_admin_lang": "en"},
+    )
+    assert config_page.status == 200
+    assert "Config Editor" in config_page.text
 
 
 @pytest.mark.asyncio
@@ -665,17 +754,17 @@ async def test_gateway_admin_provider_group_summaries_are_compact_and_safe(tmp_p
         app,
         "POST",
         "/admin/login",
-        cookies={"nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_lang": "en"},
         data={"auth_key": "secret-key", "next": "/admin/config"},
     )
     assert login.status == 302
-    session_cookie = login.cookies["nanobot_admin_session"].value
+    session_cookie = login.cookies["hahobot_admin_session"].value
 
     config_page = await _call_route(
         app,
         "GET",
         "/admin/config",
-        cookies={"nanobot_admin_session": session_cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": session_cookie, "hahobot_admin_lang": "en"},
     )
     assert config_page.status == 200
     assert 'data-provider-group-meta="openrouter"' in config_page.text
@@ -740,13 +829,13 @@ async def test_gateway_admin_visual_empty_provider_pool_targets_remove_pool(tmp_
         "/admin/login",
         data={"auth_key": "secret-key", "next": "/admin"},
     )
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     save_resp = await _call_route(
         app,
         "POST",
         "/admin/config",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
         data=[
             ("mode", "visual"),
             ("agents_defaults_provider_pool_strategy", "failover"),
@@ -777,13 +866,13 @@ async def test_gateway_admin_visual_provider_pool_row_requires_provider(tmp_path
         "/admin/login",
         data={"auth_key": "secret-key", "next": "/admin"},
     )
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     response = await _call_route(
         app,
         "POST",
         "/admin/config",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
         data=[
             ("mode", "visual"),
             ("agents_defaults_provider_pool_strategy", "failover"),
@@ -829,17 +918,17 @@ async def test_gateway_admin_channel_cards_preserve_multi_instance_config(tmp_pa
         app,
         "POST",
         "/admin/login",
-        cookies={"nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_lang": "en"},
         data={"auth_key": "secret-key", "next": "/admin/config"},
     )
     assert login.status == 302
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     config_page = await _call_route(
         app,
         "GET",
         "/admin/config",
-        cookies={"nanobot_admin_session": cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": cookie, "hahobot_admin_lang": "en"},
     )
     assert config_page.status == 200
     assert 'data-channel-group="telegram"' in config_page.text
@@ -857,7 +946,7 @@ async def test_gateway_admin_channel_cards_preserve_multi_instance_config(tmp_pa
         app,
         "POST",
         "/admin/config",
-        cookies={"nanobot_admin_session": cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": cookie, "hahobot_admin_lang": "en"},
         data=[
             ("mode", "visual"),
             ("__bool_fields", "channels_telegram_enabled"),
@@ -891,13 +980,13 @@ async def test_gateway_admin_visual_main_push_mode_allows_blank_join_key(tmp_pat
         "/admin/login",
         data={"auth_key": "secret-key", "next": "/admin"},
     )
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     save_resp = await _call_route(
         app,
         "POST",
         "/admin/config",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
         data=[
             ("mode", "visual"),
             ("__bool_fields", "gateway_status_push_enabled"),
@@ -957,16 +1046,16 @@ async def test_gateway_admin_weixin_login_page_starts_and_renders_pending_sessio
         app,
         "POST",
         "/admin/login",
-        cookies={"nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_lang": "en"},
         data={"auth_key": "secret-key", "next": "/admin/weixin"},
     )
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     start_resp = await _call_route(
         app,
         "POST",
         "/admin/weixin/start",
-        cookies={"nanobot_admin_session": cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": cookie, "hahobot_admin_lang": "en"},
         data={},
     )
     assert start_resp.status == 302
@@ -976,7 +1065,7 @@ async def test_gateway_admin_weixin_login_page_starts_and_renders_pending_sessio
         app,
         "GET",
         "/admin/weixin?session=weixin-session",
-        cookies={"nanobot_admin_session": cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": cookie, "hahobot_admin_lang": "en"},
     )
     assert page.status == 200
     assert "Weixin QR Login" in page.text
@@ -1024,16 +1113,16 @@ async def test_gateway_admin_weixin_login_page_handles_confirm_and_cancel(
         app,
         "POST",
         "/admin/login",
-        cookies={"nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_lang": "en"},
         data={"auth_key": "secret-key", "next": "/admin/weixin"},
     )
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     page = await _call_route(
         app,
         "GET",
         "/admin/weixin?session=weixin-session",
-        cookies={"nanobot_admin_session": cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": cookie, "hahobot_admin_lang": "en"},
     )
     assert page.status == 200
     assert "Weixin login confirmed" in page.text
@@ -1044,7 +1133,7 @@ async def test_gateway_admin_weixin_login_page_handles_confirm_and_cancel(
         app,
         "POST",
         "/admin/weixin/cancel",
-        cookies={"nanobot_admin_session": cookie, "nanobot_admin_lang": "en"},
+        cookies={"hahobot_admin_session": cookie, "hahobot_admin_lang": "en"},
         data={"session": "weixin-session"},
     )
     assert cancel_resp.status == 302
@@ -1068,13 +1157,13 @@ async def test_gateway_admin_persona_editor_updates_files(tmp_path: Path) -> Non
         "/admin/login",
         data={"auth_key": "secret-key", "next": "/admin"},
     )
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     create_resp = await _call_route(
         app,
         "POST",
         "/admin/personas/new",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
         data={"name": "Aria"},
     )
     assert create_resp.status == 302
@@ -1084,7 +1173,7 @@ async def test_gateway_admin_persona_editor_updates_files(tmp_path: Path) -> Non
         app,
         "GET",
         "/admin/personas/Aria",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
     )
     assert persona_page.status == 200
     assert "这里编辑当前角色在 runtime workspace 下的提示词与元数据文件" in persona_page.text
@@ -1096,22 +1185,36 @@ async def test_gateway_admin_persona_editor_updates_files(tmp_path: Path) -> Non
     assert "当前没有检测到明显需要迁移的旧版“用户画像型”" in persona_page.text
     assert "可选的语音/TTS 覆盖配置" in persona_page.text
     assert "可选的角色元数据" in persona_page.text
+    assert "Companion 场景" in persona_page.text
+    assert "默认参考图" in persona_page.text
+    assert "分场景参考图" in persona_page.text
+    assert "场景 Prompt 覆盖" in persona_page.text
 
     save_resp = await _call_route(
         app,
         "POST",
         "/admin/personas/Aria",
-        cookies={"nanobot_admin_session": cookie},
-        data={
-            "soul_md": "# Soul\n\nCalm and observant.",
-            "user_md": "# User\n\nStay close.",
-            "profile_md": "# Profile\n\nPrefers concise technical collaboration.",
-            "insights_md": "# Insights\n\nDo best with short iterative review loops.",
-            "style_md": "# Style\n\nShort replies.",
-            "lore_md": "",
-            "voice_json": json.dumps({"provider": "edge", "edgeVoice": "zh-CN-XiaoyiNeural"}),
-            "manifest_json": json.dumps({"reference_image": "assets/avatar.png"}),
-        },
+        cookies={"hahobot_admin_session": cookie},
+        data=[
+            ("soul_md", "# Soul\n\nCalm and observant."),
+            ("user_md", "# User\n\nStay close."),
+            ("profile_md", "# Profile\n\nPrefers concise technical collaboration."),
+            ("insights_md", "# Insights\n\nDo best with short iterative review loops."),
+            ("style_md", "# Style\n\nShort replies."),
+            ("lore_md", ""),
+            ("voice_json", json.dumps({"provider": "edge", "edgeVoice": "zh-CN-XiaoyiNeural"})),
+            ("manifest_json", json.dumps({"custom_field": "keep-me"})),
+            ("manifest_reference_image", "assets/avatar.png"),
+            ("manifest_reference_images_key", "comfort"),
+            ("manifest_reference_images_value", "assets/comfort.png"),
+            ("manifest_reference_images_key", "rainy_walk"),
+            ("manifest_reference_images_value", "assets/rainy.png"),
+            ("manifest_scene_prompts_key", "comfort"),
+            ("manifest_scene_prompts_value", "Keep it close and quiet."),
+            ("manifest_scene_captions_key", "comfort"),
+            ("manifest_scene_captions_value", "{persona} stayed nearby."),
+            ("manifest_response_filter_tags", "inner, thought"),
+        ],
     )
     assert save_resp.status == 302
     assert save_resp.headers["Location"] == "/admin/personas/Aria?saved=updated"
@@ -1129,7 +1232,275 @@ async def test_gateway_admin_persona_editor_updates_files(tmp_path: Path) -> Non
     assert not (persona_dir / "LORE.md").exists()
     assert json.loads((persona_dir / "VOICE.json").read_text(encoding="utf-8"))["provider"] == "edge"
     manifest_path = persona_dir / ".hahobot" / "st_manifest.json"
-    assert json.loads(manifest_path.read_text(encoding="utf-8"))["reference_image"] == "assets/avatar.png"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["reference_image"] == "assets/avatar.png"
+    assert manifest["reference_images"] == {
+        "comfort": "assets/comfort.png",
+        "rainy_walk": "assets/rainy.png",
+    }
+    assert manifest["scene_prompts"] == {"comfort": "Keep it close and quiet."}
+    assert manifest["scene_captions"] == {"comfort": "{persona} stayed nearby."}
+    assert manifest["response_filter_tags"] == ["inner", "thought"]
+    assert manifest["custom_field"] == "keep-me"
+
+
+@pytest.mark.asyncio
+async def test_gateway_admin_persona_scene_editor_shows_validation_error_and_preserves_input(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = tmp_path / "config.json"
+
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    cookie = login.cookies["hahobot_admin_session"].value
+
+    create_resp = await _call_route(
+        app,
+        "POST",
+        "/admin/personas/new",
+        cookies={"hahobot_admin_session": cookie},
+        data={"name": "Aria"},
+    )
+    assert create_resp.status == 302
+
+    save_resp = await _call_route(
+        app,
+        "POST",
+        "/admin/personas/Aria",
+        cookies={"hahobot_admin_session": cookie},
+        data=[
+            ("soul_md", "# Soul\n\nCalm and observant."),
+            ("user_md", "# User\n\nStay close."),
+            ("profile_md", ""),
+            ("insights_md", ""),
+            ("style_md", ""),
+            ("lore_md", ""),
+            ("voice_json", ""),
+            ("manifest_json", ""),
+            ("manifest_reference_image", "assets/avatar.png"),
+            ("manifest_reference_images_key", "comfort"),
+            ("manifest_scene_prompts_key", "comfort"),
+            ("manifest_scene_prompts_value", "Keep it close and quiet."),
+            ("manifest_scene_captions_key", ""),
+            ("manifest_scene_captions_value", ""),
+            ("manifest_response_filter_tags", ""),
+        ],
+    )
+
+    assert save_resp.status == 200
+    assert "场景映射每一行都必须使用 name = value 格式。出错行：1" in save_resp.text
+    assert 'name="manifest_reference_image" value="assets/avatar.png"' in save_resp.text
+    assert 'name="manifest_reference_images_key" value="comfort"' in save_resp.text
+
+
+@pytest.mark.asyncio
+async def test_gateway_admin_persona_scene_preview_renders_generated_image(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = tmp_path / "config.json"
+
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    config.tools.image_gen.enabled = True
+    config.tools.image_gen.api_key = "preview-key"
+    save_config(config, config_path)
+
+    async def _fake_execute(self, **kwargs):
+        path = self._default_output_dir() / "admin_preview.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\npreview")
+        return f"Image generated successfully.\nFile path: {path}\n\nNext step: send it."
+
+    monkeypatch.setattr(admin_mod.ImageGenTool, "execute", _fake_execute)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    cookie = login.cookies["hahobot_admin_session"].value
+
+    create_resp = await _call_route(
+        app,
+        "POST",
+        "/admin/personas/new",
+        cookies={"hahobot_admin_session": cookie},
+        data={"name": "Aria"},
+    )
+    assert create_resp.status == 302
+
+    preview_resp = await _call_route(
+        app,
+        "POST",
+        "/admin/personas/Aria/scene-preview",
+        cookies={"hahobot_admin_session": cookie},
+        data={"scene_name": "daily", "scene_brief": ""},
+    )
+
+    assert preview_resp.status == 200
+    assert "场景预览" in preview_resp.text
+    assert "Aria 给你留了一张日常陪伴的合照。" in preview_resp.text
+    assert "admin_preview.png" in preview_resp.text
+    assert "data:image/png;base64," in preview_resp.text
+
+
+@pytest.mark.asyncio
+async def test_gateway_admin_persona_scene_template_save_updates_manifest_and_shows_flash(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = tmp_path / "config.json"
+
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    cookie = login.cookies["hahobot_admin_session"].value
+
+    create_resp = await _call_route(
+        app,
+        "POST",
+        "/admin/personas/new",
+        cookies={"hahobot_admin_session": cookie},
+        data={"name": "Aria"},
+    )
+    assert create_resp.status == 302
+
+    manifest_path = workspace / "personas" / "Aria" / ".hahobot" / "st_manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "custom_field": "keep-me",
+                "scene_prompts": {"daily": "Existing daily prompt."},
+                "scene_captions": {"daily": "{persona} kept you company."},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    save_resp = await _call_route(
+        app,
+        "POST",
+        "/admin/personas/Aria/scene-template-save",
+        cookies={"hahobot_admin_session": cookie},
+        data={
+            "scene_name": "comfort",
+            "scene_prompt": "Keep it close and quiet.",
+            "scene_caption": "{persona} stayed nearby.",
+            "preview_scene_name": "daily",
+            "preview_scene_brief": "",
+        },
+    )
+
+    assert save_resp.status == 302
+    assert save_resp.headers["Location"] == "/admin/personas/Aria?scene_saved=1&scene=comfort"
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["custom_field"] == "keep-me"
+    assert manifest["scene_prompts"] == {
+        "daily": "Existing daily prompt.",
+        "comfort": "Keep it close and quiet.",
+    }
+    assert manifest["scene_captions"] == {
+        "daily": "{persona} kept you company.",
+        "comfort": "{persona} stayed nearby.",
+    }
+
+    page_resp = await _call_route(
+        app,
+        "GET",
+        "/admin/personas/Aria?scene_saved=1&scene=comfort",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert page_resp.status == 200
+    assert "场景模板已保存：comfort" in page_resp.text
+
+
+@pytest.mark.asyncio
+async def test_gateway_admin_persona_scene_template_save_invalid_name_preserves_form(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = tmp_path / "config.json"
+
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    config.tools.image_gen.enabled = True
+    config.tools.image_gen.api_key = "preview-key"
+    save_config(config, config_path)
+
+    async def _fake_execute(self, **kwargs):
+        path = self._default_output_dir() / "admin_preview.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\npreview")
+        return f"Image generated successfully.\nFile path: {path}\n\nNext step: send it."
+
+    monkeypatch.setattr(admin_mod.ImageGenTool, "execute", _fake_execute)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    cookie = login.cookies["hahobot_admin_session"].value
+
+    create_resp = await _call_route(
+        app,
+        "POST",
+        "/admin/personas/new",
+        cookies={"hahobot_admin_session": cookie},
+        data={"name": "Aria"},
+    )
+    assert create_resp.status == 302
+
+    save_resp = await _call_route(
+        app,
+        "POST",
+        "/admin/personas/Aria/scene-template-save",
+        cookies={"hahobot_admin_session": cookie},
+        data={
+            "scene_name": "bad name!",
+            "scene_prompt": "Keep it close and quiet.",
+            "scene_caption": "{persona} stayed nearby.",
+            "preview_scene_name": "daily",
+            "preview_scene_brief": "",
+        },
+    )
+
+    assert save_resp.status == 200
+    assert (
+        "保存场景模板失败：场景名必须以字母或数字开头，只能包含字母、数字、_ 或 -，长度不超过 64。"
+        in save_resp.text
+    )
+    assert 'name="scene_name" value="bad name!"' in save_resp.text
+    assert "Keep it close and quiet." in save_resp.text
+    assert "{persona} stayed nearby." in save_resp.text
+    assert "admin_preview.png" in save_resp.text
 
 
 @pytest.mark.asyncio
@@ -1149,13 +1520,13 @@ async def test_gateway_admin_persona_migrates_legacy_user_md(tmp_path: Path) -> 
         "/admin/login",
         data={"auth_key": "secret-key", "next": "/admin"},
     )
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     create_resp = await _call_route(
         app,
         "POST",
         "/admin/personas/new",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
         data={"name": "Aria"},
     )
     assert create_resp.status == 302
@@ -1182,7 +1553,7 @@ async def test_gateway_admin_persona_migrates_legacy_user_md(tmp_path: Path) -> 
         app,
         "GET",
         "/admin/personas/Aria",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
     )
     assert preview_page.status == 200
     assert "迁移预览" in preview_page.text
@@ -1199,7 +1570,7 @@ async def test_gateway_admin_persona_migrates_legacy_user_md(tmp_path: Path) -> 
         app,
         "POST",
         "/admin/personas/Aria/migrate-user",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
     )
     assert migrate_resp.status == 302
     assert migrate_resp.headers["Location"] == "/admin/personas/Aria?migrated=1&profile=2&insights=1"
@@ -1227,7 +1598,7 @@ async def test_gateway_admin_persona_migrates_legacy_user_md(tmp_path: Path) -> 
         app,
         "GET",
         "/admin/personas/Aria?migrated=1&profile=2&insights=1",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
     )
     assert migrated_page.status == 200
     assert "迁移完成" in migrated_page.text
@@ -1252,13 +1623,13 @@ async def test_gateway_admin_persona_shows_memory_metadata_summary(tmp_path: Pat
         "/admin/login",
         data={"auth_key": "secret-key", "next": "/admin"},
     )
-    cookie = login.cookies["nanobot_admin_session"].value
+    cookie = login.cookies["hahobot_admin_session"].value
 
     create_resp = await _call_route(
         app,
         "POST",
         "/admin/personas/new",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
         data={"name": "Aria"},
     )
     assert create_resp.status == 302
@@ -1281,7 +1652,7 @@ async def test_gateway_admin_persona_shows_memory_metadata_summary(tmp_path: Pat
         app,
         "GET",
         "/admin/personas/Aria",
-        cookies={"nanobot_admin_session": cookie},
+        cookies={"hahobot_admin_session": cookie},
     )
     assert persona_page.status == 200
     assert "画像 / 洞察元信息" in persona_page.text

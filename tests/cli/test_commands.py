@@ -36,6 +36,7 @@ class _StopGatewayError(RuntimeError):
 def mock_paths():
     """Mock config/workspace paths for test isolation."""
     with patch("hahobot.config.loader.get_config_path") as mock_cp, \
+         patch("hahobot.config.loader.find_compatible_config_source", return_value=None), \
          patch("hahobot.config.loader.save_config") as mock_sc, \
          patch("hahobot.config.loader.load_config") as mock_lc, \
          patch("hahobot.cli.commands.get_workspace_path") as mock_ws:
@@ -607,7 +608,10 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
-    monkeypatch.setattr("hahobot.cron.service.CronService", lambda _store: object())
+    monkeypatch.setattr(
+        "hahobot.cron.service.CronService",
+        lambda _store, **_kwargs: object(),
+    )
 
     class _FakeAgentLoop:
         def __init__(self, *args, **kwargs) -> None:
@@ -635,7 +639,8 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
 
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "agent-workspace")
-    seen: dict[str, Path] = {}
+    config.gateway.cron.max_sleep_ms = 12_345
+    seen: dict[str, object] = {}
 
     monkeypatch.setattr("hahobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
@@ -644,8 +649,9 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
 
     class _FakeCron:
-        def __init__(self, store_path: Path) -> None:
+        def __init__(self, store_path: Path, max_sleep_ms: int = 300_000) -> None:
             seen["cron_store"] = store_path
+            seen["cron_max_sleep_ms"] = max_sleep_ms
 
     class _FakeAgentLoop:
         def __init__(self, *args, **kwargs) -> None:
@@ -665,6 +671,7 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
 
     assert result.exit_code == 0
     assert seen["cron_store"] == config.workspace_path / "cron" / "jobs.json"
+    assert seen["cron_max_sleep_ms"] == 12_345
 
 
 def test_agent_workspace_override_does_not_migrate_legacy_cron(
@@ -691,7 +698,7 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(
     monkeypatch.setattr("hahobot.config.paths.get_cron_dir", lambda: legacy_dir)
 
     class _FakeCron:
-        def __init__(self, store_path: Path) -> None:
+        def __init__(self, store_path: Path, **_kwargs) -> None:
             seen["cron_store"] = store_path
 
     class _FakeAgentLoop:
@@ -744,7 +751,7 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
     monkeypatch.setattr("hahobot.config.paths.get_cron_dir", lambda: legacy_dir)
 
     class _FakeCron:
-        def __init__(self, store_path: Path) -> None:
+        def __init__(self, store_path: Path, **_kwargs) -> None:
             seen["cron_store"] = store_path
 
     class _FakeAgentLoop:
@@ -1000,11 +1007,13 @@ def test_gateway_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: 
     config_file = _write_instance_config(tmp_path)
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "config-workspace")
-    seen: dict[str, Path] = {}
+    config.gateway.cron.max_sleep_ms = 54_321
+    seen: dict[str, object] = {}
 
     class _StopCron:
-        def __init__(self, store_path: Path) -> None:
+        def __init__(self, store_path: Path, max_sleep_ms: int = 300_000) -> None:
             seen["cron_store"] = store_path
+            seen["cron_max_sleep_ms"] = max_sleep_ms
             raise _StopGatewayError("stop")
 
     _patch_cli_command_runtime(
@@ -1019,6 +1028,7 @@ def test_gateway_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: 
 
     assert isinstance(result.exception, _StopGatewayError)
     assert seen["cron_store"] == config.workspace_path / "cron" / "jobs.json"
+    assert seen["cron_max_sleep_ms"] == 54_321
 
 
 def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
@@ -1043,7 +1053,7 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
     monkeypatch.setattr("hahobot.session.manager.SessionManager", lambda _workspace: object())
 
     class _FakeCron:
-        def __init__(self, _store_path: Path) -> None:
+        def __init__(self, _store_path: Path, **_kwargs) -> None:
             self.on_job = None
             seen["cron"] = self
 
@@ -1144,7 +1154,7 @@ def test_gateway_workspace_override_does_not_migrate_legacy_cron(
     seen: dict[str, Path] = {}
 
     class _StopCron:
-        def __init__(self, store_path: Path) -> None:
+        def __init__(self, store_path: Path, **_kwargs) -> None:
             seen["cron_store"] = store_path
             raise _StopGatewayError("stop")
 
@@ -1183,7 +1193,7 @@ def test_gateway_custom_config_workspace_does_not_migrate_legacy_cron(
     seen: dict[str, Path] = {}
 
     class _StopCron:
-        def __init__(self, store_path: Path) -> None:
+        def __init__(self, store_path: Path, **_kwargs) -> None:
             seen["cron_store"] = store_path
             raise _StopGatewayError("stop")
 
@@ -1294,7 +1304,7 @@ def test_gateway_constructs_http_server_without_public_file_options(monkeypatch,
     monkeypatch.setattr("hahobot.session.manager.SessionManager", lambda _workspace: MagicMock())
 
     class _DummyCronService:
-        def __init__(self, _store_path: Path) -> None:
+        def __init__(self, _store_path: Path, **_kwargs) -> None:
             pass
 
     class _DummyAgentLoop:
@@ -1342,7 +1352,7 @@ def test_gateway_constructs_http_server_without_public_file_options(monkeypatch,
     assert seen["host"] == config.gateway.host
     assert seen["port"] == config.gateway.port
     assert seen["config_path"] == config_file.resolve()
-    assert seen["workspace"] == config.workspace_path
+    assert seen["workspace"] == config.bind_config_path(config_file.resolve()).workspace_path
     assert callable(seen["reload_runtime"])
     assert seen["star_office_tracker"] is not None
     assert seen["runtime_status_tracker"] is not None
@@ -1369,8 +1379,11 @@ def test_gateway_registers_dream_job_from_config(monkeypatch, tmp_path: Path) ->
     monkeypatch.setattr("hahobot.session.manager.SessionManager", lambda _workspace: MagicMock())
 
     class _FakeCronService:
-        def __init__(self, _store_path: Path) -> None:
+        def __init__(self, _store_path: Path, **_kwargs) -> None:
             self.on_job = None
+
+        def apply_runtime_config(self, max_sleep_ms: int) -> None:
+            seen["cron_max_sleep_ms"] = max_sleep_ms
 
         def status(self) -> dict[str, int]:
             return {"jobs": 0}

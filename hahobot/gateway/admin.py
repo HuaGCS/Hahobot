@@ -21,6 +21,12 @@ from urllib.parse import quote, urlencode, urlsplit
 import httpx
 from aiohttp import web
 
+from hahobot.agent.commands.scene import (
+    available_scene_names,
+    build_scene_generation_spec,
+    extract_generated_path,
+    render_scene_caption,
+)
 from hahobot.agent.i18n import language_label, normalize_language_code
 from hahobot.agent.i18n import text as i18n_text
 from hahobot.agent.memory_metadata import summarize_memory_metadata
@@ -31,16 +37,20 @@ from hahobot.agent.personas import (
     PERSONA_VOICE_FILENAME,
     list_personas,
     normalize_persona_name,
+    normalize_response_filter_tags,
     persona_workspace,
     personas_root,
     resolve_persona_name,
 )
+from hahobot.agent.tools.image_gen import ImageGenTool
 from hahobot.config.loader import _migrate_config, load_config
 from hahobot.config.schema import Config
-from hahobot.utils.helpers import ensure_dir
+from hahobot.utils.helpers import detect_image_mime, ensure_dir
 
-_ADMIN_COOKIE = "nanobot_admin_session"
-_ADMIN_LANG_COOKIE = "nanobot_admin_lang"
+_ADMIN_COOKIE = "hahobot_admin_session"
+_LEGACY_ADMIN_COOKIE = "nanobot_admin_session"
+_ADMIN_LANG_COOKIE = "hahobot_admin_lang"
+_LEGACY_ADMIN_LANG_COOKIE = "nanobot_admin_lang"
 _ADMIN_COOKIE_TTL_S = 12 * 60 * 60
 _ADMIN_LANG_COOKIE_TTL_S = 365 * 24 * 60 * 60
 _DEFAULT_ADMIN_LANG = "zh"
@@ -53,6 +63,7 @@ _MEMORIX_MCP_DEFAULT_COMMAND = "memorix"
 _MEMORIX_MCP_DEFAULT_ARGS = ("serve",)
 _MEMORIX_MCP_DEFAULT_TIMEOUT = 60
 _WEIXIN_ADMIN_SESSION_TTL_S = 15 * 60
+_SCENE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _LEGACY_USER_PROFILE_TITLE_RE = re.compile(r"^#\s*(user profile|用户画像|用户资料)\s*$", re.IGNORECASE)
 _LEGACY_USER_PROFILE_SECTION_TITLES = {
     "basic information",
@@ -137,6 +148,17 @@ class WeixinAdminLoginSession:
     bot_id: str = ""
     user_id: str = ""
     error: str = ""
+
+
+@dataclass(frozen=True)
+class PersonaScenePreview:
+    """Admin-side scene preview result."""
+
+    scene_name: str
+    brief: str
+    caption: str
+    image_path: Path
+    image_data_url: str | None
 
 
 _CONFIG_FIELDS = (
@@ -352,6 +374,12 @@ _CONFIG_FIELDS = (
         "int",
         "admin_config_gateway_heartbeat_keep_recent_label",
         restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "gateway_cron_max_sleep_ms",
+        ("gateway", "cron", "maxSleepMs"),
+        "int",
+        "admin_config_gateway_cron_max_sleep_label",
     ),
     ConfigFieldSpec(
         "gateway_admin_enabled",
@@ -1196,6 +1224,36 @@ _COMMAND_DOCS = (
         note_key="admin_commands_note_persona",
     ),
     CommandDocSpec(
+        command="/stchar",
+        description_keys=("cmd_stchar",),
+        usage_lines=(
+            "/stchar list",
+            "/stchar show <name>",
+            "/stchar load <name>",
+        ),
+    ),
+    CommandDocSpec(
+        command="/preset",
+        description_keys=("cmd_preset",),
+        usage_lines=(
+            "/preset",
+            "/preset show",
+            "/preset show <persona>",
+        ),
+    ),
+    CommandDocSpec(
+        command="/scene",
+        description_keys=("cmd_scene",),
+        usage_lines=(
+            "/scene list",
+            "/scene daily",
+            "/scene comfort",
+            "/scene date",
+            "/scene <custom_scene>",
+            "/scene generate <brief>",
+        ),
+    ),
+    CommandDocSpec(
         command="/skill",
         description_keys=("cmd_skill",),
         usage_text_key="skill_usage",
@@ -1476,6 +1534,7 @@ _CONFIG_SECTIONS = (
             "gateway_heartbeat_enabled",
             "gateway_heartbeat_interval_s",
             "gateway_heartbeat_keep_recent_messages",
+            "gateway_cron_max_sleep_ms",
             "gateway_admin_enabled",
             "gateway_admin_auth_key",
             "gateway_status_enabled",
@@ -1651,6 +1710,8 @@ def register_admin_routes(
     app.router.add_get("/admin/personas", _admin_personas_page)
     app.router.add_post("/admin/personas/new", _admin_persona_create)
     app.router.add_get("/admin/personas/{persona:[A-Za-z0-9_-]+}", _admin_persona_page)
+    app.router.add_post("/admin/personas/{persona:[A-Za-z0-9_-]+}/scene-preview", _admin_persona_scene_preview)
+    app.router.add_post("/admin/personas/{persona:[A-Za-z0-9_-]+}/scene-template-save", _admin_persona_scene_template_save)
     app.router.add_post("/admin/personas/{persona:[A-Za-z0-9_-]+}/migrate-user", _admin_persona_migrate_user)
     app.router.add_post("/admin/personas/{persona:[A-Za-z0-9_-]+}", _admin_persona_submit)
 
@@ -1670,6 +1731,155 @@ def _runtime_workspace(request: web.Request) -> Path:
 
 def _load_current_config(request: web.Request) -> Config:
     return load_config(_current_config_path(request))
+
+
+def _scene_preview_image_data_url(path: Path) -> str | None:
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    mime = detect_image_mime(raw) or "image/png"
+    encoded = base64.b64encode(raw).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def _scene_preview_form_defaults(request: web.Request, persona: str) -> dict[str, str]:
+    scenes = available_scene_names(_runtime_workspace(request), persona)
+    return {
+        "scene_name": scenes[0] if scenes else "daily",
+        "scene_brief": "",
+    }
+
+
+def _scene_template_form_defaults(
+    request: web.Request,
+    persona: str,
+    *,
+    preview: PersonaScenePreview | None = None,
+    preview_form: dict[str, str] | None = None,
+) -> dict[str, str]:
+    if preview is None:
+        defaults = _scene_preview_form_defaults(request, persona)
+        return {
+            "scene_name": defaults["scene_name"],
+            "scene_prompt": "",
+            "scene_caption": "",
+        }
+    persona_label = persona if persona != DEFAULT_PERSONA else _t(request, "scene_persona_fallback")
+    caption = preview.caption.replace(persona_label, "{persona}") if persona_label else preview.caption
+    return {
+        "scene_name": preview.scene_name,
+        "scene_prompt": (preview_form or {}).get("scene_brief", ""),
+        "scene_caption": caption,
+    }
+
+
+def _validate_scene_name(request: web.Request, name: str) -> str:
+    normalized = name.strip()
+    if not _SCENE_NAME_RE.fullmatch(normalized):
+        raise ValueError(_t(request, "admin_persona_scene_template_invalid_name"))
+    return normalized
+
+
+def _save_persona_scene_template(
+    request: web.Request,
+    *,
+    persona: str,
+    scene_name: str,
+    scene_prompt: str,
+    scene_caption: str,
+) -> None:
+    normalized_scene = _validate_scene_name(request, scene_name)
+    path = _persona_file_map(_runtime_workspace(request), persona)["st_manifest.json"]
+    raw_manifest = _read_text(path)
+    manifest = _parse_json_object_text(
+        raw_manifest,
+        object_required_message=_t(request, "admin_json_object_required"),
+    )
+    prompts = manifest.get("scene_prompts")
+    if not isinstance(prompts, dict):
+        prompts = {}
+    captions = manifest.get("scene_captions")
+    if not isinstance(captions, dict):
+        captions = {}
+
+    prompt_value = scene_prompt.strip()
+    caption_value = scene_caption.strip()
+    if prompt_value:
+        prompts[normalized_scene] = prompt_value
+    else:
+        prompts.pop(normalized_scene, None)
+    if caption_value:
+        captions[normalized_scene] = caption_value
+    else:
+        captions.pop(normalized_scene, None)
+
+    if prompts:
+        manifest["scene_prompts"] = prompts
+    else:
+        manifest.pop("scene_prompts", None)
+    if captions:
+        manifest["scene_captions"] = captions
+    else:
+        manifest.pop("scene_captions", None)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_pretty_json(manifest) + "\n" if manifest else "", encoding="utf-8")
+
+
+async def _generate_persona_scene_preview(
+    request: web.Request,
+    *,
+    persona: str,
+    scene_name: str,
+    scene_brief: str,
+) -> PersonaScenePreview:
+    config = _load_current_config(request)
+    image_cfg = config.tools.image_gen
+    if not image_cfg.enabled:
+        raise ValueError(_t(request, "scene_tool_disabled"))
+
+    workspace = _runtime_workspace(request)
+    spec = build_scene_generation_spec(
+        workspace,
+        persona=persona,
+        subcommand=scene_name,
+        brief=scene_brief or None,
+        image_gen_default_reference=image_cfg.reference_image,
+    )
+    if spec is None:
+        items = "\n".join(f"- {name}" for name in available_scene_names(workspace, persona))
+        raise ValueError(_t(request, "scene_unknown", name=scene_name, items=items))
+
+    tool = ImageGenTool(
+        workspace=workspace,
+        api_key=image_cfg.api_key,
+        base_url=image_cfg.base_url,
+        model=image_cfg.model,
+        proxy=image_cfg.proxy,
+        timeout=image_cfg.timeout,
+        reference_image=image_cfg.reference_image,
+        restrict_to_workspace=config.tools.restrict_to_workspace,
+    )
+    tool.set_persona(persona)
+    params: dict[str, str] = {"prompt": spec.prompt}
+    if spec.reference_selector:
+        params["reference_image"] = spec.reference_selector
+    result = await tool.execute(**params)
+    output_path = Path(extract_generated_path(result) or "")
+    if not output_path.exists():
+        raise ValueError(result if isinstance(result, str) else _t(request, "generic_error"))
+    return PersonaScenePreview(
+        scene_name=scene_name,
+        brief=scene_brief,
+        caption=render_scene_caption(
+            _admin_language(request),
+            persona_label=persona if persona != DEFAULT_PERSONA else _t(request, "scene_persona_fallback"),
+            spec=spec,
+        ),
+        image_path=output_path,
+        image_data_url=_scene_preview_image_data_url(output_path),
+    )
 
 
 def _weixin_login_sessions(request: web.Request) -> dict[str, WeixinAdminLoginSession]:
@@ -1919,7 +2129,7 @@ def _is_authenticated(request: web.Request) -> bool:
     if not auth_key:
         return False
 
-    raw = request.cookies.get(_ADMIN_COOKIE, "")
+    raw = request.cookies.get(_ADMIN_COOKIE) or request.cookies.get(_LEGACY_ADMIN_COOKIE, "")
     parts = raw.split(":", 2)
     if len(parts) != 3:
         return False
@@ -1949,7 +2159,9 @@ def _admin_language(request: web.Request) -> str:
     query_lang = normalize_language_code(request.query.get("lang"))
     if query_lang:
         return query_lang
-    cookie_lang = normalize_language_code(request.cookies.get(_ADMIN_LANG_COOKIE))
+    cookie_lang = normalize_language_code(
+        request.cookies.get(_ADMIN_LANG_COOKIE) or request.cookies.get(_LEGACY_ADMIN_LANG_COOKIE)
+    )
     if cookie_lang:
         return cookie_lang
     return _DEFAULT_ADMIN_LANG
@@ -1972,12 +2184,13 @@ def _language_switch_label(code: str, ui_language: str) -> str:
 
 
 def _set_lang_cookie(response: web.StreamResponse, request: web.Request) -> web.StreamResponse:
-    response.set_cookie(
-        _ADMIN_LANG_COOKIE,
-        _admin_language(request),
-        max_age=_ADMIN_LANG_COOKIE_TTL_S,
-        samesite="Lax",
-    )
+    for cookie_name in (_ADMIN_LANG_COOKIE, _LEGACY_ADMIN_LANG_COOKIE):
+        response.set_cookie(
+            cookie_name,
+            _admin_language(request),
+            max_age=_ADMIN_LANG_COOKIE_TTL_S,
+            samesite="Lax",
+        )
     return response
 
 
@@ -2506,13 +2719,16 @@ def _page(
       gap: 12px;
     }}
     .provider-pool-head,
-    .provider-pool-row {{
+    .provider-pool-row,
+    .scene-map-head,
+    .scene-map-row {{
       display: grid;
       gap: 10px;
       grid-template-columns: minmax(0, 220px) minmax(0, 1fr) auto;
       align-items: center;
     }}
-    .provider-pool-head {{
+    .provider-pool-head,
+    .scene-map-head {{
       padding: 0 2px;
       color: var(--muted);
       font-size: 12px;
@@ -2520,17 +2736,20 @@ def _page(
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }}
-    .provider-pool-rows {{
+    .provider-pool-rows,
+    .scene-map-rows {{
       display: grid;
       gap: 10px;
     }}
-    .provider-pool-row {{
+    .provider-pool-row,
+    .scene-map-row {{
       padding: 12px;
       border: 1px solid var(--line);
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.03);
     }}
-    .provider-pool-row-actions {{
+    .provider-pool-row-actions,
+    .scene-map-row-actions {{
       display: flex;
       gap: 8px;
       align-items: center;
@@ -3178,6 +3397,205 @@ def _write_json_file(
     path.write_text(_pretty_json(data) + "\n", encoding="utf-8")
 
 
+_PERSONA_MANIFEST_KNOWN_KEYS = (
+    "reference_image",
+    "referenceImage",
+    "reference_images",
+    "referenceImages",
+    "scene_prompts",
+    "scenePrompts",
+    "scene_captions",
+    "sceneCaptions",
+    "response_filter_tags",
+    "responseFilterTags",
+)
+
+
+def _parse_json_object_text(raw: str, *, object_required_message: str) -> dict[str, Any]:
+    if not raw.strip():
+        return {}
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError(object_required_message)
+    return data
+
+
+def _manifest_map_to_text(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    items: list[str] = []
+    for key in sorted(value):
+        raw_value = value.get(key)
+        if not isinstance(key, str) or not isinstance(raw_value, str):
+            continue
+        cleaned_key = key.strip()
+        cleaned_value = raw_value.strip()
+        if cleaned_key and cleaned_value:
+            items.append(f"{cleaned_key} = {cleaned_value}")
+    return "\n".join(items)
+
+
+def _manifest_tags_to_text(value: Any) -> str:
+    return ", ".join(normalize_response_filter_tags(value))
+
+
+def _manifest_map_rows(value: Any) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    if isinstance(value, dict):
+        for key in sorted(value):
+            raw_value = value.get(key)
+            if not isinstance(key, str) or not isinstance(raw_value, str):
+                continue
+            rows.append({"key": key.strip(), "value": raw_value.strip()})
+    elif isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            rows.append(
+                {
+                    "key": str(item.get("key", "") or "").strip(),
+                    "value": str(item.get("value", "") or "").strip(),
+                }
+            )
+    elif isinstance(value, str):
+        rows = [
+            {"key": key, "value": mapped}
+            for key, mapped in _parse_manifest_mapping_lines(
+                value,
+                invalid_message="invalid row: {line}",
+            ).items()
+        ]
+    return rows or [{"key": "", "value": ""}]
+
+
+def _persona_manifest_form_values(raw_manifest: str) -> dict[str, Any]:
+    try:
+        data = _parse_json_object_text(
+            raw_manifest,
+            object_required_message="manifest must be object",
+        )
+    except Exception:
+        data = {}
+
+    return {
+        "response_filter_tags": _manifest_tags_to_text(
+            data.get("response_filter_tags", data.get("responseFilterTags"))
+        ),
+        "reference_image": str(
+            data.get("reference_image", data.get("referenceImage")) or ""
+        ).strip(),
+        "reference_images_rows": _manifest_map_rows(
+            data.get("reference_images", data.get("referenceImages"))
+        ),
+        "scene_prompts_rows": _manifest_map_rows(
+            data.get("scene_prompts", data.get("scenePrompts"))
+        ),
+        "scene_captions_rows": _manifest_map_rows(
+            data.get("scene_captions", data.get("sceneCaptions"))
+        ),
+    }
+
+
+def _parse_manifest_mapping_lines(raw: str, *, invalid_message: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line_no, raw_line in enumerate(raw.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "=" not in line:
+            raise ValueError(invalid_message.format(line=line_no))
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or not value:
+            raise ValueError(invalid_message.format(line=line_no))
+        result[key] = value
+    return result
+
+
+def _parse_manifest_mapping_rows(rows: Any, *, invalid_message: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    if not isinstance(rows, list):
+        return result
+    for index, item in enumerate(rows, start=1):
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key", "") or "").strip()
+        value = str(item.get("value", "") or "").strip()
+        if not key and not value:
+            continue
+        if not key or not value:
+            raise ValueError(invalid_message.format(line=index))
+        result[key] = value
+    return result
+
+
+def _manifest_rows_from_form(form: Any, field_name: str) -> list[dict[str, str]]:
+    keys = [str(value) for value in form.getall(f"{field_name}_key", [])]
+    values = [str(value) for value in form.getall(f"{field_name}_value", [])]
+    if not keys and not values and field_name in form:
+        legacy_value = str(form.get(field_name, ""))
+        try:
+            return _manifest_map_rows(legacy_value)
+        except Exception:
+            return [{"key": legacy_value.strip(), "value": ""}] if legacy_value.strip() else [{"key": "", "value": ""}]
+    row_count = max(len(keys), len(values), 1)
+    return [
+        {
+            "key": keys[index] if index < len(keys) else "",
+            "value": values[index] if index < len(values) else "",
+        }
+        for index in range(row_count)
+    ]
+
+
+def _merge_persona_manifest_form(
+    *,
+    raw_manifest: str,
+    form_values: dict[str, str],
+    object_required_message: str,
+    mapping_invalid_message: str,
+) -> str:
+    data = _parse_json_object_text(
+        raw_manifest,
+        object_required_message=object_required_message,
+    )
+    merged = dict(data)
+    for key in _PERSONA_MANIFEST_KNOWN_KEYS:
+        merged.pop(key, None)
+
+    tags = normalize_response_filter_tags(form_values.get("response_filter_tags"))
+    if tags:
+        merged["response_filter_tags"] = list(tags)
+
+    reference_image = form_values.get("reference_image", "").strip()
+    if reference_image:
+        merged["reference_image"] = reference_image
+
+    reference_images = _parse_manifest_mapping_rows(
+        form_values.get("reference_images_rows", []),
+        invalid_message=mapping_invalid_message,
+    )
+    if reference_images:
+        merged["reference_images"] = reference_images
+
+    scene_prompts = _parse_manifest_mapping_rows(
+        form_values.get("scene_prompts_rows", []),
+        invalid_message=mapping_invalid_message,
+    )
+    if scene_prompts:
+        merged["scene_prompts"] = scene_prompts
+
+    scene_captions = _parse_manifest_mapping_rows(
+        form_values.get("scene_captions_rows", []),
+        invalid_message=mapping_invalid_message,
+    )
+    if scene_captions:
+        merged["scene_captions"] = scene_captions
+
+    return _pretty_json(merged) if merged else ""
+
+
 def _persona_file_map(workspace: Path, persona: str) -> dict[str, Path]:
     root = persona_workspace(workspace, persona)
     return {
@@ -3385,6 +3803,7 @@ def _config_form_values(config: Config) -> dict[str, Any]:
         "gateway_heartbeat_enabled": config.gateway.heartbeat.enabled,
         "gateway_heartbeat_interval_s": str(config.gateway.heartbeat.interval_s),
         "gateway_heartbeat_keep_recent_messages": str(config.gateway.heartbeat.keep_recent_messages),
+        "gateway_cron_max_sleep_ms": str(config.gateway.cron.max_sleep_ms),
         "gateway_admin_enabled": config.gateway.admin.enabled,
         "gateway_admin_auth_key": config.gateway.admin.auth_key,
         "gateway_status_enabled": config.gateway.status.enabled,
@@ -4285,13 +4704,15 @@ async def _admin_login_submit(request: web.Request) -> web.Response:
         )
 
     response = _redirect(request, next_path)
-    response.set_cookie(
-        _ADMIN_COOKIE,
-        _build_session_cookie(auth_key),
-        max_age=_ADMIN_COOKIE_TTL_S,
-        httponly=True,
-        samesite="Strict",
-    )
+    cookie_value = _build_session_cookie(auth_key)
+    for cookie_name in (_ADMIN_COOKIE, _LEGACY_ADMIN_COOKIE):
+        response.set_cookie(
+            cookie_name,
+            cookie_value,
+            max_age=_ADMIN_COOKIE_TTL_S,
+            httponly=True,
+            samesite="Strict",
+        )
     raise response
 
 
@@ -4299,6 +4720,7 @@ async def _admin_logout(request: web.Request) -> web.Response:
     _require_admin_enabled(request)
     response = _redirect(request, "/admin/login")
     response.del_cookie(_ADMIN_COOKIE)
+    response.del_cookie(_LEGACY_ADMIN_COOKIE)
     raise response
 
 
@@ -5134,11 +5556,26 @@ def _render_persona_detail_page(
     *,
     persona: str,
     values: dict[str, str],
+    manifest_form_values: dict[str, Any] | None = None,
+    scene_preview_form: dict[str, str] | None = None,
+    scene_preview: PersonaScenePreview | None = None,
+    scene_preview_error: str | None = None,
+    scene_template_form: dict[str, str] | None = None,
+    scene_template_error: str | None = None,
     migration_preview: dict[str, Any] | None = None,
     flash: str | None = None,
     error: str | None = None,
 ) -> web.Response:
     persona_root = persona_workspace(_runtime_workspace(request), persona)
+    scene_values = manifest_form_values or _persona_manifest_form_values(values["st_manifest.json"])
+    preview_form = scene_preview_form or _scene_preview_form_defaults(request, persona)
+    show_template_form = scene_preview is not None or scene_template_error is not None
+    template_form = scene_template_form or _scene_template_form_defaults(
+        request,
+        persona,
+        preview=scene_preview,
+        preview_form=preview_form,
+    )
 
     def _editor_card(title: str, desc_key: str, field_name: str, value: str) -> str:
         return (
@@ -5148,6 +5585,209 @@ def _render_persona_detail_page(
             f'<textarea name="{escape(field_name)}" spellcheck="false">{escape(value)}</textarea>'
             "</label>"
         )
+
+    def _scene_input(label_key: str, hint_key: str, field_name: str, value: str) -> str:
+        return (
+            '<label class="stack">'
+            f'<strong>{escape(_t(request, label_key))}</strong>'
+            f'<div class="muted">{_th(request, hint_key)}</div>'
+            f'<input type="text" name="{escape(field_name)}" value="{escape(value)}" spellcheck="false">'
+            "</label>"
+        )
+
+    def _scene_textarea(
+        label_key: str,
+        hint_key: str,
+        field_name: str,
+        value: str,
+        *,
+        rows: int = 5,
+    ) -> str:
+        return (
+            '<label class="stack">'
+            f'<strong>{escape(_t(request, label_key))}</strong>'
+            f'<div class="muted">{_th(request, hint_key)}</div>'
+            f'<textarea name="{escape(field_name)}" rows="{rows}" spellcheck="false">{escape(value)}</textarea>'
+            "</label>"
+        )
+
+    def _scene_map_row(field_name: str, row: dict[str, str]) -> str:
+        return (
+            '<div class="scene-map-row" data-scene-map-row>'
+            f'<input type="text" name="{escape(field_name)}_key" value="{escape(row.get("key", ""))}" spellcheck="false">'
+            f'<input type="text" name="{escape(field_name)}_value" value="{escape(row.get("value", ""))}" spellcheck="false">'
+            '<div class="scene-map-row-actions">'
+            f'<button type="button" class="ghost" data-scene-map-move-up>{escape(_t(request, "admin_provider_pool_move_up"))}</button>'
+            f'<button type="button" class="ghost" data-scene-map-move-down>{escape(_t(request, "admin_provider_pool_move_down"))}</button>'
+            f'<button type="button" class="ghost" data-scene-map-remove>{escape(_t(request, "admin_provider_pool_remove"))}</button>'
+            "</div>"
+            "</div>"
+        )
+
+    def _scene_map_editor(
+        title_key: str,
+        hint_key: str,
+        field_name: str,
+        rows: list[dict[str, str]],
+    ) -> str:
+        rows_html = "".join(_scene_map_row(field_name, row) for row in rows)
+        template_row = _scene_map_row(field_name, {"key": "", "value": ""})
+        return f"""
+          <div class="stack">
+            <strong>{escape(_t(request, title_key))}</strong>
+            <div class="muted">{_th(request, hint_key)}</div>
+            <div class="scene-map-editor" data-scene-map-editor>
+              <div class="scene-map-head">
+                <span>{escape(_t(request, "admin_persona_scene_column_name"))}</span>
+                <span>{escape(_t(request, "admin_persona_scene_column_value"))}</span>
+                <span>{escape(_t(request, "admin_provider_pool_column_actions"))}</span>
+              </div>
+              <div class="scene-map-rows" data-scene-map-rows>
+                {rows_html}
+              </div>
+              <template data-scene-map-template>{template_row}</template>
+              <div class="actions provider-pool-actions">
+                <button type="button" class="ghost" data-scene-map-add>
+                  {escape(_t(request, "admin_persona_scene_add_row"))}
+                </button>
+              </div>
+            </div>
+          </div>
+        """
+
+    def _scene_editor_card() -> str:
+        return f"""
+          <section class="card stack editor-card">
+            <strong>{escape(_t(request, "admin_persona_scene_title"))}</strong>
+            <div class="muted">{_th(request, "admin_persona_scene_desc")}</div>
+            {_scene_input(
+                "admin_persona_scene_reference_label",
+                "admin_persona_scene_reference_hint",
+                "manifest_reference_image",
+                scene_values["reference_image"],
+            )}
+            {_scene_map_editor(
+                "admin_persona_scene_references_label",
+                "admin_persona_scene_references_hint",
+                "manifest_reference_images",
+                scene_values["reference_images_rows"],
+            )}
+            {_scene_map_editor(
+                "admin_persona_scene_prompts_label",
+                "admin_persona_scene_prompts_hint",
+                "manifest_scene_prompts",
+                scene_values["scene_prompts_rows"],
+            )}
+            {_scene_map_editor(
+                "admin_persona_scene_captions_label",
+                "admin_persona_scene_captions_hint",
+                "manifest_scene_captions",
+                scene_values["scene_captions_rows"],
+            )}
+            {_scene_input(
+                "admin_persona_scene_tags_label",
+                "admin_persona_scene_tags_hint",
+                "manifest_response_filter_tags",
+                scene_values["response_filter_tags"],
+            )}
+          </section>
+        """
+
+    def _scene_template_form_html() -> str:
+        return f"""
+          <form method="post" action="/admin/personas/{escape(persona)}/scene-template-save" class="stack">
+            <input type="hidden" name="preview_scene_name" value="{escape(preview_form.get("scene_name", ""))}">
+            <input type="hidden" name="preview_scene_brief" value="{escape(preview_form.get("scene_brief", ""))}">
+            <div class="field-grid">
+              <label class="field">
+                <span class="label">{escape(_t(request, "admin_persona_scene_template_name_label"))}</span>
+                <input type="text" name="scene_name" value="{escape(template_form.get("scene_name", ""))}" spellcheck="false">
+              </label>
+              <label class="field full">
+                <span class="label">{escape(_t(request, "admin_persona_scene_template_prompt_label"))}</span>
+                <textarea name="scene_prompt" rows="4" spellcheck="false">{escape(template_form.get("scene_prompt", ""))}</textarea>
+              </label>
+              <label class="field full">
+                <span class="label">{escape(_t(request, "admin_persona_scene_template_caption_label"))}</span>
+                <textarea name="scene_caption" rows="3" spellcheck="false">{escape(template_form.get("scene_caption", ""))}</textarea>
+              </label>
+            </div>
+            <div class="actions">
+              <button type="submit" class="ghost">{escape(_t(request, "admin_persona_scene_template_save"))}</button>
+            </div>
+          </form>
+        """
+
+    def _scene_preview_card() -> str:
+        available = available_scene_names(_runtime_workspace(request), persona)
+        selected_scene = preview_form.get("scene_name", "")
+        option_names = [*available, "generate"]
+        if selected_scene and selected_scene not in option_names:
+            option_names.append(selected_scene)
+        options_html = "".join(
+            f'<option value="{escape(name)}"{" selected" if name == selected_scene else ""}>{escape(name)}</option>'
+            for name in option_names
+        )
+        result_html = ""
+        if scene_preview_error:
+            result_html = f'<div class="notice error">{escape(scene_preview_error)}</div>'
+        elif scene_preview is not None:
+            image_html = (
+                f'<div class="qr-preview"><img src="{escape(scene_preview.image_data_url)}" alt="{escape(scene_preview.caption)}"></div>'
+                if scene_preview.image_data_url
+                else ""
+            )
+            template_notice = (
+                f'<div class="notice error">{escape(scene_template_error)}</div>'
+                if scene_template_error
+                else ""
+            )
+            template_form_html = _scene_template_form_html() if show_template_form else ""
+            result_html = f"""
+              <div class="stack">
+                <div class="muted"><strong>{escape(_t(request, "admin_persona_scene_preview_caption_label"))}</strong>: {escape(scene_preview.caption)}</div>
+                <div class="muted"><strong>{escape(_t(request, "admin_persona_scene_preview_path_label"))}</strong>: <code>{escape(str(scene_preview.image_path))}</code></div>
+                {image_html}
+                {template_notice}
+                {template_form_html}
+              </div>
+            """
+        elif show_template_form:
+            template_notice = (
+                f'<div class="notice error">{escape(scene_template_error)}</div>'
+                if scene_template_error
+                else ""
+            )
+            result_html = f"""
+              <div class="stack">
+                {template_notice}
+                {_scene_template_form_html()}
+              </div>
+            """
+        return f"""
+          <section class="card stack">
+            <div class="section-head">
+              <h2>{escape(_t(request, "admin_persona_scene_preview_title"))}</h2>
+              <div class="muted">{_th(request, "admin_persona_scene_preview_desc")}</div>
+            </div>
+            <form method="post" action="/admin/personas/{escape(persona)}/scene-preview" class="stack">
+              <div class="field-grid">
+                <label class="field">
+                  <span class="label">{escape(_t(request, "admin_persona_scene_preview_scene_label"))}</span>
+                  <select name="scene_name">{options_html}</select>
+                </label>
+                <label class="field full">
+                  <span class="label">{escape(_t(request, "admin_persona_scene_preview_brief_label"))}</span>
+                  <input type="text" name="scene_brief" value="{escape(preview_form.get("scene_brief", ""))}" spellcheck="false">
+                </label>
+              </div>
+              <div class="actions">
+                <button type="submit">{escape(_t(request, "admin_persona_scene_preview_generate"))}</button>
+              </div>
+            </form>
+            {result_html}
+          </section>
+        """
 
     def _memory_metadata_card(title: str, value: str) -> str:
         summary = summarize_memory_metadata(value)
@@ -5273,6 +5913,7 @@ def _render_persona_detail_page(
         </div>
       </div>
       {preview_card}
+      {_scene_preview_card()}
       {metadata_card}
       <form method="post" action="/admin/personas/{escape(persona)}" class="stack" id="persona-form">
         <div class="editor-grid">
@@ -5287,6 +5928,9 @@ def _render_persona_detail_page(
         <div class="editor-grid">
           {_editor_card("LORE.md", "admin_persona_lore_desc", "lore_md", values["LORE.md"])}
           {_editor_card("VOICE.json", "admin_persona_voice_desc", "voice_json", values["VOICE.json"])}
+          {_scene_editor_card()}
+        </div>
+        <div class="editor-grid">
           {_editor_card("st_manifest.json", "admin_persona_manifest_desc", "manifest_json", values["st_manifest.json"])}
         </div>
         <div class="card stack">
@@ -5296,6 +5940,63 @@ def _render_persona_detail_page(
           </div>
         </div>
       </form>
+      <script>
+        (() => {{
+          const editors = Array.from(document.querySelectorAll("[data-scene-map-editor]"));
+          if (!editors.length) return;
+
+          const createRow = (editor) => {{
+            const template = editor.querySelector("[data-scene-map-template]");
+            if (!template) return null;
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = template.innerHTML.trim();
+            return wrapper.firstElementChild;
+          }};
+
+          const ensureRow = (editor) => {{
+            const rows = editor.querySelector("[data-scene-map-rows]");
+            if (!rows) return;
+            if (!rows.querySelector("[data-scene-map-row]")) {{
+              const row = createRow(editor);
+              if (row) rows.appendChild(row);
+            }}
+          }};
+
+          editors.forEach((editor) => {{
+            ensureRow(editor);
+            editor.addEventListener("click", (event) => {{
+              const row = event.target.closest("[data-scene-map-row]");
+              const rows = editor.querySelector("[data-scene-map-rows]");
+
+              const addButton = event.target.closest("[data-scene-map-add]");
+              if (addButton) {{
+                const nextRow = createRow(editor);
+                if (rows && nextRow) rows.appendChild(nextRow);
+                return;
+              }}
+
+              const moveUpButton = event.target.closest("[data-scene-map-move-up]");
+              if (moveUpButton && rows && row) {{
+                const previous = row.previousElementSibling;
+                if (previous) rows.insertBefore(row, previous);
+                return;
+              }}
+
+              const moveDownButton = event.target.closest("[data-scene-map-move-down]");
+              if (moveDownButton && rows && row) {{
+                const next = row.nextElementSibling;
+                if (next) rows.insertBefore(next, row);
+                return;
+              }}
+
+              const removeButton = event.target.closest("[data-scene-map-remove]");
+              if (!removeButton) return;
+              if (row) row.remove();
+              ensureRow(editor);
+            }});
+          }});
+        }})();
+      </script>
     """
     return _page(
         title=_t(request, "admin_persona_title", persona=persona),
@@ -5326,6 +6027,8 @@ async def _admin_persona_page(request: web.Request) -> web.Response:
         flash = _t(request, "admin_persona_created")
     elif request.query.get("saved") == "updated":
         flash = _t(request, "admin_persona_updated")
+    elif request.query.get("scene_saved") == "1":
+        flash = _t(request, "admin_persona_scene_saved", scene=request.query.get("scene", ""))
     elif request.query.get("migrated") == "1":
         flash = _t(
             request,
@@ -5348,11 +6051,141 @@ async def _admin_persona_page(request: web.Request) -> web.Response:
     )
 
 
+async def _admin_persona_scene_preview(request: web.Request) -> web.Response:
+    _require_admin_auth(request)
+    persona = _resolved_persona_or_404(request)
+    form = await request.post()
+    files = _persona_file_map(_runtime_workspace(request), persona)
+    values = {
+        "SOUL.md": _read_text(files["SOUL.md"]),
+        "USER.md": _read_text(files["USER.md"]),
+        "PROFILE.md": _read_text(files["PROFILE.md"]),
+        "INSIGHTS.md": _read_text(files["INSIGHTS.md"]),
+        "STYLE.md": _read_text(files["STYLE.md"]),
+        "LORE.md": _read_text(files["LORE.md"]),
+        "VOICE.json": _read_json_text(files["VOICE.json"]),
+        "st_manifest.json": _read_json_text(files["st_manifest.json"]),
+    }
+    preview_form = {
+        "scene_name": str(form.get("scene_name", "")).strip() or "daily",
+        "scene_brief": str(form.get("scene_brief", "")).strip(),
+    }
+    try:
+        preview = await _generate_persona_scene_preview(
+            request,
+            persona=persona,
+            scene_name=preview_form["scene_name"],
+            scene_brief=preview_form["scene_brief"],
+        )
+    except Exception as exc:
+        return _render_persona_detail_page(
+            request,
+            persona=persona,
+            values=values,
+            scene_preview_form=preview_form,
+            scene_preview_error=str(exc),
+            migration_preview=_legacy_user_migration_preview(
+                values["USER.md"],
+                values["PROFILE.md"],
+                values["INSIGHTS.md"],
+            ),
+        )
+    return _render_persona_detail_page(
+        request,
+        persona=persona,
+        values=values,
+        scene_preview_form=preview_form,
+        scene_preview=preview,
+        scene_template_form=_scene_template_form_defaults(
+            request,
+            persona,
+            preview=preview,
+            preview_form=preview_form,
+        ),
+        migration_preview=_legacy_user_migration_preview(
+            values["USER.md"],
+            values["PROFILE.md"],
+            values["INSIGHTS.md"],
+        ),
+    )
+
+
+async def _admin_persona_scene_template_save(request: web.Request) -> web.Response:
+    _require_admin_auth(request)
+    persona = _resolved_persona_or_404(request)
+    form = await request.post()
+    files = _persona_file_map(_runtime_workspace(request), persona)
+    values = {
+        "SOUL.md": _read_text(files["SOUL.md"]),
+        "USER.md": _read_text(files["USER.md"]),
+        "PROFILE.md": _read_text(files["PROFILE.md"]),
+        "INSIGHTS.md": _read_text(files["INSIGHTS.md"]),
+        "STYLE.md": _read_text(files["STYLE.md"]),
+        "LORE.md": _read_text(files["LORE.md"]),
+        "VOICE.json": _read_json_text(files["VOICE.json"]),
+        "st_manifest.json": _read_json_text(files["st_manifest.json"]),
+    }
+    template_form = {
+        "scene_name": str(form.get("scene_name", "")).strip(),
+        "scene_prompt": str(form.get("scene_prompt", "")),
+        "scene_caption": str(form.get("scene_caption", "")),
+    }
+    preview_form = {
+        "scene_name": str(form.get("preview_scene_name", "")).strip() or "daily",
+        "scene_brief": str(form.get("preview_scene_brief", "")).strip()
+        or template_form["scene_prompt"].strip(),
+    }
+    try:
+        _save_persona_scene_template(
+            request,
+            persona=persona,
+            scene_name=template_form["scene_name"],
+            scene_prompt=template_form["scene_prompt"],
+            scene_caption=template_form["scene_caption"],
+        )
+    except ValueError as exc:
+        preview: PersonaScenePreview | None = None
+        try:
+            preview = await _generate_persona_scene_preview(
+                request,
+                persona=persona,
+                scene_name=preview_form["scene_name"],
+                scene_brief=preview_form["scene_brief"],
+            )
+        except Exception:
+            preview = None
+        return _render_persona_detail_page(
+            request,
+            persona=persona,
+            values=values,
+            scene_preview_form=preview_form,
+            scene_preview=preview,
+            scene_template_form=template_form,
+            scene_template_error=_t(request, "admin_persona_scene_template_save_failed", error=exc),
+            migration_preview=_legacy_user_migration_preview(
+                values["USER.md"],
+                values["PROFILE.md"],
+                values["INSIGHTS.md"],
+            ),
+        )
+    raise _redirect(
+        request,
+        f"/admin/personas/{quote(persona, safe='')}?scene_saved=1&scene={quote(template_form['scene_name'], safe='')}",
+    )
+
+
 async def _admin_persona_submit(request: web.Request) -> web.Response:
     _require_admin_auth(request)
     persona = _resolved_persona_or_404(request)
     form = await request.post()
     files = _persona_file_map(_runtime_workspace(request), persona)
+    manifest_form_values = {
+        "response_filter_tags": str(form.get("manifest_response_filter_tags", "")),
+        "reference_image": str(form.get("manifest_reference_image", "")),
+        "reference_images_rows": _manifest_rows_from_form(form, "manifest_reference_images"),
+        "scene_prompts_rows": _manifest_rows_from_form(form, "manifest_scene_prompts"),
+        "scene_captions_rows": _manifest_rows_from_form(form, "manifest_scene_captions"),
+    }
     values = {
         "SOUL.md": str(form.get("soul_md", "")),
         "USER.md": str(form.get("user_md", "")),
@@ -5365,6 +6198,16 @@ async def _admin_persona_submit(request: web.Request) -> web.Response:
     }
 
     try:
+        values["st_manifest.json"] = _merge_persona_manifest_form(
+            raw_manifest=values["st_manifest.json"],
+            form_values=manifest_form_values,
+            object_required_message=_t(request, "admin_json_object_required"),
+            mapping_invalid_message=_t(
+                request,
+                "admin_persona_scene_map_invalid",
+                line="{line}",
+            ),
+        )
         _ensure_persona_scaffold(_runtime_workspace(request), persona)
         _write_text_file(files["SOUL.md"], values["SOUL.md"], optional=False)
         _write_text_file(files["USER.md"], values["USER.md"], optional=False)
@@ -5389,6 +6232,7 @@ async def _admin_persona_submit(request: web.Request) -> web.Response:
             request,
             persona=persona,
             values=values,
+            manifest_form_values=manifest_form_values,
             migration_preview=_legacy_user_migration_preview(
                 values["USER.md"],
                 values["PROFILE.md"],

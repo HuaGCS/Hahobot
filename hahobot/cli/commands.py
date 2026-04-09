@@ -265,6 +265,9 @@ def main(
 persona_app = typer.Typer(help="Manage personas")
 app.add_typer(persona_app, name="persona")
 
+companion_app = typer.Typer(help="Companion workflow utilities")
+app.add_typer(companion_app, name="companion")
+
 
 # ============================================================================
 # Onboard / Setup
@@ -278,15 +281,23 @@ def onboard(
     wizard: bool = typer.Option(False, "--wizard", help="Use interactive wizard"),
 ):
     """Initialize hahobot configuration and workspace."""
-    from hahobot.config.loader import get_config_path, load_config, save_config, set_config_path
+    from hahobot.config.loader import (
+        find_compatible_config_source,
+        get_config_path,
+        load_config,
+        save_config,
+        set_config_path,
+    )
     from hahobot.config.schema import Config
 
+    compatible_source = None
     if config:
         config_path = Path(config).expanduser().resolve()
         set_config_path(config_path)
         console.print(f"[dim]Using config: {config_path}[/dim]")
     else:
         config_path = get_config_path()
+        compatible_source = find_compatible_config_source()
 
     def _apply_workspace_override(loaded: Config) -> Config:
         if workspace:
@@ -294,7 +305,14 @@ def onboard(
         return loaded
 
     # Create or update config
-    if config_path.exists():
+    if compatible_source is not None and not config_path.exists():
+        config = _apply_workspace_override(load_config())
+        if not config_path.exists():
+            save_config(config, config_path)
+        console.print(
+            f"[green]✓[/green] Copied legacy config from {compatible_source} to {config_path}"
+        )
+    elif config_path.exists():
         if wizard:
             config = _apply_workspace_override(load_config(config_path))
         else:
@@ -365,7 +383,7 @@ def onboard(
         console.print("     Get one at: https://openrouter.ai/keys")
         console.print(f"  2. Chat: [cyan]{agent_cmd}[/cyan]")
     console.print(
-        "\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]"
+        "\n[dim]Want Telegram/WhatsApp? See: README.md#-chat-apps[/dim]"
     )
 
 
@@ -551,7 +569,12 @@ def _make_provider(config: Config):
     return _make_single_provider(config, model=defaults.model)
 
 
-def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
+def _load_runtime_config(
+    config: str | None = None,
+    workspace: str | None = None,
+    *,
+    quiet: bool = False,
+) -> Config:
     """Load config and optionally override the active workspace."""
     from hahobot.config.loader import load_config, resolve_config_env_vars, set_config_path
 
@@ -562,20 +585,22 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
             console.print(f"[red]Error: Config file not found: {config_path}[/red]")
             raise typer.Exit(1)
         set_config_path(config_path)
-        console.print(f"[dim]Using config: {config_path}[/dim]")
+        if not quiet:
+            console.print(f"[dim]Using config: {config_path}[/dim]")
 
     try:
         loaded = resolve_config_env_vars(load_config(config_path))
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
-    _warn_deprecated_config_keys(config_path)
+    loaded.bind_config_path(config_path or loaded._config_path)
+    _warn_deprecated_config_keys(config_path, quiet=quiet)
     if workspace:
         loaded.agents.defaults.workspace = workspace
     return loaded
 
 
-def _warn_deprecated_config_keys(config_path: Path | None) -> None:
+def _warn_deprecated_config_keys(config_path: Path | None, *, quiet: bool = False) -> None:
     """Hint users to remove obsolete keys from their config file."""
     import json
 
@@ -587,11 +612,12 @@ def _warn_deprecated_config_keys(config_path: Path | None) -> None:
     except Exception:
         return
     if "memoryWindow" in raw.get("agents", {}).get("defaults", {}):
-        console.print(
-            "[dim]Hint: `memoryWindow` in your config is no longer used "
-            "and can be safely removed. Use `contextWindowTokens` to control "
-            "prompt context size instead.[/dim]"
-        )
+        if not quiet:
+            console.print(
+                "[dim]Hint: `memoryWindow` in your config is no longer used "
+                "and can be safely removed. Use `contextWindowTokens` to control "
+                "prompt context size instead.[/dim]"
+            )
 
 
 def _migrate_cron_store(config: "Config") -> None:
@@ -746,7 +772,7 @@ def gateway(
 
     # Create cron service with workspace-scoped store
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
-    cron = CronService(cron_store_path)
+    cron = CronService(cron_store_path, max_sleep_ms=config.gateway.cron.max_sleep_ms)
 
     # Create agent with cron service
     agent = AgentLoop(
@@ -847,6 +873,7 @@ def gateway(
         reloaded = load_config(runtime_config_path)
         sync_workspace_templates(reloaded.workspace_path, silent=True)
         cron.rebind_store(reloaded.workspace_path / "cron" / "jobs.json")
+        cron.apply_runtime_config(reloaded.gateway.cron.max_sleep_ms)
         await agent.reload_runtime_config(reloaded)
         runtime_status_tracker.set_model(agent.model)
         channels.apply_runtime_config(reloaded)
@@ -1017,7 +1044,7 @@ def agent(
 
     # Create cron service with workspace-scoped store
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
-    cron = CronService(cron_store_path)
+    cron = CronService(cron_store_path, max_sleep_ms=config.gateway.cron.max_sleep_ms)
 
     if logs:
         logger.enable("hahobot")
@@ -1350,6 +1377,90 @@ def persona_import_st_worldinfo(
         f"[green]✓[/green] {action} SillyTavern world info into persona '{result.persona_name}'"
     )
     console.print(f"  Generated file: [cyan]{result.persona_dir / 'LORE.md'}[/cyan]")
+
+
+@companion_app.command("doctor")
+def companion_doctor(
+    persona: str | None = typer.Option(None, "--persona", help="Target persona to inspect"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Run a read-only readiness check for companion-oriented workspace flows."""
+    import json
+
+    from hahobot.cli.companion_doctor import render_companion_doctor_text, run_companion_doctor
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    report = run_companion_doctor(loaded, persona=persona)
+    if json_output:
+        typer.echo(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+        return
+    console.print(render_companion_doctor_text(report))
+
+
+@companion_app.command("init")
+def companion_init(
+    persona: str | None = typer.Option(
+        None,
+        "--persona",
+        help="Target persona name. Defaults to the workspace root persona.",
+    ),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    force: bool = typer.Option(False, "--force", help="Overwrite managed companion files if they already exist"),
+    reference_image: str | None = typer.Option(
+        None,
+        "--reference-image",
+        help="Optional image file to copy into persona assets and register as reference_image",
+    ),
+    no_heartbeat_task: bool = typer.Option(
+        False,
+        "--no-heartbeat-task",
+        help="Do not inject the default companion heartbeat task",
+    ),
+):
+    """Create a minimal companion persona scaffold in the active workspace."""
+    from hahobot.cli.companion_init import init_companion_workspace
+
+    loaded = _load_runtime_config(config, workspace)
+    try:
+        result = init_companion_workspace(
+            loaded,
+            persona=persona,
+            force=force,
+            reference_image=reference_image,
+            add_heartbeat_task=not no_heartbeat_task,
+        )
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    console.print(
+        f"[green]✓[/green] Companion scaffold ready for persona '{result.persona}'"
+    )
+    console.print(f"  Workspace: [cyan]{result.workspace}[/cyan]")
+    console.print(f"  Persona directory: [cyan]{result.persona_dir}[/cyan]")
+    if result.created_paths:
+        console.print("  Created:")
+        for path in result.created_paths:
+            console.print(f"    - [cyan]{path}[/cyan]")
+    if result.updated_paths:
+        console.print("  Updated:")
+        for path in result.updated_paths:
+            console.print(f"    - [cyan]{path}[/cyan]")
+    if result.skipped_paths:
+        console.print("  Kept existing:")
+        for path in result.skipped_paths:
+            console.print(f"    - [cyan]{path}[/cyan]")
+    if result.copied_assets:
+        console.print("  Copied assets:")
+        for path in result.copied_assets:
+            console.print(f"    - [cyan]{path}[/cyan]")
+    console.print(
+        "  Next step: run "
+        f"[cyan]hahobot companion doctor --persona {result.persona}[/cyan]"
+    )
 
 
 # ============================================================================
