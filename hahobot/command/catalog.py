@@ -245,6 +245,35 @@ _COMMAND_SPECS: tuple[CommandSpec, ...] = (
         telegram_menu_enabled=False,
         interactive_rank=160,
     ),
+    CommandSpec(
+        command="/repo",
+        description_keys=(),
+        usage_lines=(
+            "/repo status",
+            "/repo diff",
+            "/repo diff staged",
+        ),
+        completion_subcommands=("status", "diff"),
+        agent_enabled=False,
+        help_enabled=False,
+        admin_enabled=False,
+        telegram_menu_enabled=False,
+        interactive_rank=170,
+    ),
+    CommandSpec(
+        command="/review",
+        description_keys=(),
+        usage_lines=(
+            "/review",
+            "/review staged",
+        ),
+        completion_subcommands=("staged",),
+        agent_enabled=False,
+        help_enabled=False,
+        admin_enabled=False,
+        telegram_menu_enabled=False,
+        interactive_rank=180,
+    ),
 )
 
 

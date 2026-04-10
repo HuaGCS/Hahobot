@@ -324,22 +324,35 @@ hahobot companion doctor --persona Aria --json
 - `hahobot sessions list`: inspect recent saved sessions before resuming them with
   `hahobot agent --continue` or `hahobot agent --session <key>`
 - `hahobot sessions show <key>`: inspect one saved session's metadata and recent messages
+- `hahobot repo status`: inspect the active workspace's local Git state and change counts
+- `hahobot repo diff --staged --name-only`: inspect tracked diff summaries without mutating the
+  repository
+- `hahobot review --staged` / `hahobot review --base main`: run a local diff review with the
+  configured model, without modifying files
 - `hahobot agent --pick-session`: interactively choose a recent CLI session before sending the
   next message
 - `hahobot agent --multiline`: interactive multiline input mode; `Enter` inserts a newline and
   `Ctrl+J` submits the message
 - `hahobot agent`: interactive slash completion for built-in commands such as `/status`,
   `/skill ...`, `/persona ...`, `/dream ...`, workspace persona / scene names, and the local
-  `/session ...` controls
+  `/session ...` / `/repo ...` / `/review ...` controls
 
-Inside `hahobot agent`, the local interactive shell also supports session control commands that do
-not go through the model:
+Inside `hahobot agent`, the local interactive shell also supports commands that do not go through
+the model:
 
 - `/session current`
 - `/session list`
 - `/session show [key]`
 - `/session use <key>`
 - `/session new [name]`
+- `/repo status`
+- `/repo diff`
+- `/repo diff staged`
+- `/review`
+- `/review staged`
+
+`/repo diff` only reports tracked Git changes. Use `/repo status` when you also need untracked
+file counts.
 
 ### Persona-local extras
 

@@ -32,8 +32,12 @@ def test_interactive_and_telegram_catalog_keep_aliases_and_safe_names() -> None:
 
     assert "/language" in names
     assert "/session" in names
+    assert "/repo" in names
+    assert "/review" in names
     assert "language" in telegram_forwardable_commands()
     assert "dream_log" in telegram_forwardable_commands()
+    assert "repo" not in telegram_forwardable_commands()
+    assert "review" not in telegram_forwardable_commands()
     assert normalize_telegram_command_text("/dream_log deadbeef") == "/dream-log deadbeef"
     assert normalize_telegram_command_text("/dream_restore deadbeef") == "/dream-restore deadbeef"
 
