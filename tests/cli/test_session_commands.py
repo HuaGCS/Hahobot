@@ -113,3 +113,230 @@ def test_sessions_show_missing_session_returns_error(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "Session not found: cli:missing" in result.stdout
+
+
+def test_agent_continue_uses_latest_cli_session(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    config = Config()
+    config.agents.defaults.workspace = str(workspace)
+
+    _save_session(workspace, "cli:older", ("user", "first"))
+    _save_session(workspace, "cli:newer", ("user", "second"))
+    _save_session(workspace, "telegram:42", ("user", "telegram latest"))
+
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda loaded: loaded)
+    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
+    monkeypatch.setattr(
+        "hahobot.cron.service.CronService",
+        lambda _store, **_kwargs: object(),
+    )
+    monkeypatch.setattr("hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+
+    class _FakeAgentLoop:
+        def __init__(self, *args, **kwargs) -> None:
+            seen["session_manager"] = kwargs.get("session_manager")
+            self.channels_config = None
+
+        async def process_direct(self, content, session_key, **_kwargs):
+            seen["content"] = content
+            seen["session_key"] = session_key
+            return OutboundMessage(channel="cli", chat_id="direct", content="ok")
+
+        async def close_mcp(self) -> None:
+            return None
+
+    monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
+
+    result = runner.invoke(
+        app,
+        ["agent", "-m", "hello", "--continue", "-c", str(config_path)],
+    )
+
+    assert result.exit_code == 0
+    assert seen["content"] == "hello"
+    assert seen["session_key"] == "cli:newer"
+    assert "Resuming session: cli:newer" in result.stdout
+
+
+def test_agent_rejects_continue_and_explicit_session_together(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    config = Config()
+    config.agents.defaults.workspace = str(workspace)
+
+    monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda loaded: loaded)
+    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
+
+    result = runner.invoke(
+        app,
+        ["agent", "-m", "hello", "--continue", "--session", "cli:manual", "-c", str(config_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "choose only one of --session, --continue, or --pick-session" in result.stdout
+
+
+def test_agent_pick_session_uses_selected_cli_session(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    config = Config()
+    config.agents.defaults.workspace = str(workspace)
+
+    _save_session(workspace, "cli:older", ("user", "first"))
+    _save_session(workspace, "cli:newer", ("assistant", "second answer"), persona="Aria")
+    _save_session(workspace, "telegram:42", ("user", "telegram latest"))
+
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda loaded: loaded)
+    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
+    monkeypatch.setattr(
+        "hahobot.cron.service.CronService",
+        lambda _store, **_kwargs: object(),
+    )
+    monkeypatch.setattr("hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+
+    class _FakeAgentLoop:
+        def __init__(self, *args, **kwargs) -> None:
+            self.channels_config = None
+
+        async def process_direct(self, content, session_key, **_kwargs):
+            seen["content"] = content
+            seen["session_key"] = session_key
+            return OutboundMessage(channel="cli", chat_id="direct", content="ok")
+
+        async def close_mcp(self) -> None:
+            return None
+
+    monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
+
+    result = runner.invoke(
+        app,
+        ["agent", "-m", "hello", "--pick-session", "-c", str(config_path)],
+        input="2\n",
+    )
+
+    assert result.exit_code == 0
+    assert seen["content"] == "hello"
+    assert seen["session_key"] == "cli:older"
+    assert "Select a session to resume" in result.stdout
+    assert "Selected session: cli:older" in result.stdout
+
+
+def test_agent_pick_session_conflicts_with_continue(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    config = Config()
+    config.agents.defaults.workspace = str(workspace)
+
+    monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda loaded: loaded)
+    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
+
+    result = runner.invoke(
+        app,
+        ["agent", "-m", "hello", "--continue", "--pick-session", "-c", str(config_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "choose only one of --session, --continue, or --pick-session" in result.stdout
+
+
+def test_local_session_command_list_and_current(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _save_session(workspace, "cli:alpha", ("assistant", "hello alpha"))
+    manager = SessionManager(workspace)
+
+    current = commands._handle_local_session_command(
+        "/session current",
+        session_manager=manager,
+        current_session_id="cli:alpha",
+    )
+    listing = commands._handle_local_session_command(
+        "/session list",
+        session_manager=manager,
+        current_session_id="cli:alpha",
+    )
+
+    assert current.new_session_id is None
+    assert current.text == "Current session: cli:alpha"
+    assert "cli:alpha" in listing.text
+    assert "hello alpha" in listing.text
+
+
+def test_local_session_command_use_and_show(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _save_session(workspace, "cli:alpha", ("user", "first"), ("assistant", "second"), persona="Aria")
+    manager = SessionManager(workspace)
+
+    switched = commands._handle_local_session_command(
+        "/session use alpha",
+        session_manager=manager,
+        current_session_id="cli:direct",
+    )
+    detail = commands._handle_local_session_command(
+        "/session show alpha",
+        session_manager=manager,
+        current_session_id="cli:direct",
+    )
+
+    assert switched.new_session_id == "cli:alpha"
+    assert switched.text == "Switched to session: cli:alpha"
+    assert "hahobot sessions show cli:alpha" in detail.text
+    assert "Persona: Aria" in detail.text
+    assert "second" in detail.text
+
+
+def test_local_session_command_new_and_missing(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _save_session(workspace, "cli:alpha", ("assistant", "hello alpha"))
+    manager = SessionManager(workspace)
+
+    existing = commands._handle_local_session_command(
+        "/session new alpha",
+        session_manager=manager,
+        current_session_id="cli:direct",
+    )
+    generated = commands._handle_local_session_command(
+        "/session new",
+        session_manager=manager,
+        current_session_id="cli:direct",
+    )
+    missing = commands._handle_local_session_command(
+        "/session use missing",
+        session_manager=manager,
+        current_session_id="cli:direct",
+    )
+
+    assert existing.new_session_id is None
+    assert "Session already exists: cli:alpha" in existing.text
+    assert generated.new_session_id is not None
+    assert generated.new_session_id.startswith("cli:")
+    assert "Started new session" in generated.text
+    assert missing.new_session_id is None
+    assert "Session not found: cli:missing" in missing.text

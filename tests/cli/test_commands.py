@@ -563,6 +563,9 @@ def test_agent_help_shows_workspace_and_config_options():
     assert "-w" in result.stdout
     assert "--config" in result.stdout
     assert "-c" in result.stdout
+    assert "--continue" in result.stdout
+    assert "--pick-session" in result.stdout
+    assert "--multiline" in result.stdout
 
 
 def test_agent_uses_default_config_when_no_workspace_or_config_flags(mock_agent_runtime):

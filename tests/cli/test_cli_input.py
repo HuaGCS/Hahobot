@@ -1,11 +1,19 @@
-import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import HTML
 
 from hahobot.cli import commands
 from hahobot.cli import stream as stream_mod
+
+
+@pytest.fixture(autouse=True)
+def reset_interactive_completion_context():
+    commands._clear_interactive_completion_context()
+    yield
+    commands._clear_interactive_completion_context()
 
 
 @pytest.fixture
@@ -24,11 +32,152 @@ async def test_read_interactive_input_async_returns_input(mock_prompt_session):
     mock_prompt_session.prompt_async.return_value = "hello world"
 
     result = await commands._read_interactive_input_async()
-    
+
     assert result == "hello world"
     mock_prompt_session.prompt_async.assert_called_once()
-    args, _ = mock_prompt_session.prompt_async.call_args
+    args, kwargs = mock_prompt_session.prompt_async.call_args
     assert isinstance(args[0], HTML)  # Verify HTML prompt is used
+    assert kwargs["completer"] is commands._INTERACTIVE_SLASH_COMPLETER
+
+
+@pytest.mark.asyncio
+async def test_read_interactive_input_async_multiline_sets_prompt_options(mock_prompt_session):
+    """Multiline mode should enable continuation UI and custom submit bindings."""
+    mock_prompt_session.prompt_async.return_value = "line1\nline2"
+
+    result = await commands._read_interactive_input_async(multiline=True)
+
+    assert result == "line1\nline2"
+    _, kwargs = mock_prompt_session.prompt_async.call_args
+    assert kwargs["multiline"] is True
+    assert kwargs["completer"] is commands._INTERACTIVE_SLASH_COMPLETER
+    assert kwargs["key_bindings"] is not None
+    assert kwargs["bottom_toolbar"] is not None
+    assert isinstance(kwargs["prompt_continuation"], HTML)
+
+
+def test_interactive_slash_completer_matches_top_level_prefixes():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/s", cursor_position=2),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == [
+        "/status",
+        "/stchar",
+        "/scene",
+        "/skill",
+        "/stop",
+        "/session",
+    ]
+
+
+def test_interactive_slash_completer_matches_session_subcommands():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/session s", cursor_position=len("/session s")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["show"]
+
+
+def test_interactive_slash_completer_matches_dynamic_persona_names(tmp_path):
+    (tmp_path / "personas" / "coder").mkdir(parents=True)
+
+    commands._set_interactive_completion_context(
+        workspace=tmp_path,
+        session_manager=None,
+        current_session_id=None,
+    )
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/persona set c", cursor_position=len("/persona set c")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["coder"]
+
+
+def test_interactive_slash_completer_matches_dynamic_session_keys(tmp_path):
+    from hahobot.session.manager import SessionManager
+
+    manager = SessionManager(tmp_path)
+    for key in ("cli:alpha", "cli:beta"):
+        session = manager.get_or_create(key)
+        session.add_message("user", "hello")
+        manager.save(session)
+
+    commands._set_interactive_completion_context(
+        workspace=tmp_path,
+        session_manager=manager,
+        current_session_id="cli:direct",
+    )
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/session use cli:a", cursor_position=len("/session use cli:a")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["cli:alpha"]
+
+
+def test_interactive_slash_completer_matches_dynamic_scene_names(tmp_path):
+    from hahobot.session.manager import SessionManager
+
+    persona_dir = tmp_path / "personas" / "Aria"
+    manifest_dir = persona_dir / ".hahobot"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "st_manifest.json").write_text(
+        json.dumps({"scene_prompts": {"rainy_walk": "Umbrella, close walk, wet street reflections."}}),
+        encoding="utf-8",
+    )
+
+    manager = SessionManager(tmp_path)
+    session = manager.get_or_create("cli:direct")
+    session.metadata["persona"] = "Aria"
+    manager.save(session)
+
+    commands._set_interactive_completion_context(
+        workspace=tmp_path,
+        session_manager=manager,
+        current_session_id="cli:direct",
+    )
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/scene r", cursor_position=len("/scene r")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["rainy_walk"]
+
+
+def test_interactive_slash_completer_matches_language_codes():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/lang set z", cursor_position=len("/lang set z")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["zh"]
+
+
+def test_interactive_slash_completer_ignores_plain_text():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="hello /s", cursor_position=len("hello /s")),
+            None,
+        )
+    )
+
+    assert completions == []
 
 
 @pytest.mark.asyncio
@@ -44,18 +193,18 @@ def test_init_prompt_session_creates_session():
     """Test that _init_prompt_session initializes the global session."""
     # Ensure global is None before test
     commands._PROMPT_SESSION = None
-    
-    with patch("hahobot.cli.commands.PromptSession") as MockSession, \
-         patch("hahobot.cli.commands.FileHistory") as MockHistory, \
+
+    with patch("hahobot.cli.commands.PromptSession") as mock_session_cls, \
+         patch("hahobot.cli.commands.FileHistory"), \
          patch("pathlib.Path.home") as mock_home:
-        
+
         mock_home.return_value = MagicMock()
-        
+
         commands._init_prompt_session()
-        
+
         assert commands._PROMPT_SESSION is not None
-        MockSession.assert_called_once()
-        _, kwargs = MockSession.call_args
+        mock_session_cls.assert_called_once()
+        _, kwargs = mock_session_cls.call_args
         assert kwargs["multiline"] is False
         assert kwargs["enable_open_in_editor"] is False
 
@@ -156,13 +305,13 @@ def test_stream_renderer_stop_for_input_stops_spinner():
     # Create renderer with mocked console
     with patch.object(stream_mod, "_make_console", return_value=mock_console):
         renderer = stream_mod.StreamRenderer(show_spinner=True)
-        
+
         # Verify spinner started
         spinner.start.assert_called_once()
-        
+
         # Stop for input
         renderer.stop_for_input()
-        
+
         # Verify spinner stopped
         spinner.stop.assert_called_once()
 
