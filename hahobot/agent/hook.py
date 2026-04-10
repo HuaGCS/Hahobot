@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -16,6 +17,9 @@ class AgentHookContext:
 
     iteration: int
     messages: list[dict[str, Any]]
+    workspace: Path | None = None
+    session_key: str | None = None
+    model: str | None = None
     request_messages: list[dict[str, Any]] = field(default_factory=list)
     response: LLMResponse | None = None
     usage: dict[str, int] = field(default_factory=dict)

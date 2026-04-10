@@ -2,9 +2,10 @@
 hahobot - A lightweight AI agent framework
 """
 
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
-from pathlib import Path
 import tomllib
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+from pathlib import Path
 
 
 def _read_pyproject_version() -> str | None:
@@ -27,6 +28,21 @@ def _resolve_version() -> str:
 __version__ = _resolve_version()
 __logo__ = "🐈"
 
-from hahobot.hahobot import Hahobot, RunResult
+__all__ = ["ExternalHookBridge", "Hahobot", "RunResult"]
 
-__all__ = ["Hahobot", "RunResult"]
+
+def __getattr__(name: str):
+    """Lazy top-level exports to avoid import cycles during package init."""
+    if name == "ExternalHookBridge":
+        from hahobot.agent.hook_bridge import ExternalHookBridge
+
+        return ExternalHookBridge
+    if name in {"Hahobot", "RunResult"}:
+        from hahobot.hahobot import Hahobot, RunResult
+
+        exports = {
+            "Hahobot": Hahobot,
+            "RunResult": RunResult,
+        }
+        return exports[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

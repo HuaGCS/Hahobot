@@ -38,6 +38,7 @@
 - [配置说明](#配置说明)
 - [多实例](#多实例)
 - [CLI 参考](#cli-参考)
+- [外部 Hook Bridge](#外部-hook-bridge)
 - [OpenAI 兼容 API](#openai-兼容-api)
 - [周期任务](#周期任务)
 - [Docker](#docker)
@@ -1455,6 +1456,38 @@ manifest 中可声明：
 | `/restart` | 重启进程 |
 | `/status` | 查看运行状态 |
 | `/help` | 查看帮助 |
+
+## 外部 Hook Bridge
+
+如果你已经有现成的 shell / Python 自动化，不想自己实现一个 Python `AgentHook`，现在可以直接把
+生命周期事件桥接到外部命令：
+
+```python
+import asyncio
+
+from hahobot import ExternalHookBridge, Hahobot
+
+
+async def main() -> None:
+    bot = Hahobot.from_config()
+    hook = ExternalHookBridge(
+        ["python", "scripts/audit_hook.py"],
+        events=["before_iteration", "before_execute_tools", "after_iteration"],
+    )
+    result = await bot.run("总结一下这个仓库", hooks=[hook])
+    print(result.content)
+
+
+asyncio.run(main())
+```
+
+外部命令会从 stdin 收到一个 JSON 对象，包含 `schema_version`、`event` 和 `context`。默认不会强制
+开启 streaming；只有你显式把 `on_stream` 或 `on_stream_end` 放进 `events` 时，bridge 才会要求
+逐段流式事件。
+
+如果你想把外部命令当成策略门禁，可以在 `before_iteration` 或 `before_execute_tools` 阶段返回
+`{"continue": false, "message": "..."}`，或者直接用退出码 `2` 明确阻断。其他非零退出码默认是
+fail-open，只会记日志；如果你希望外部命令失败时直接让任务失败，可以改用 `fail_open=False`。
 
 ## OpenAI 兼容 API
 

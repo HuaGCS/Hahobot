@@ -28,6 +28,7 @@ from hahobot.agent.commands import (
 )
 from hahobot.agent.context import ContextBuilder
 from hahobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
+from hahobot.agent.hook_bridge import ExternalHookBridgeBlocked
 from hahobot.agent.i18n import (
     DEFAULT_LANGUAGE,
     resolve_language,
@@ -1621,6 +1622,16 @@ class AgentLoop:
             except asyncio.CancelledError:
                 logger.info("Task cancelled for session {}", msg.session_key)
                 raise
+            except ExternalHookBridgeBlocked as exc:
+                logger.info("External hook blocked session {}: {}", msg.session_key, exc)
+                await self.bus.publish_outbound(OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=str(exc) or text(
+                        self._get_session_language(self.sessions.get_or_create(msg.session_key)),
+                        "generic_error",
+                    ),
+                ))
             except Exception:
                 logger.exception("Error processing message for session {}", msg.session_key)
                 await self.bus.publish_outbound(OutboundMessage(

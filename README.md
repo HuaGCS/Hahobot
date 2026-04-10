@@ -34,6 +34,7 @@ oriented built-in skills.
 - [Memory and Self-Iteration](#memory-and-self-iteration)
 - [Channels, Gateway, and API](#channels-gateway-and-api)
 - [Tools, Skills, and MCP](#tools-skills-and-mcp)
+- [External Hook Bridge](#external-hook-bridge)
 - [Compatibility with nanobot](#compatibility-with-nanobot)
 - [Repository Layout](#repository-layout)
 - [Development](#development)
@@ -523,6 +524,38 @@ Workspace-local skills live under `workspace/skills/` and override built-ins wit
 Hahobot supports MCP servers through `tools.mcpServers`. When Memorix MCP tools are connected,
 hahobot can auto-load the built-in `memorix` skill and initialize the session against the active
 workspace.
+
+## External Hook Bridge
+
+If you already have shell or Python automation and do not want to implement a Python `AgentHook`,
+you can bridge selected hook events to an external command:
+
+```python
+import asyncio
+
+from hahobot import ExternalHookBridge, Hahobot
+
+
+async def main() -> None:
+    bot = Hahobot.from_config()
+    hook = ExternalHookBridge(
+        ["python", "scripts/audit_hook.py"],
+        events=["before_iteration", "before_execute_tools", "after_iteration"],
+    )
+    result = await bot.run("Summarize the repo", hooks=[hook])
+    print(result.content)
+
+
+asyncio.run(main())
+```
+
+The command receives one JSON object on stdin with `schema_version`, `event`, and `context`
+fields. By default the bridge stays non-streaming; add `on_stream` or `on_stream_end` explicitly
+if you really want per-delta events.
+
+For explicit policy blocks, return JSON like `{"continue": false, "message": "..."}` or exit with
+code `2` during `before_iteration` or `before_execute_tools`. Other non-zero exits are fail-open by
+default and only logged unless you set `fail_open=False`.
 
 ## Compatibility with nanobot
 
