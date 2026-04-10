@@ -324,6 +324,8 @@ hahobot companion doctor --persona Aria --json
 - `hahobot sessions list`: inspect recent saved sessions before resuming them with
   `hahobot agent --continue` or `hahobot agent --session <key>`
 - `hahobot sessions show <key>`: inspect one saved session's metadata and recent messages
+- `hahobot sessions export <key> --format md|json`: write one saved session to a local export
+  artifact under `workspace/out/sessions/` by default
 - `hahobot repo status`: inspect the active workspace's local Git state and change counts
 - `hahobot repo diff --staged --name-only`: inspect tracked diff summaries without mutating the
   repository
@@ -343,6 +345,7 @@ the model:
 - `/session current`
 - `/session list`
 - `/session show [key]`
+- `/session export [key]`
 - `/session use <key>`
 - `/session new [name]`
 - `/repo status`

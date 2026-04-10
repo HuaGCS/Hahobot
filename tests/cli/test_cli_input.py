@@ -85,6 +85,17 @@ def test_interactive_slash_completer_matches_session_subcommands():
     assert [completion.text for completion in completions] == ["show"]
 
 
+def test_interactive_slash_completer_matches_session_export_subcommand():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/session e", cursor_position=len("/session e")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["export"]
+
+
 def test_interactive_slash_completer_matches_repo_prefixes():
     completions = list(
         commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
@@ -169,6 +180,15 @@ def test_interactive_slash_completer_matches_dynamic_session_keys(tmp_path):
     )
 
     assert [completion.text for completion in completions] == ["cli:alpha"]
+
+    export_completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/session export cli:b", cursor_position=len("/session export cli:b")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in export_completions] == ["cli:beta"]
 
 
 def test_interactive_slash_completer_matches_dynamic_scene_names(tmp_path):

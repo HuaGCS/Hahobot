@@ -159,7 +159,7 @@ class _InteractiveSlashCompleter(Completer):
             return self._available_personas()
         if command == "/preset" and subcommand == "show":
             return self._available_personas()
-        if command == "/session" and subcommand in {"show", "use"}:
+        if command == "/session" and subcommand in {"show", "export", "use"}:
             return self._available_cli_sessions()
         if command == "/repo" and subcommand == "diff":
             return ["staged"]
@@ -309,6 +309,7 @@ def _interactive_session_usage() -> str:
         "/session current\n"
         "/session list\n"
         "/session show [key]\n"
+        "/session export [key]\n"
         "/session use <key>\n"
         "/session new [name]"
     )
@@ -540,8 +541,10 @@ def _handle_local_session_command(
 ) -> _LocalInteractiveCommandResult:
     """Handle CLI-local `/session ...` commands without involving the agent."""
     from hahobot.cli.session_inspector import (
+        export_session_artifact,
         list_session_summaries,
         load_session_detail,
+        load_session_export,
         render_session_detail_text,
         render_session_list_text,
     )
@@ -566,6 +569,22 @@ def _handle_local_session_command(
                 f"Session not found: {target}\nUse /session new [name] to start a fresh session."
             )
         return _LocalInteractiveCommandResult(render_session_detail_text(detail))
+
+    if action == "export":
+        target = current_session_id if len(parts) < 3 else _coerce_cli_session_key(parts[2])
+        export_data = load_session_export(session_manager, target)
+        if export_data is None:
+            return _LocalInteractiveCommandResult(
+                f"Session not found: {target}\nUse /session list to inspect saved sessions."
+            )
+        output_path = export_session_artifact(
+            export_data,
+            workspace=session_manager.workspace,
+            export_format="md",
+        )
+        return _LocalInteractiveCommandResult(
+            f"Exported session: {target}\nPath: {output_path}"
+        )
 
     existing = {
         session.key
@@ -2024,6 +2043,40 @@ def sessions_show(
         typer.echo(json.dumps(detail.to_dict(), ensure_ascii=False, indent=2))
         return
     console.print(render_session_detail_text(detail))
+
+
+@sessions_app.command("export")
+def sessions_export(
+    session_key: str = typer.Argument(..., help="Exact session key to export"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    export_format: str = typer.Option("md", "--format", help="Export format: md or json"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Export one saved session to a local artifact file."""
+    from hahobot.cli.session_inspector import export_session_artifact, load_session_export
+    from hahobot.session.manager import SessionManager
+
+    normalized_format = export_format.strip().lower()
+    if normalized_format not in {"md", "json"}:
+        console.print("[red]Error: --format must be one of: md, json[/red]")
+        raise typer.Exit(1)
+
+    loaded = _load_runtime_config(config, workspace)
+    manager = SessionManager(loaded.workspace_path)
+    export_data = load_session_export(manager, session_key)
+    if export_data is None:
+        console.print(f"[red]Error: Session not found: {session_key}[/red]")
+        raise typer.Exit(1)
+
+    target = export_session_artifact(
+        export_data,
+        workspace=loaded.workspace_path,
+        export_format=normalized_format,
+        output_path=Path(output) if output else None,
+    )
+    console.print(f"Exported session: {session_key}")
+    console.print(f"Path: {target}")
 
 
 @repo_app.command("status")

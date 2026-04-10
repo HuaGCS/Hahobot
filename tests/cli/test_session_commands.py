@@ -115,6 +115,82 @@ def test_sessions_show_missing_session_returns_error(tmp_path: Path) -> None:
     assert "Session not found: cli:missing" in result.stdout
 
 
+def test_sessions_export_json_writes_default_artifact(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config_path = _write_config(tmp_path / "config.json", workspace)
+    _save_session(
+        workspace,
+        "cli:alpha",
+        ("user", "hello"),
+        ("assistant", "hi there"),
+        persona="Aria",
+    )
+
+    result = runner.invoke(
+        app,
+        ["sessions", "export", "cli:alpha", "--config", str(config_path), "--format", "json"],
+    )
+
+    assert result.exit_code == 0
+    export_path = workspace / "out" / "sessions" / "cli_alpha.json"
+    assert export_path.exists()
+    payload = json.loads(export_path.read_text(encoding="utf-8"))
+    assert payload["key"] == "cli:alpha"
+    assert payload["persona"] == "Aria"
+    assert [message["content"] for message in payload["messages"]] == ["hello", "hi there"]
+    assert str(export_path).replace("\n", "") in result.stdout.replace("\n", "")
+
+
+def test_sessions_export_markdown_supports_custom_output(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config_path = _write_config(tmp_path / "config.json", workspace)
+    _save_session(
+        workspace,
+        "cli:alpha",
+        ("user", "hello"),
+        ("assistant", "hi there"),
+    )
+    export_path = tmp_path / "exports" / "alpha.md"
+
+    result = runner.invoke(
+        app,
+        [
+            "sessions",
+            "export",
+            "cli:alpha",
+            "--config",
+            str(config_path),
+            "--format",
+            "md",
+            "--output",
+            str(export_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert export_path.exists()
+    content = export_path.read_text(encoding="utf-8")
+    assert "# Session Export: cli:alpha" in content
+    assert "```text" in content
+    assert "hi there" in content
+
+
+def test_sessions_export_missing_session_returns_error(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config_path = _write_config(tmp_path / "config.json", workspace)
+
+    result = runner.invoke(
+        app,
+        ["sessions", "export", "cli:missing", "--config", str(config_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "Session not found: cli:missing" in result.stdout
+
+
 def test_agent_continue_uses_latest_cli_session(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -340,3 +416,22 @@ def test_local_session_command_new_and_missing(tmp_path: Path) -> None:
     assert "Started new session" in generated.text
     assert missing.new_session_id is None
     assert "Session not found: cli:missing" in missing.text
+
+
+def test_local_session_command_export_defaults_to_current(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _save_session(workspace, "cli:alpha", ("assistant", "hello alpha"))
+    manager = SessionManager(workspace)
+
+    exported = commands._handle_local_session_command(
+        "/session export",
+        session_manager=manager,
+        current_session_id="cli:alpha",
+    )
+
+    export_path = workspace / "out" / "sessions" / "cli_alpha.md"
+    assert exported.new_session_id is None
+    assert "Exported session: cli:alpha" in exported.text
+    assert str(export_path) in exported.text
+    assert export_path.exists()
