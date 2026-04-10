@@ -6,6 +6,8 @@ import select
 import signal
 import sys
 from contextlib import nullcontext
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +26,10 @@ import typer
 from loguru import logger
 from prompt_toolkit import PromptSession, print_formatted_text
 from prompt_toolkit.application import run_in_terminal
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import ANSI, HTML
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 from rich.markdown import Markdown
@@ -65,6 +69,37 @@ app = typer.Typer(
 
 console = Console()
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
+_INTERACTIVE_SLASH_COMMANDS = (
+    "/new",
+    "/status",
+    "/help",
+    "/lang",
+    "/language",
+    "/persona",
+    "/stchar",
+    "/preset",
+    "/scene",
+    "/skill",
+    "/mcp",
+    "/dream",
+    "/dream-log",
+    "/dream-restore",
+    "/stop",
+    "/restart",
+    "/session",
+)
+_INTERACTIVE_SLASH_SUBCOMMANDS: dict[str, tuple[str, ...]] = {
+    "/lang": ("current", "list", "set"),
+    "/language": ("current", "list", "set"),
+    "/persona": ("current", "list", "set"),
+    "/stchar": ("list", "show", "load"),
+    "/preset": ("show",),
+    "/scene": ("list", "generate"),
+    "/skill": ("search", "install", "uninstall", "list", "update"),
+    "/mcp": ("list",),
+    "/session": ("current", "list", "show", "use", "new"),
+}
+_INTERACTIVE_SCENE_NAMES = ("daily", "comfort", "date")
 
 # ---------------------------------------------------------------------------
 # CLI input: prompt_toolkit for editing, paste, history, and display
@@ -72,6 +107,248 @@ EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
 
 _PROMPT_SESSION: PromptSession | None = None
 _SAVED_TERM_ATTRS = None  # original termios settings, restored on exit
+
+
+@dataclass
+class _InteractiveCompletionContext:
+    """Runtime data used to enrich interactive slash completion."""
+
+    workspace: Path | None = None
+    session_manager: Any | None = None
+    current_session_id: str | None = None
+
+
+_INTERACTIVE_COMPLETION_CONTEXT = _InteractiveCompletionContext()
+
+
+class _InteractiveSlashCompleter(Completer):
+    """Context-aware slash-command completion for local interactive CLI input."""
+
+    def get_completions(self, document, complete_event):
+        del complete_event
+
+        text = document.text_before_cursor
+        if not text or not text.startswith("/") or text != text.lstrip():
+            return
+        if "\n" in text or "\r" in text:
+            return
+
+        has_trailing_space = text[-1].isspace()
+        parts = text.split()
+        if not parts:
+            return
+
+        if len(parts) == 1:
+            if has_trailing_space:
+                yield from self._complete_options(self._second_token_options(parts[0]), prefix="")
+                return
+            yield from self._complete_options(_INTERACTIVE_SLASH_COMMANDS, prefix=parts[0])
+            return
+
+        if len(parts) == 2:
+            if has_trailing_space:
+                yield from self._complete_options(
+                    self._third_token_options(parts[0], parts[1]),
+                    prefix="",
+                )
+                return
+            yield from self._complete_options(self._second_token_options(parts[0]), prefix=parts[1])
+            return
+
+        if len(parts) != 3 or has_trailing_space:
+            return
+
+        yield from self._complete_options(
+            self._third_token_options(parts[0], parts[1]),
+            prefix=parts[2],
+        )
+
+    @staticmethod
+    def _complete_options(options: list[str] | tuple[str, ...], *, prefix: str):
+        start_position = -len(prefix)
+        for option in options:
+            if prefix and not option.startswith(prefix):
+                continue
+            yield Completion(option, start_position=start_position)
+
+    def _second_token_options(self, command: str) -> list[str]:
+        options = list(_INTERACTIVE_SLASH_SUBCOMMANDS.get(command, ()))
+        if command == "/scene":
+            options.extend(self._available_scene_names())
+        return self._unique(options)
+
+    def _third_token_options(self, command: str, subcommand: str) -> list[str]:
+        if command in {"/lang", "/language"} and subcommand == "set":
+            return self._available_languages()
+        if command == "/persona" and subcommand == "set":
+            return self._available_personas()
+        if command == "/stchar" and subcommand in {"show", "load"}:
+            return self._available_personas()
+        if command == "/preset" and subcommand == "show":
+            return self._available_personas()
+        if command == "/session" and subcommand in {"show", "use"}:
+            return self._available_cli_sessions()
+        return []
+
+    def _available_languages(self) -> list[str]:
+        from hahobot.agent.i18n import list_languages
+
+        return list_languages()
+
+    def _available_personas(self) -> list[str]:
+        from hahobot.agent.personas import list_personas
+
+        workspace = _INTERACTIVE_COMPLETION_CONTEXT.workspace
+        if workspace is None:
+            return []
+        return list_personas(workspace)
+
+    def _available_scene_names(self) -> list[str]:
+        from hahobot.agent.commands.scene import available_scene_names
+
+        workspace = _INTERACTIVE_COMPLETION_CONTEXT.workspace
+        if workspace is None:
+            return list(_INTERACTIVE_SCENE_NAMES)
+        return self._unique(
+            [*_INTERACTIVE_SCENE_NAMES, *available_scene_names(workspace, self._current_persona())]
+        )
+
+    def _available_cli_sessions(self) -> list[str]:
+        from hahobot.cli.session_inspector import list_session_summaries
+
+        manager = _INTERACTIVE_COMPLETION_CONTEXT.session_manager
+        if manager is None:
+            return []
+        options = []
+        current_session_id = _INTERACTIVE_COMPLETION_CONTEXT.current_session_id
+        if current_session_id:
+            options.append(current_session_id)
+        options.append("cli:direct")
+        options.extend(
+            session.key
+            for session in list_session_summaries(manager, cli_only=True, limit=50)
+        )
+        return self._unique(options)
+
+    def _current_persona(self) -> str | None:
+        from hahobot.agent.personas import DEFAULT_PERSONA, resolve_persona_name
+
+        workspace = _INTERACTIVE_COMPLETION_CONTEXT.workspace
+        manager = _INTERACTIVE_COMPLETION_CONTEXT.session_manager
+        current_session_id = _INTERACTIVE_COMPLETION_CONTEXT.current_session_id
+        if manager is None or current_session_id is None:
+            return DEFAULT_PERSONA
+        session = manager.get_or_create(current_session_id)
+        metadata = session.metadata if isinstance(session.metadata, dict) else {}
+        raw = metadata.get("persona")
+        if workspace is None:
+            return raw or DEFAULT_PERSONA
+        return resolve_persona_name(workspace, raw) or DEFAULT_PERSONA
+
+    @staticmethod
+    def _unique(options: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for option in options:
+            if option in seen:
+                continue
+            seen.add(option)
+            result.append(option)
+        return result
+
+
+_INTERACTIVE_SLASH_COMPLETER = _InteractiveSlashCompleter()
+
+
+def _set_interactive_completion_context(
+    *,
+    workspace: Path | None,
+    session_manager: Any | None,
+    current_session_id: str | None,
+) -> None:
+    """Bind workspace/session context used by interactive slash completion."""
+    _INTERACTIVE_COMPLETION_CONTEXT.workspace = workspace
+    _INTERACTIVE_COMPLETION_CONTEXT.session_manager = session_manager
+    _INTERACTIVE_COMPLETION_CONTEXT.current_session_id = current_session_id
+
+
+def _update_interactive_completion_session(session_id: str) -> None:
+    """Update the current session key for interactive slash completion."""
+    _INTERACTIVE_COMPLETION_CONTEXT.current_session_id = session_id
+
+
+def _clear_interactive_completion_context() -> None:
+    """Drop interactive completion context after leaving CLI chat mode."""
+    _set_interactive_completion_context(
+        workspace=None,
+        session_manager=None,
+        current_session_id=None,
+    )
+
+
+@dataclass(frozen=True)
+class _LocalSessionCommandResult:
+    """Result of a local interactive `/session ...` control command."""
+
+    text: str
+    new_session_id: str | None = None
+
+
+def _cli_route_for_session(session_id: str) -> tuple[str, str]:
+    """Derive channel/chat identifiers for a CLI session key."""
+    if ":" in session_id:
+        return session_id.split(":", 1)
+    return "cli", session_id
+
+
+def _coerce_cli_session_key(value: str) -> str:
+    """Normalize local CLI session references entered by the user."""
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("Session key cannot be empty.")
+    if normalized == "direct":
+        return "cli:direct"
+    if ":" in normalized:
+        return normalized
+    return f"cli:{normalized}"
+
+
+def _generate_new_cli_session_key(existing_keys: set[str]) -> str:
+    """Generate a collision-resistant local CLI session key."""
+    stem = datetime.now().strftime("cli:%Y%m%d-%H%M%S")
+    if stem not in existing_keys:
+        return stem
+    for index in range(2, 1000):
+        candidate = f"{stem}-{index}"
+        if candidate not in existing_keys:
+            return candidate
+    return f"{stem}-{int(datetime.now().timestamp() * 1000)}"
+
+
+def _interactive_session_usage() -> str:
+    """Return help text for local interactive session controls."""
+    return (
+        "Local session commands:\n"
+        "/session current\n"
+        "/session list\n"
+        "/session show [key]\n"
+        "/session use <key>\n"
+        "/session new [name]"
+    )
+
+
+def _interactive_key_bindings(*, multiline: bool) -> KeyBindings | None:
+    """Return optional prompt_toolkit bindings for interactive CLI input."""
+    if not multiline:
+        return None
+
+    bindings = KeyBindings()
+
+    @bindings.add("c-j", eager=True)
+    def _submit(event) -> None:
+        event.current_buffer.validate_and_handle()
+
+    return bindings
 
 
 def _flush_pending_tty_input() -> None:
@@ -227,7 +504,112 @@ def _is_exit_command(command: str) -> bool:
     return command.lower() in EXIT_COMMANDS
 
 
-async def _read_interactive_input_async() -> str:
+def _select_session_interactively(sessions: list[Any]) -> str:
+    """Prompt the user to choose a saved session or start a new one."""
+    if not sessions:
+        console.print("[dim]No saved CLI sessions found. Starting cli:direct.[/dim]")
+        return "cli:direct"
+
+    console.print("[cyan]Select a session to resume:[/cyan]")
+    console.print("  0. Start a new session (cli:direct)")
+    for index, session in enumerate(sessions, start=1):
+        stamp = session.updated_at or session.created_at or "unknown-time"
+        suffix = [stamp, f"{session.message_count} msg"]
+        if session.persona:
+            suffix.append(f"persona={session.persona}")
+        console.print(f"  {index}. {session.key} ({', '.join(suffix)})")
+        if session.preview:
+            role = session.last_role or "message"
+            console.print(f"     {role}: {session.preview}")
+
+    while True:
+        choice = typer.prompt("Selection", default="1").strip()
+        if choice == "0":
+            return "cli:direct"
+        try:
+            selected = int(choice)
+        except ValueError:
+            console.print("[yellow]Enter a number from the list above.[/yellow]")
+            continue
+        if 1 <= selected <= len(sessions):
+            return sessions[selected - 1].key
+        console.print("[yellow]Enter a valid session number.[/yellow]")
+
+
+def _handle_local_session_command(
+    command: str,
+    *,
+    session_manager: Any,
+    current_session_id: str,
+) -> _LocalSessionCommandResult:
+    """Handle CLI-local `/session ...` commands without involving the agent."""
+    from hahobot.cli.session_inspector import (
+        list_session_summaries,
+        load_session_detail,
+        render_session_detail_text,
+        render_session_list_text,
+    )
+
+    parts = command.strip().split(maxsplit=2)
+    if len(parts) == 1:
+        return _LocalSessionCommandResult(_interactive_session_usage())
+
+    action = parts[1].lower()
+    if action in {"current", "now"}:
+        return _LocalSessionCommandResult(f"Current session: {current_session_id}")
+
+    if action == "list":
+        sessions = list_session_summaries(session_manager, cli_only=True, limit=20)
+        return _LocalSessionCommandResult(render_session_list_text(sessions, cli_only=True))
+
+    if action == "show":
+        target = current_session_id if len(parts) < 3 else _coerce_cli_session_key(parts[2])
+        detail = load_session_detail(session_manager, target, limit=10)
+        if detail is None:
+            return _LocalSessionCommandResult(
+                f"Session not found: {target}\nUse /session new [name] to start a fresh session."
+            )
+        return _LocalSessionCommandResult(render_session_detail_text(detail))
+
+    existing = {
+        session.key
+        for session in list_session_summaries(session_manager, cli_only=True, limit=None)
+    }
+
+    if action == "use":
+        if len(parts) < 3:
+            return _LocalSessionCommandResult("Usage: /session use <key>")
+        target = _coerce_cli_session_key(parts[2])
+        if target == current_session_id:
+            return _LocalSessionCommandResult(f"Already using session: {target}")
+        if target != "cli:direct" and target not in existing:
+            return _LocalSessionCommandResult(
+                f"Session not found: {target}\nUse /session list to inspect saved sessions."
+            )
+        return _LocalSessionCommandResult(
+            f"Switched to session: {target}",
+            new_session_id=target,
+        )
+
+    if action == "new":
+        target = (
+            _generate_new_cli_session_key(existing)
+            if len(parts) < 3 or not parts[2].strip()
+            else _coerce_cli_session_key(parts[2])
+        )
+        if target in existing:
+            return _LocalSessionCommandResult(
+                f"Session already exists: {target}\nUse /session use {target} to resume it."
+            )
+        return _LocalSessionCommandResult(
+            f"Started new session: {target}",
+            new_session_id=target,
+        )
+
+    return _LocalSessionCommandResult(_interactive_session_usage())
+
+
+async def _read_interactive_input_async(*, multiline: bool = False) -> str:
     """Read user input using prompt_toolkit (handles paste, history, display).
 
     prompt_toolkit natively handles:
@@ -241,6 +623,15 @@ async def _read_interactive_input_async() -> str:
         with patch_stdout():
             return await _PROMPT_SESSION.prompt_async(
                 HTML("<b fg='ansiblue'>You:</b> "),
+                multiline=multiline,
+                completer=_INTERACTIVE_SLASH_COMPLETER,
+                key_bindings=_interactive_key_bindings(multiline=multiline),
+                prompt_continuation=HTML("<b fg='ansiblue'>...</b> "),
+                bottom_toolbar=(
+                    HTML("<style fg='ansigray'>Multiline mode: Enter newline, Ctrl+J submit</style>")
+                    if multiline
+                    else None
+                ),
             )
     except EOFError as exc:
         raise KeyboardInterrupt from exc
@@ -1083,7 +1474,14 @@ def gateway(
 @app.command()
 def agent(
     message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
-    session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
+    session_id: str | None = typer.Option(None, "--session", "-s", help="Session ID"),
+    continue_last: bool = typer.Option(False, "--continue", help="Resume the most recent CLI session"),
+    pick_session: bool = typer.Option(False, "--pick-session", help="Interactively choose a recent CLI session"),
+    multiline: bool = typer.Option(
+        False,
+        "--multiline",
+        help="Enable multiline input in interactive mode (Enter newline, Ctrl+J submit)",
+    ),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
@@ -1094,13 +1492,37 @@ def agent(
 
     from hahobot.agent.loop import AgentLoop
     from hahobot.bus.queue import MessageBus
+    from hahobot.cli.session_inspector import list_session_summaries, pick_recent_cli_session_key
     from hahobot.config.loader import get_config_path
     from hahobot.cron.service import CronService
+    from hahobot.session.manager import SessionManager
 
     config_arg = config
     config = _load_runtime_config(config_arg, workspace)
     runtime_config_path = Path(config_arg).expanduser().resolve() if config_arg else get_config_path()
     sync_workspace_templates(config.workspace_path)
+
+    session_manager = SessionManager(config.workspace_path)
+    if sum([session_id is not None, continue_last, pick_session]) > 1:
+        console.print("[red]Error: choose only one of --session, --continue, or --pick-session.[/red]")
+        raise typer.Exit(1)
+    if session_id is None:
+        if continue_last:
+            session_id = pick_recent_cli_session_key(session_manager)
+            if session_id is not None:
+                console.print(f"[dim]Resuming session: {session_id}[/dim]")
+            else:
+                session_id = "cli:direct"
+                console.print("[dim]No previous CLI session found. Starting cli:direct.[/dim]")
+        elif pick_session:
+            sessions = list_session_summaries(session_manager, cli_only=True, limit=20)
+            session_id = _select_session_interactively(sessions)
+            if session_id == "cli:direct":
+                console.print("[dim]Starting new session: cli:direct[/dim]")
+            else:
+                console.print(f"[dim]Selected session: {session_id}[/dim]")
+        else:
+            session_id = "cli:direct"
 
     bus = MessageBus()
     provider = _make_provider(config)
@@ -1136,6 +1558,7 @@ def agent(
         memory_config=config.memory,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
+        session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
         timezone=config.agents.defaults.timezone,
@@ -1182,13 +1605,21 @@ def agent(
     else:
         # Interactive mode — route through bus like other channels
         from hahobot.bus.events import InboundMessage
-        _init_prompt_session()
-        console.print(f"{__logo__} Interactive mode (type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)\n")
 
-        if ":" in session_id:
-            cli_channel, cli_chat_id = session_id.split(":", 1)
-        else:
-            cli_channel, cli_chat_id = "cli", session_id
+        _set_interactive_completion_context(
+            workspace=config.workspace_path,
+            session_manager=session_manager,
+            current_session_id=session_id,
+        )
+        _init_prompt_session()
+        console.print(
+            f"{__logo__} Interactive mode (type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)"
+        )
+        if multiline:
+            console.print("[dim]Multiline input enabled: Enter inserts newline, Ctrl+J submits.[/dim]")
+        console.print()
+
+        cli_channel, cli_chat_id = _cli_route_for_session(session_id)
 
         def _handle_signal(signum, frame):
             sig_name = signal.Signals(signum).name
@@ -1212,6 +1643,11 @@ def agent(
             turn_done.set()
             turn_response: list[tuple[str, dict]] = []
             renderer: StreamRenderer | None = None
+            state = {
+                "session_id": session_id,
+                "cli_channel": cli_channel,
+                "cli_chat_id": cli_chat_id,
+            }
 
             async def _consume_outbound():
                 while True:
@@ -1268,7 +1704,7 @@ def agent(
                         # Stop spinner before user input to avoid prompt_toolkit conflicts
                         if renderer:
                             renderer.stop_for_input()
-                        user_input = await _read_interactive_input_async()
+                        user_input = await _read_interactive_input_async(multiline=multiline)
                         command = user_input.strip()
                         if not command:
                             continue
@@ -1278,16 +1714,36 @@ def agent(
                             console.print("\nGoodbye!")
                             break
 
+                        if command.startswith("/session"):
+                            result = _handle_local_session_command(
+                                command,
+                                session_manager=session_manager,
+                                current_session_id=str(state["session_id"]),
+                            )
+                            if result.new_session_id is not None:
+                                state["session_id"] = result.new_session_id
+                                _update_interactive_completion_session(result.new_session_id)
+                                next_channel, next_chat_id = _cli_route_for_session(result.new_session_id)
+                                state["cli_channel"] = next_channel
+                                state["cli_chat_id"] = next_chat_id
+                            await _print_interactive_response(
+                                result.text,
+                                render_markdown=False,
+                                metadata={"render_as": "text"},
+                            )
+                            continue
+
                         turn_done.clear()
                         turn_response.clear()
                         renderer = StreamRenderer(render_markdown=markdown)
 
                         await bus.publish_inbound(InboundMessage(
-                            channel=cli_channel,
+                            channel=str(state["cli_channel"]),
                             sender_id="user",
-                            chat_id=cli_chat_id,
+                            chat_id=str(state["cli_chat_id"]),
                             content=user_input,
                             metadata={"_wants_stream": True},
+                            session_key_override=str(state["session_id"]),
                         ))
 
                         await turn_done.wait()
@@ -1311,6 +1767,7 @@ def agent(
                         console.print("\nGoodbye!")
                         break
             finally:
+                _clear_interactive_completion_context()
                 agent_loop.stop()
                 outbound_task.cancel()
                 await asyncio.gather(bus_task, outbound_task, return_exceptions=True)
