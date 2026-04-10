@@ -268,6 +268,9 @@ app.add_typer(persona_app, name="persona")
 companion_app = typer.Typer(help="Companion workflow utilities")
 app.add_typer(companion_app, name="companion")
 
+sessions_app = typer.Typer(help="Inspect saved sessions")
+app.add_typer(sessions_app, name="sessions")
+
 
 # ============================================================================
 # Onboard / Setup
@@ -631,6 +634,68 @@ def _migrate_cron_store(config: "Config") -> None:
         import shutil
 
         shutil.move(str(legacy_path), str(new_path))
+
+
+# ============================================================================
+# Read-Only Runtime Diagnostics
+# ============================================================================
+
+
+@app.command()
+def doctor(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Run a read-only readiness check for the active runtime."""
+    import json
+
+    from hahobot.cli.runtime_doctor import render_runtime_doctor_text, run_runtime_doctor
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    report = run_runtime_doctor(loaded)
+    if json_output:
+        typer.echo(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+        return
+    console.print(render_runtime_doctor_text(report))
+
+
+@app.command()
+def model(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Show the active model route and provider resolution."""
+    import json
+
+    from hahobot.cli.runtime_doctor import build_model_summary, render_model_summary_text
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    summary = build_model_summary(loaded)
+    if json_output:
+        typer.echo(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
+        return
+    console.print(render_model_summary_text(summary))
+
+
+@app.command()
+def tools(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Show the active tool configuration and readiness hints."""
+    import json
+
+    from hahobot.cli.runtime_doctor import build_tools_summary, render_tools_summary_text
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    summary = build_tools_summary(loaded)
+    if json_output:
+        typer.echo(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
+        return
+    console.print(render_tools_summary_text(summary))
 
 
 # ============================================================================
@@ -1252,6 +1317,79 @@ def agent(
                 await agent_loop.close_mcp()
 
         asyncio.run(run_interactive())
+
+
+@sessions_app.command("list")
+def sessions_list(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    limit: int = typer.Option(20, "--limit", help="Maximum number of sessions to show"),
+    cli_only: bool = typer.Option(False, "--cli-only", help="Only show local CLI sessions"),
+    include_internal: bool = typer.Option(False, "--all", help="Include internal cron/api/system sessions"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """List recent saved sessions for the active workspace."""
+    import json
+
+    from hahobot.cli.session_inspector import list_session_summaries, render_session_list_text
+    from hahobot.session.manager import SessionManager
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    manager = SessionManager(loaded.workspace_path)
+    sessions = list_session_summaries(
+        manager,
+        include_internal=include_internal,
+        cli_only=cli_only,
+        limit=limit,
+    )
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "workspace": str(loaded.workspace_path),
+                    "count": len(sessions),
+                    "cli_only": cli_only,
+                    "include_internal": include_internal,
+                    "sessions": [session.to_dict() for session in sessions],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+    console.print(
+        render_session_list_text(
+            sessions,
+            cli_only=cli_only,
+            include_internal=include_internal,
+        )
+    )
+
+
+@sessions_app.command("show")
+def sessions_show(
+    session_key: str = typer.Argument(..., help="Exact session key to inspect"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    limit: int = typer.Option(20, "--limit", help="Maximum number of recent messages to show"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Show one saved session with metadata and recent messages."""
+    import json
+
+    from hahobot.cli.session_inspector import load_session_detail, render_session_detail_text
+    from hahobot.session.manager import SessionManager
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    manager = SessionManager(loaded.workspace_path)
+    detail = load_session_detail(manager, session_key, limit=limit)
+    if detail is None:
+        console.print(f"[red]Error: Session not found: {session_key}[/red]")
+        raise typer.Exit(1)
+    if json_output:
+        typer.echo(json.dumps(detail.to_dict(), ensure_ascii=False, indent=2))
+        return
+    console.print(render_session_detail_text(detail))
 
 
 @persona_app.command("import-st-card")
