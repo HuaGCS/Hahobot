@@ -377,6 +377,7 @@ Hahobot includes built-in support for:
 - Telegram
 - WhatsApp
 - Discord
+- WebSocket
 - Feishu
 - DingTalk
 - Slack
@@ -395,7 +396,15 @@ Recent upstream nanobot syncs already included here:
   `edit_message_text` frequency instead of a hardcoded interval.
 - Discord supports progressive streamed replies when `channels.discord.streaming` is enabled; the
   same config block also exposes `readReceiptEmoji`, `workingEmoji`, and
-  `workingEmojiDelay`.
+  `workingEmojiDelay`. Discord can also connect through `channels.discord.proxy`, with optional
+  `proxyUsername` / `proxyPassword`.
+- `agents.defaults.unifiedSession` can collapse cross-channel conversations into one shared
+  session key when you want one conversation state across Telegram, Discord, CLI, and other
+  surfaces.
+- `tools.exec.allowedEnvKeys` lets you pass specific parent environment variables such as
+  `JAVA_HOME` or `GOPATH` into shell tool subprocesses without exposing the whole parent env.
+- A built-in `websocket` channel can expose hahobot as a local WebSocket server; see
+  [`docs/WEBSOCKET.md`](docs/WEBSOCKET.md) for the handshake and frame contract.
 - Direct OpenAI requests for GPT-5 / o1 / o3 / o4 models, or requests with
   `reasoningEffort`, auto-try the Responses API first and fall back to Chat Completions when a
   compatibility error indicates the route is unsupported.
@@ -453,6 +462,8 @@ The runtime can expose:
 - subagent spawning
 
 Workspace restrictions for shell/file tools can be enforced through config.
+The shell tool can also forward a narrow allowlist of environment variables through
+`tools.exec.allowedEnvKeys`.
 
 ### Skills
 
@@ -503,6 +514,9 @@ Legacy upstream runtime behaviors also kept in sync here include:
 
 - Telegram streaming reply edits can now be tuned through config rather than code constants
 - Discord streaming replies follow the same edit-then-finalize model as upstream nanobot
+- cross-channel unified-session routing is available through `agents.defaults.unifiedSession`
+- the shell tool supports `tools.exec.allowedEnvKeys` for explicit env passthrough
+- the built-in WebSocket server channel is available through `channels.websocket`
 - direct OpenAI reasoning requests keep the upstream Responses-API-first fallback strategy
 
 This lets existing `nanobot` automation keep running while new installs converge on `hahobot`.
