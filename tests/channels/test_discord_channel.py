@@ -18,9 +18,11 @@ class _FakeDiscordClient:
     instances: list["_FakeDiscordClient"] = []
     start_error: Exception | None = None
 
-    def __init__(self, owner, *, intents) -> None:
+    def __init__(self, owner, *, intents, proxy=None, proxy_auth=None) -> None:
         self.owner = owner
         self.intents = intents
+        self.proxy = proxy
+        self.proxy_auth = proxy_auth
         self.closed = False
         self.ready = True
         self.channels: dict[int, object] = {}
@@ -211,7 +213,7 @@ async def test_start_handles_client_construction_failure(monkeypatch) -> None:
         MessageBus(),
     )
 
-    def _boom(owner, *, intents):
+    def _boom(owner, *, intents, proxy=None, proxy_auth=None):
         raise RuntimeError("bad client")
 
     monkeypatch.setattr("hahobot.channels.discord.DiscordBotClient", _boom)
@@ -745,3 +747,117 @@ async def test_start_typing_uses_typing_context_when_trigger_typing_missing() ->
     await asyncio.sleep(0)
 
     assert channel._typing_tasks == {}
+
+
+def test_config_accepts_proxy_fields() -> None:
+    config = DiscordConfig(
+        enabled=True,
+        token="token",
+        allow_from=["*"],
+        proxy="http://127.0.0.1:7890",
+        proxy_username="user",
+        proxy_password="pass",
+    )
+    assert config.proxy == "http://127.0.0.1:7890"
+    assert config.proxy_username == "user"
+    assert config.proxy_password == "pass"
+
+
+def test_config_proxy_defaults_to_none() -> None:
+    config = DiscordConfig(enabled=True, token="token", allow_from=["*"])
+    assert config.proxy is None
+    assert config.proxy_username is None
+    assert config.proxy_password is None
+
+
+@pytest.mark.asyncio
+async def test_start_passes_proxy_to_client(monkeypatch) -> None:
+    _FakeDiscordClient.instances.clear()
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            token="token",
+            allow_from=["*"],
+            proxy="http://127.0.0.1:7890",
+        ),
+        MessageBus(),
+    )
+    monkeypatch.setattr("hahobot.channels.discord.DiscordBotClient", _FakeDiscordClient)
+
+    await channel.start()
+
+    assert channel.is_running is False
+    assert len(_FakeDiscordClient.instances) == 1
+    assert _FakeDiscordClient.instances[0].proxy == "http://127.0.0.1:7890"
+    assert _FakeDiscordClient.instances[0].proxy_auth is None
+
+
+@pytest.mark.asyncio
+async def test_start_passes_proxy_auth_when_credentials_provided(monkeypatch) -> None:
+    aiohttp = pytest.importorskip("aiohttp")
+    _FakeDiscordClient.instances.clear()
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            token="token",
+            allow_from=["*"],
+            proxy="http://127.0.0.1:7890",
+            proxy_username="user",
+            proxy_password="pass",
+        ),
+        MessageBus(),
+    )
+    monkeypatch.setattr("hahobot.channels.discord.DiscordBotClient", _FakeDiscordClient)
+
+    await channel.start()
+
+    assert channel.is_running is False
+    assert len(_FakeDiscordClient.instances) == 1
+    assert _FakeDiscordClient.instances[0].proxy == "http://127.0.0.1:7890"
+    assert _FakeDiscordClient.instances[0].proxy_auth is not None
+    assert isinstance(_FakeDiscordClient.instances[0].proxy_auth, aiohttp.BasicAuth)
+    assert _FakeDiscordClient.instances[0].proxy_auth.login == "user"
+    assert _FakeDiscordClient.instances[0].proxy_auth.password == "pass"
+
+
+@pytest.mark.asyncio
+async def test_start_no_proxy_auth_when_only_username(monkeypatch) -> None:
+    _FakeDiscordClient.instances.clear()
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            token="token",
+            allow_from=["*"],
+            proxy="http://127.0.0.1:7890",
+            proxy_username="user",
+        ),
+        MessageBus(),
+    )
+    monkeypatch.setattr("hahobot.channels.discord.DiscordBotClient", _FakeDiscordClient)
+
+    await channel.start()
+
+    assert channel.is_running is False
+    assert _FakeDiscordClient.instances[0].proxy_auth is None
+
+
+@pytest.mark.asyncio
+async def test_start_no_proxy_auth_when_only_password(monkeypatch) -> None:
+    _FakeDiscordClient.instances.clear()
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            token="token",
+            allow_from=["*"],
+            proxy="http://127.0.0.1:7890",
+            proxy_password="pass",
+        ),
+        MessageBus(),
+    )
+    monkeypatch.setattr("hahobot.channels.discord.DiscordBotClient", _FakeDiscordClient)
+
+    await channel.start()
+
+    assert channel.is_running is False
+    assert _FakeDiscordClient.instances[0].proxy == "http://127.0.0.1:7890"
+    assert _FakeDiscordClient.instances[0].proxy_auth is None
