@@ -21,6 +21,7 @@ from hahobot.utils.helpers import safe_filename, split_message
 
 DISCORD_AVAILABLE = importlib.util.find_spec("discord") is not None
 if TYPE_CHECKING:
+    import aiohttp
     import discord
     from discord import app_commands
     from discord.abc import Messageable
@@ -50,8 +51,15 @@ if DISCORD_AVAILABLE:
     class DiscordBotClient(discord.Client):
         """discord.py client that forwards events to the channel."""
 
-        def __init__(self, channel: DiscordChannel, *, intents: discord.Intents) -> None:
-            super().__init__(intents=intents)
+        def __init__(
+            self,
+            channel: DiscordChannel,
+            *,
+            intents: discord.Intents,
+            proxy: str | None = None,
+            proxy_auth: aiohttp.BasicAuth | None = None,
+        ) -> None:
+            super().__init__(intents=intents, proxy=proxy, proxy_auth=proxy_auth)
             self._channel = channel
             self.tree = app_commands.CommandTree(self)
             self._register_app_commands()
@@ -286,7 +294,28 @@ class DiscordChannel(BaseChannel):
         try:
             intents = discord.Intents.none()
             intents.value = self.config.intents
-            self._client = DiscordBotClient(self, intents=intents)
+            proxy_auth = None
+            has_user = bool(self.config.proxy_username)
+            has_pass = bool(self.config.proxy_password)
+            if has_user and has_pass:
+                import aiohttp
+
+                proxy_auth = aiohttp.BasicAuth(
+                    login=self.config.proxy_username,
+                    password=self.config.proxy_password,
+                )
+            elif has_user != has_pass:
+                logger.warning(
+                    "Discord proxy auth incomplete: both proxy_username and "
+                    "proxy_password must be set; ignoring partial credentials",
+                )
+
+            self._client = DiscordBotClient(
+                self,
+                intents=intents,
+                proxy=self.config.proxy,
+                proxy_auth=proxy_auth,
+            )
         except Exception as e:
             logger.error("Failed to initialize Discord client: {}", e)
             self._client = None

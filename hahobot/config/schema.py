@@ -147,6 +147,9 @@ class DiscordConfig(Base):
     working_emoji: str = "🔧"
     working_emoji_delay: float = 2.0
     streaming: bool = True
+    proxy: str | None = None
+    proxy_username: str | None = None
+    proxy_password: str | None = None
 
 
 class DiscordInstanceConfig(DiscordConfig):
