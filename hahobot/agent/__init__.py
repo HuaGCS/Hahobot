@@ -2,6 +2,12 @@
 
 from hahobot.agent.context import ContextBuilder
 from hahobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
+from hahobot.agent.hook_bridge import (
+    ExternalHookBridge,
+    ExternalHookBridgeBlocked,
+    ExternalHookBridgeBlockedError,
+    ExternalHookBridgeError,
+)
 from hahobot.agent.loop import AgentLoop
 from hahobot.agent.memory import Dream, MemoryStore
 from hahobot.agent.skills import SkillsLoader
@@ -14,6 +20,10 @@ __all__ = [
     "CompositeHook",
     "ContextBuilder",
     "Dream",
+    "ExternalHookBridge",
+    "ExternalHookBridgeBlocked",
+    "ExternalHookBridgeBlockedError",
+    "ExternalHookBridgeError",
     "MemoryStore",
     "SkillsLoader",
     "SubagentManager",

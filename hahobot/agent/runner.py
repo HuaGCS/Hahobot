@@ -115,7 +115,13 @@ class AgentRunner:
                     exc,
                 )
                 messages_for_model = messages
-            context = AgentHookContext(iteration=iteration, messages=messages)
+            context = AgentHookContext(
+                iteration=iteration,
+                messages=messages,
+                workspace=spec.workspace,
+                session_key=spec.session_key,
+                model=spec.model,
+            )
             await hook.before_iteration(context)
             tool_definitions = spec.tools.get_definitions()
             request_messages = hook.prepare_messages(context, tool_definitions)
@@ -318,7 +324,13 @@ class AgentRunner:
                     max_iterations=spec.max_iterations,
                 )
             self._append_final_message(messages, final_content)
-            context = AgentHookContext(iteration=spec.max_iterations, messages=messages)
+            context = AgentHookContext(
+                iteration=spec.max_iterations,
+                messages=messages,
+                workspace=spec.workspace,
+                session_key=spec.session_key,
+                model=spec.model,
+            )
             context.final_content = final_content
             context.stop_reason = stop_reason
             await hook.after_iteration(context)

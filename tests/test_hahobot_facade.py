@@ -163,6 +163,9 @@ async def test_run_custom_session_key(tmp_path):
 
 
 def test_import_from_top_level():
-    from hahobot import Hahobot as N, RunResult as R
-    assert N is Hahobot
-    assert R is RunResult
+    import hahobot
+    import nanobot
+
+    assert hahobot.ExternalHookBridge is nanobot.ExternalHookBridge
+    assert hahobot.Hahobot is Hahobot
+    assert hahobot.RunResult is RunResult

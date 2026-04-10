@@ -6,10 +6,18 @@ import sys
 from importlib import abc, import_module, util
 
 from hahobot import __logo__, __version__
+from hahobot.agent.hook_bridge import ExternalHookBridge
 
 from .nanobot import Nanobot, RunResult, _make_provider
 
-__all__ = ["Nanobot", "RunResult", "__version__", "__logo__", "_make_provider"]
+__all__ = [
+    "ExternalHookBridge",
+    "Nanobot",
+    "RunResult",
+    "__version__",
+    "__logo__",
+    "_make_provider",
+]
 
 
 class _NanobotAliasLoader(abc.Loader):
