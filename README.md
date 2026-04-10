@@ -326,6 +326,8 @@ hahobot companion doctor --persona Aria --json
 - `hahobot sessions show <key>`: inspect one saved session's metadata and recent messages
 - `hahobot sessions export <key> --format md|json`: write one saved session to a local export
   artifact under `workspace/out/sessions/` by default
+- `hahobot sessions compact <key>`: manually run the existing session token compaction flow for one
+  saved session and persist the updated consolidation cursor
 - `hahobot repo status`: inspect the active workspace's local Git state and change counts
 - `hahobot repo diff --staged --name-only`: inspect tracked diff summaries without mutating the
   repository
@@ -337,7 +339,7 @@ hahobot companion doctor --persona Aria --json
   `Ctrl+J` submits the message
 - `hahobot agent`: interactive slash completion for built-in commands such as `/status`,
   `/skill ...`, `/persona ...`, `/dream ...`, workspace persona / scene names, and the local
-  `/session ...` / `/repo ...` / `/review ...` controls
+  `/session ...` / `/repo ...` / `/review ...` / `/compact` controls
 
 Inside `hahobot agent`, the local interactive shell also supports commands that do not go through
 the model:
@@ -353,9 +355,18 @@ the model:
 - `/repo diff staged`
 - `/review`
 - `/review staged`
+- `/compact`
+- `/compact [key]`
+
+The same `/session ...`, `/repo ...`, `/review ...`, and `/compact ...` commands are also available
+through gateway-backed chats. In gateway mode, `/session use <key>` and `/session new [name]`
+reroute only the current chat; use `/session use default` to return to the origin session key.
 
 `/repo diff` only reports tracked Git changes. Use `/repo status` when you also need untracked
 file counts.
+
+`/compact` reuses the same automatic token-consolidation logic that hahobot already uses under
+pressure; it does not invent a second memory pipeline.
 
 ### Persona-local extras
 
@@ -470,6 +481,9 @@ Notable gateway features:
 - `/status` endpoint for machine-readable or browser-readable runtime state
 - optional status push integration for Star-Office-UI style dashboards
 - optional built-in admin UI at `/admin`
+- visual config coverage for `tools.exec.*`, channel runtime controls such as
+  `channels.transcriptionProvider`, and the common Telegram/Discord single-instance extras
+  (`channels.telegram.streamEditInterval`, Discord streaming/emoji/proxy fields)
 - built-in slash-command reference in the admin page
 - persona editor in the admin page, including companion scene fields for `/scene` reference images,
   prompt overrides, and caption overrides

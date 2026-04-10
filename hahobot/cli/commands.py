@@ -148,6 +148,8 @@ class _InteractiveSlashCompleter(Completer):
         options = list(_INTERACTIVE_SLASH_SUBCOMMANDS.get(command, ()))
         if command == "/scene":
             options.extend(self._available_scene_names())
+        if command == "/compact":
+            options.extend(self._available_cli_sessions())
         return self._unique(options)
 
     def _third_token_options(self, command: str, subcommand: str) -> list[str]:
@@ -331,6 +333,15 @@ def _interactive_review_usage() -> str:
         "Local review commands:\n"
         "/review\n"
         "/review staged"
+    )
+
+
+def _interactive_compact_usage() -> str:
+    """Return help text for local interactive compaction controls."""
+    return (
+        "Local compaction commands:\n"
+        "/compact\n"
+        "/compact <key>"
     )
 
 
@@ -691,6 +702,38 @@ async def _handle_local_review_command(
         return _LocalInteractiveCommandResult(result.content)
 
     return _LocalInteractiveCommandResult(_interactive_review_usage())
+
+
+async def _handle_local_compact_command(
+    command: str,
+    *,
+    loop: Any,
+    current_session_id: str,
+) -> _LocalInteractiveCommandResult:
+    """Handle CLI-local `/compact ...` commands without involving the agent loop."""
+    from hahobot.cli.session_compactor import compact_session, render_session_compact_text
+
+    parts = command.strip().split(maxsplit=1)
+    if len(parts) == 1:
+        target = current_session_id
+    elif parts[1].strip():
+        target = _coerce_cli_session_key(parts[1])
+    else:
+        return _LocalInteractiveCommandResult(_interactive_compact_usage())
+
+    known_sessions = {
+        str(item.get("key") or "")
+        for item in loop.sessions.list_sessions()
+        if item.get("key")
+    }
+    if target != current_session_id and target not in known_sessions:
+        return _LocalInteractiveCommandResult(
+            f"Session not found: {target}\nUse /session list to inspect saved sessions."
+        )
+
+    session = loop.sessions.get_or_create(target)
+    report = await compact_session(session, loop)
+    return _LocalInteractiveCommandResult(render_session_compact_text(report))
 
 
 async def _read_interactive_input_async(*, multiline: bool = False) -> str:
@@ -1929,6 +1972,19 @@ def agent(
                             )
                             continue
 
+                        if command.startswith("/compact"):
+                            result = await _handle_local_compact_command(
+                                command,
+                                loop=agent_loop,
+                                current_session_id=str(state["session_id"]),
+                            )
+                            await _print_interactive_response(
+                                result.text,
+                                render_markdown=False,
+                                metadata={"render_as": "text"},
+                            )
+                            continue
+
                         turn_done.clear()
                         turn_response.clear()
                         renderer = StreamRenderer(render_markdown=markdown)
@@ -2077,6 +2133,74 @@ def sessions_export(
     )
     console.print(f"Exported session: {session_key}")
     console.print(f"Path: {target}")
+
+
+@sessions_app.command("compact")
+def sessions_compact(
+    session_key: str = typer.Argument(..., help="Exact session key to compact"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Manually run session token consolidation for one saved session."""
+    import json
+
+    from hahobot.agent.loop import AgentLoop
+    from hahobot.bus.queue import MessageBus
+    from hahobot.cli.session_compactor import compact_session, render_session_compact_text
+    from hahobot.config.loader import get_config_path
+    from hahobot.session.manager import SessionManager
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    manager = SessionManager(loaded.workspace_path)
+    known_sessions = {
+        str(item.get("key") or "")
+        for item in manager.list_sessions()
+        if item.get("key")
+    }
+    if session_key not in known_sessions:
+        console.print(f"[red]Error: Session not found: {session_key}[/red]")
+        raise typer.Exit(1)
+
+    provider = _make_provider(loaded)
+    runtime_config_path = (
+        Path(config).expanduser().resolve() if config else get_config_path()
+    )
+    loop = AgentLoop(
+        bus=MessageBus(),
+        provider=provider,
+        workspace=loaded.workspace_path,
+        config_path=runtime_config_path,
+        model=loaded.agents.defaults.model,
+        max_iterations=loaded.agents.defaults.max_tool_iterations,
+        context_window_tokens=loaded.agents.defaults.context_window_tokens,
+        context_block_limit=loaded.agents.defaults.context_block_limit,
+        max_tool_result_chars=loaded.agents.defaults.max_tool_result_chars,
+        provider_retry_mode=loaded.agents.defaults.provider_retry_mode,
+        web_config=loaded.tools.web,
+        exec_config=loaded.tools.exec,
+        image_gen_config=loaded.tools.image_gen,
+        memory_config=loaded.memory,
+        restrict_to_workspace=loaded.tools.restrict_to_workspace,
+        session_manager=manager,
+        mcp_servers=loaded.tools.mcp_servers,
+        channels_config=loaded.channels,
+        timezone=loaded.agents.defaults.timezone,
+        unified_session=loaded.agents.defaults.unified_session,
+    )
+
+    async def _run_compaction() -> Any:
+        try:
+            session = manager.get_or_create(session_key)
+            return await compact_session(session, loop)
+        finally:
+            await loop.close_mcp()
+
+    report = asyncio.run(_run_compaction())
+    if json_output:
+        typer.echo(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+        return
+    console.print(render_session_compact_text(report))
 
 
 @repo_app.command("status")

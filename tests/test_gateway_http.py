@@ -330,6 +330,14 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert 'name="channels_whatsapp_bridge_token"' in config_page.text
     assert 'name="channels_telegram_token"' in config_page.text
     assert 'name="channels_telegram_proxy"' in config_page.text
+    assert 'name="channels_telegram_stream_edit_interval"' in config_page.text
+    assert 'name="channels_discord_proxy"' in config_page.text
+    assert 'name="channels_discord_proxy_username"' in config_page.text
+    assert 'name="channels_discord_proxy_password"' in config_page.text
+    assert 'name="channels_discord_streaming"' in config_page.text
+    assert 'name="channels_discord_read_receipt_emoji"' in config_page.text
+    assert 'name="channels_discord_working_emoji"' in config_page.text
+    assert 'name="channels_discord_working_emoji_delay"' in config_page.text
     assert 'name="channels_matrix_homeserver"' in config_page.text
     assert 'name="channels_weixin_allow_from"' in config_page.text
     assert 'name="channels_weixin_token"' in config_page.text
@@ -337,6 +345,8 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert 'name="tools_exec_enable"' in config_page.text
     assert 'name="tools_exec_timeout"' in config_page.text
     assert 'name="tools_exec_path_append"' in config_page.text
+    assert 'name="tools_exec_allowed_env_keys"' in config_page.text
+    assert 'name="tools_exec_sandbox"' in config_page.text
     assert 'data-provider-group="openrouter"' in config_page.text
     assert 'data-provider-group="custom"' in config_page.text
     assert 'data-provider-pool-editor' in config_page.text
@@ -347,6 +357,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert 'name="memory_user_mem0_llm_headers"' in config_page.text
     assert 'name="memory_user_mem0_metadata"' in config_page.text
     assert 'name="tools_mcp_memorix_enabled"' in config_page.text
+    assert 'name="channels_transcription_provider"' in config_page.text
     assert "tooltip-anchor" in config_page.text
     assert "默认工作区路径" in config_page.text
     assert "Mem0 用户记忆" in config_page.text
@@ -388,6 +399,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
             ("__bool_fields", "gateway_status_enabled"),
             ("__bool_fields", "gateway_status_push_enabled"),
             ("__bool_fields", "channels_telegram_enabled"),
+            ("__bool_fields", "channels_discord_streaming"),
             ("__bool_fields", "channels_weixin_enabled"),
             ("__bool_fields", "tools_exec_enable"),
             ("memory_user_backend", "mem0"),
@@ -405,6 +417,14 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
             ("channels_telegram_enabled", "1"),
             ("channels_telegram_token", "tg-admin-token"),
             ("channels_telegram_proxy", "socks5://127.0.0.1:1080"),
+            ("channels_telegram_stream_edit_interval", "0.35"),
+            ("channels_discord_proxy", "socks5://127.0.0.1:1090"),
+            ("channels_discord_proxy_username", "discord-user"),
+            ("channels_discord_proxy_password", "discord-pass"),
+            ("channels_discord_streaming", "1"),
+            ("channels_discord_read_receipt_emoji", "✅"),
+            ("channels_discord_working_emoji", "🛠️"),
+            ("channels_discord_working_emoji_delay", "1.5"),
             ("channels_matrix_homeserver", "https://matrix.example.com"),
             ("channels_matrix_user_id", "@hahobot:example.com"),
             ("channels_weixin_enabled", "1"),
@@ -413,6 +433,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
             ("channels_weixin_route_tag", "blue-route"),
             ("channels_weixin_state_dir", "/tmp/hahobot-weixin"),
             ("channels_weixin_poll_timeout", "42"),
+            ("channels_transcription_provider", "openai"),
             ("memory_user_mem0_llm_provider", "openai"),
             ("memory_user_mem0_llm_api_key", "mem0-llm-key"),
             ("memory_user_mem0_llm_url", "https://api.mem0.ai/v1"),
@@ -452,6 +473,8 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
             ("providers_vllm_api_base", "http://localhost:8000"),
             ("tools_exec_timeout", "90"),
             ("tools_exec_path_append", "/usr/local/bin:/usr/sbin"),
+            ("tools_exec_allowed_env_keys", "JAVA_HOME, GOPATH"),
+            ("tools_exec_sandbox", "bwrap"),
             ("channels_voice_reply_provider", "sovits"),
             ("channels_voice_reply_sovits_api_url", "http://127.0.0.1:9880"),
             ("gateway_admin_auth_key", "secret-key"),
@@ -504,6 +527,14 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert saved["channels"]["telegram"]["enabled"] is True
     assert saved["channels"]["telegram"]["token"] == "tg-admin-token"
     assert saved["channels"]["telegram"]["proxy"] == "socks5://127.0.0.1:1080"
+    assert saved["channels"]["telegram"]["streamEditInterval"] == 0.35
+    assert saved["channels"]["discord"]["proxy"] == "socks5://127.0.0.1:1090"
+    assert saved["channels"]["discord"]["proxyUsername"] == "discord-user"
+    assert saved["channels"]["discord"]["proxyPassword"] == "discord-pass"
+    assert saved["channels"]["discord"]["streaming"] is True
+    assert saved["channels"]["discord"]["readReceiptEmoji"] == "✅"
+    assert saved["channels"]["discord"]["workingEmoji"] == "🛠️"
+    assert saved["channels"]["discord"]["workingEmojiDelay"] == 1.5
     assert saved["channels"]["matrix"]["homeserver"] == "https://matrix.example.com"
     assert saved["channels"]["matrix"]["userId"] == "@hahobot:example.com"
     assert saved["channels"]["weixin"]["enabled"] is True
@@ -512,9 +543,12 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert saved["channels"]["weixin"]["routeTag"] == "blue-route"
     assert saved["channels"]["weixin"]["stateDir"] == "/tmp/hahobot-weixin"
     assert saved["channels"]["weixin"]["pollTimeout"] == 42
+    assert saved["channels"]["transcriptionProvider"] == "openai"
     assert saved["tools"]["exec"]["enable"] is False
     assert saved["tools"]["exec"]["timeout"] == 90
     assert saved["tools"]["exec"]["pathAppend"] == "/usr/local/bin:/usr/sbin"
+    assert saved["tools"]["exec"]["allowedEnvKeys"] == ["JAVA_HOME", "GOPATH"]
+    assert saved["tools"]["exec"]["sandbox"] == "bwrap"
     assert saved["tools"]["mcpServers"]["memorix"]["args"] == ["serve"]
     assert saved["tools"]["mcpServers"]["memorix"]["url"] == "http://127.0.0.1:3211/mcp"
     assert saved["tools"]["mcpServers"]["memorix"]["toolTimeout"] == 75
@@ -941,6 +975,7 @@ async def test_gateway_admin_channel_cards_preserve_multi_instance_config(tmp_pa
     assert "Multi-instance" in telegram_group.group(1)
     assert "channels.telegram.instances" in telegram_group.group(1)
     assert 'name="channels_telegram_token"' not in telegram_group.group(1)
+    assert 'name="channels_telegram_stream_edit_interval"' not in telegram_group.group(1)
 
     save_resp = await _call_route(
         app,
@@ -952,6 +987,7 @@ async def test_gateway_admin_channel_cards_preserve_multi_instance_config(tmp_pa
             ("__bool_fields", "channels_telegram_enabled"),
             ("channels_telegram_enabled", "1"),
             ("channels_telegram_token", "should-not-apply"),
+            ("channels_telegram_stream_edit_interval", "0.2"),
             ("gateway_admin_auth_key", "secret-key"),
         ],
     )
@@ -960,6 +996,7 @@ async def test_gateway_admin_channel_cards_preserve_multi_instance_config(tmp_pa
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["channels"]["telegram"]["enabled"] is True
     assert "token" not in saved["channels"]["telegram"]
+    assert "streamEditInterval" not in saved["channels"]["telegram"]
     assert saved["channels"]["telegram"]["instances"][0]["token"] == "instance-token"
     assert saved["channels"]["telegram"]["instances"][0]["proxy"] == "socks5://127.0.0.1:7890"
 

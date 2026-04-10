@@ -61,6 +61,22 @@ async def _cmd_mcp(ctx: CommandContext):
     return await ctx.loop._handle_mcp_command(ctx.msg, _session(ctx))
 
 
+async def _cmd_session(ctx: CommandContext):
+    return await ctx.loop._workspace_commands.session(ctx.msg, _session(ctx), ctx.args)
+
+
+async def _cmd_repo(ctx: CommandContext):
+    return ctx.loop._workspace_commands.repo(ctx.msg, ctx.args)
+
+
+async def _cmd_review(ctx: CommandContext):
+    return await ctx.loop._workspace_commands.review(ctx.msg, ctx.args)
+
+
+async def _cmd_compact(ctx: CommandContext):
+    return await ctx.loop._workspace_commands.compact(ctx.msg, _session(ctx), ctx.args)
+
+
 async def _cmd_stop_priority(ctx: CommandContext):
     await ctx.loop._handle_stop(ctx.msg)
     return None
@@ -90,6 +106,10 @@ def build_agent_command_router() -> CommandRouter:
         "/dream-log": cmd_dream_log,
         "/dream-restore": cmd_dream_restore,
         "/help": _cmd_help,
+        "/session": _cmd_session,
+        "/repo": _cmd_repo,
+        "/review": _cmd_review,
+        "/compact": _cmd_compact,
     }
 
     for spec in agent_command_specs():
