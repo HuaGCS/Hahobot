@@ -1315,7 +1315,7 @@ class AgentLoop:
         chat_id: str = "direct",
         message_id: str | None = None,
         persona: str | None = None,
-    ) -> tuple[str | None, list[str], list[dict]]:
+    ) -> tuple[str | None, list[str], list[dict], str]:
         """Run the agent iteration loop.
 
         *on_stream*: called with each content delta during streaming.
@@ -1415,7 +1415,7 @@ class AgentLoop:
         elif result.stop_reason == "error":
             logger.error("LLM returned error: {}", ((result.error or result.final_content) or "")[:200])
 
-        return result.final_content, result.tools_used, result.messages
+        return result.final_content, result.tools_used, result.messages, result.stop_reason
 
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
@@ -1769,7 +1769,7 @@ class AgentLoop:
                 memory_context=resolved_memory.block,
             )
             self._append_system_section(messages, "Workspace Memory (Memorix)", memorix_context)
-            final_content, _, all_msgs = await self._run_agent_loop(
+            final_content, _, all_msgs, _ = await self._run_agent_loop(
                 messages, session=session, channel=channel, chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
                 persona=persona,
@@ -1856,7 +1856,7 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
-        final_content, _, all_msgs = await self._run_agent_loop(
+        final_content, _, all_msgs, stop_reason = await self._run_agent_loop(
             initial_messages,
             on_progress=on_progress or _bus_progress,
             on_stream=on_stream,
@@ -1902,7 +1902,7 @@ class AgentLoop:
         if on_stream is not None:
             if outbound.media:
                 content = ""
-            else:
+            elif stop_reason != "error":
                 meta["_streamed"] = True
         return OutboundMessage(
             channel=outbound.channel,
