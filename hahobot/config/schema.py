@@ -607,6 +607,7 @@ class AgentDefaults(Base):
     max_tool_iterations: int = 200
     max_tool_result_chars: int = 16_000
     provider_retry_mode: Literal["standard", "persistent"] = "standard"
+    unified_session: bool = False  # Share one session across all channels (single-user multi-device)
     reasoning_effort: str | None = None  # low / medium / high / adaptive - enables LLM thinking mode
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     dream: DreamConfig = Field(default_factory=DreamConfig)
@@ -778,6 +779,7 @@ class ExecToolConfig(Base):
     enable: bool = True
     timeout: int = 60
     path_append: str = ""
+    allowed_env_keys: list[str] = Field(default_factory=list)
     sandbox: str = ""  # sandbox backend: "" (none) or "bwrap"
 
 

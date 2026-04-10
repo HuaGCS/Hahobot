@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import os
 import sys
@@ -81,6 +82,9 @@ from hahobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 if TYPE_CHECKING:
     from hahobot.config.schema import ChannelsConfig, ExecToolConfig, ImageGenConfig, MemoryConfig
     from hahobot.cron.service import CronService
+
+
+UNIFIED_SESSION_KEY = "unified:default"
 
 
 class _LoopHook(AgentHook):
@@ -270,6 +274,7 @@ class AgentLoop:
         channels_config: ChannelsConfig | None = None,
         timezone: str | None = None,
         hooks: list[AgentHook] | None = None,
+        unified_session: bool = False,
     ):
         from hahobot.config.schema import ExecToolConfig, ImageGenConfig, MemoryConfig
         if web_search_config is not None:
@@ -324,6 +329,7 @@ class AgentLoop:
         self._stchar_commands = STCharCommandHandler(self)
         self._system_commands = SystemCommandHandler(self)
         self._command_router = build_agent_command_router()
+        self._unified_session = unified_session
 
         self.context = ContextBuilder(workspace, timezone=timezone)
         self.sessions = session_manager or SessionManager(workspace)
@@ -921,6 +927,12 @@ class AgentLoop:
             loop=self,
         )
 
+    def _normalize_session_message(self, msg: InboundMessage) -> InboundMessage:
+        """Apply unified-session routing unless the caller already pinned a session key."""
+        if self._unified_session and not msg.session_key_override:
+            return dataclasses.replace(msg, session_key_override=UNIFIED_SESSION_KEY)
+        return msg
+
     async def _handle_skill_command(self, msg: InboundMessage, session: Session) -> OutboundMessage:
         """Handle ClawHub skill management commands for the active workspace."""
         language = self._get_session_language(session)
@@ -997,6 +1009,7 @@ class AgentLoop:
                 restrict_to_workspace=self.restrict_to_workspace,
                 sandbox=self.exec_config.sandbox,
                 path_append=self.exec_config.path_append,
+                allowed_env_keys=self.exec_config.allowed_env_keys,
             ))
         self.tools.register(
             WebSearchTool(
@@ -1425,6 +1438,7 @@ class AgentLoop:
                 logger.warning("Error consuming inbound message: {}, continuing...", e)
                 continue
 
+            msg = self._normalize_session_message(msg)
             ctx = self._command_context(
                 msg,
                 session=self.sessions.get_or_create(msg.session_key),
@@ -1440,6 +1454,7 @@ class AgentLoop:
 
     async def _handle_stop(self, msg: InboundMessage) -> None:
         """Cancel all active tasks and subagents for the session."""
+        msg = self._normalize_session_message(msg)
         tasks = self._active_tasks.pop(msg.session_key, [])
         cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
         for t in tasks:
@@ -1482,6 +1497,7 @@ class AgentLoop:
 
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message: per-session serial, cross-session concurrent."""
+        msg = self._normalize_session_message(msg)
         lock = self._session_locks.setdefault(msg.session_key, asyncio.Lock())
         gate = self._concurrency_gate or nullcontext()
         async with lock, gate:
