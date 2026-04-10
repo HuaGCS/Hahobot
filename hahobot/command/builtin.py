@@ -321,18 +321,9 @@ async def cmd_help(ctx: CommandContext) -> OutboundMessage:
 
 def build_help_text() -> str:
     """Build canonical help text shared across channels."""
-    lines = [
-        "🐈 hahobot commands:",
-        "/new — Start a new conversation",
-        "/stop — Stop the current task",
-        "/restart — Restart the bot",
-        "/status — Show bot status",
-        "/dream — Manually trigger Dream consolidation",
-        "/dream-log — Show what the last Dream changed",
-        "/dream-restore — Revert memory to a previous state",
-        "/help — Show available commands",
-    ]
-    return "\n".join(lines)
+    from hahobot.agent.i18n import help_lines
+
+    return "\n".join(help_lines("en"))
 
 
 def register_builtin_commands(router: CommandRouter) -> None:

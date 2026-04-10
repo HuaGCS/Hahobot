@@ -7,6 +7,8 @@ from functools import lru_cache
 from importlib.resources import files as pkg_files
 from typing import Any
 
+from hahobot.command.catalog import help_command_specs
+
 DEFAULT_LANGUAGE = "en"
 SUPPORTED_LANGUAGES = ("en", "zh")
 
@@ -71,28 +73,10 @@ def text(language: Any, key: str, **kwargs: Any) -> str:
 def help_lines(language: Any) -> list[str]:
     """Return localized slash-command help lines."""
     active = resolve_language(language)
-    return [
-        text(active, "help_header"),
-        text(active, "cmd_new"),
-        text(active, "cmd_lang_current"),
-        text(active, "cmd_lang_list"),
-        text(active, "cmd_lang_set"),
-        text(active, "cmd_persona_current"),
-        text(active, "cmd_persona_list"),
-        text(active, "cmd_persona_set"),
-        text(active, "cmd_stchar"),
-        text(active, "cmd_preset"),
-        text(active, "cmd_scene"),
-        text(active, "cmd_skill"),
-        text(active, "cmd_mcp"),
-        text(active, "cmd_stop"),
-        text(active, "cmd_restart"),
-        text(active, "cmd_status"),
-        text(active, "cmd_dream"),
-        text(active, "cmd_dream_log"),
-        text(active, "cmd_dream_restore"),
-        text(active, "cmd_help"),
-    ]
+    lines = [text(active, "help_header")]
+    for spec in help_command_specs():
+        lines.extend(text(active, key) for key in spec.description_keys)
+    return lines
 
 
 def telegram_command_descriptions(language: Any) -> dict[str, str]:

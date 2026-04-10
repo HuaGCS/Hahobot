@@ -38,6 +38,7 @@ from rich.text import Text
 
 from hahobot import __logo__, __version__
 from hahobot.cli.stream import StreamRenderer, ThinkingSpinner
+from hahobot.command.catalog import interactive_command_names, interactive_subcommands
 from hahobot.config.paths import get_workspace_path, is_default_workspace
 from hahobot.config.schema import Config
 from hahobot.utils.helpers import sync_workspace_templates
@@ -69,36 +70,8 @@ app = typer.Typer(
 
 console = Console()
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
-_INTERACTIVE_SLASH_COMMANDS = (
-    "/new",
-    "/status",
-    "/help",
-    "/lang",
-    "/language",
-    "/persona",
-    "/stchar",
-    "/preset",
-    "/scene",
-    "/skill",
-    "/mcp",
-    "/dream",
-    "/dream-log",
-    "/dream-restore",
-    "/stop",
-    "/restart",
-    "/session",
-)
-_INTERACTIVE_SLASH_SUBCOMMANDS: dict[str, tuple[str, ...]] = {
-    "/lang": ("current", "list", "set"),
-    "/language": ("current", "list", "set"),
-    "/persona": ("current", "list", "set"),
-    "/stchar": ("list", "show", "load"),
-    "/preset": ("show",),
-    "/scene": ("list", "generate"),
-    "/skill": ("search", "install", "uninstall", "list", "update"),
-    "/mcp": ("list",),
-    "/session": ("current", "list", "show", "use", "new"),
-}
+_INTERACTIVE_SLASH_COMMANDS = interactive_command_names()
+_INTERACTIVE_SLASH_SUBCOMMANDS: dict[str, tuple[str, ...]] = interactive_subcommands()
 _INTERACTIVE_SCENE_NAMES = ("daily", "comfort", "date")
 
 # ---------------------------------------------------------------------------

@@ -43,6 +43,7 @@ from hahobot.agent.personas import (
     resolve_persona_name,
 )
 from hahobot.agent.tools.image_gen import ImageGenTool
+from hahobot.command.catalog import CommandSpec, admin_command_specs
 from hahobot.config.loader import _migrate_config, load_config
 from hahobot.config.schema import Config
 from hahobot.utils.helpers import detect_image_mime, ensure_dir
@@ -118,20 +119,6 @@ class ConfigFieldSpec:
     rows: int = 4
     placeholder: str = ""
     restart_required: bool = False
-
-
-@dataclass(frozen=True)
-class CommandDocSpec:
-    """Renderable slash-command documentation entry."""
-
-    command: str
-    description_keys: tuple[str, ...]
-    usage_lines: tuple[str, ...] = ()
-    usage_text_key: str | None = None
-    aliases: tuple[str, ...] = ()
-    note_key: str | None = None
-
-
 @dataclass
 class WeixinAdminLoginSession:
     """Ephemeral Weixin QR-login state stored by the admin UI."""
@@ -1186,98 +1173,7 @@ _CONFIG_FIELDS = (
     ),
 )
 _CONFIG_FIELD_MAP = {field.name: field for field in _CONFIG_FIELDS}
-_COMMAND_DOCS = (
-    CommandDocSpec(
-        command="/help",
-        description_keys=("cmd_help",),
-        usage_lines=("/help",),
-    ),
-    CommandDocSpec(
-        command="/status",
-        description_keys=("cmd_status",),
-        usage_lines=("/status",),
-    ),
-    CommandDocSpec(
-        command="/new",
-        description_keys=("cmd_new",),
-        usage_lines=("/new",),
-    ),
-    CommandDocSpec(
-        command="/lang",
-        description_keys=("cmd_lang_current", "cmd_lang_list", "cmd_lang_set"),
-        usage_lines=(
-            "/lang current",
-            "/lang list",
-            "/lang set <en|zh>",
-        ),
-        aliases=("/language",),
-        note_key="admin_commands_note_lang",
-    ),
-    CommandDocSpec(
-        command="/persona",
-        description_keys=("cmd_persona_current", "cmd_persona_list", "cmd_persona_set"),
-        usage_lines=(
-            "/persona current",
-            "/persona list",
-            "/persona set <name>",
-        ),
-        note_key="admin_commands_note_persona",
-    ),
-    CommandDocSpec(
-        command="/stchar",
-        description_keys=("cmd_stchar",),
-        usage_lines=(
-            "/stchar list",
-            "/stchar show <name>",
-            "/stchar load <name>",
-        ),
-    ),
-    CommandDocSpec(
-        command="/preset",
-        description_keys=("cmd_preset",),
-        usage_lines=(
-            "/preset",
-            "/preset show",
-            "/preset show <persona>",
-        ),
-    ),
-    CommandDocSpec(
-        command="/scene",
-        description_keys=("cmd_scene",),
-        usage_lines=(
-            "/scene list",
-            "/scene daily",
-            "/scene comfort",
-            "/scene date",
-            "/scene <custom_scene>",
-            "/scene generate <brief>",
-        ),
-    ),
-    CommandDocSpec(
-        command="/skill",
-        description_keys=("cmd_skill",),
-        usage_text_key="skill_usage",
-        note_key="admin_commands_note_skill",
-    ),
-    CommandDocSpec(
-        command="/mcp",
-        description_keys=("cmd_mcp",),
-        usage_text_key="mcp_usage",
-        note_key="admin_commands_note_mcp",
-    ),
-    CommandDocSpec(
-        command="/stop",
-        description_keys=("cmd_stop",),
-        usage_lines=("/stop",),
-        note_key="admin_commands_note_stop",
-    ),
-    CommandDocSpec(
-        command="/restart",
-        description_keys=("cmd_restart",),
-        usage_lines=("/restart",),
-        note_key="admin_commands_note_restart",
-    ),
-)
+_COMMAND_DOCS = admin_command_specs()
 _BLANK_AS_NONE_FIELDS = {
     "tools_web_proxy",
     "tools_image_gen_proxy",
@@ -5280,7 +5176,7 @@ async def _admin_weixin_cancel(request: web.Request) -> web.Response:
     raise _redirect(request, "/admin/weixin?cancelled=1")
 
 
-def _command_usage_lines(request: web.Request, spec: CommandDocSpec) -> list[str]:
+def _command_usage_lines(request: web.Request, spec: CommandSpec) -> list[str]:
     if spec.usage_text_key:
         return [
             line.strip()
@@ -5290,12 +5186,12 @@ def _command_usage_lines(request: web.Request, spec: CommandDocSpec) -> list[str
     return list(spec.usage_lines)
 
 
-def _command_panel_id(spec: CommandDocSpec) -> str:
+def _command_panel_id(spec: CommandSpec) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", spec.command.lower()).strip("-")
     return f"command-{slug or 'item'}"
 
 
-def _render_command_nav_item(request: web.Request, spec: CommandDocSpec, *, active: bool) -> str:
+def _render_command_nav_item(request: web.Request, spec: CommandSpec, *, active: bool) -> str:
     panel_id = _command_panel_id(spec)
     preview = _t(request, spec.description_keys[0]) if spec.description_keys else spec.command
     css_class = "command-nav-item active" if active else "command-nav-item"
@@ -5309,7 +5205,7 @@ def _render_command_nav_item(request: web.Request, spec: CommandDocSpec, *, acti
     )
 
 
-def _render_command_panel(request: web.Request, spec: CommandDocSpec, *, active: bool) -> str:
+def _render_command_panel(request: web.Request, spec: CommandSpec, *, active: bool) -> str:
     description_items = "".join(
         f"<li>{escape(_t(request, key))}</li>"
         for key in spec.description_keys
