@@ -14,17 +14,23 @@ from hahobot.command.catalog import (
 from hahobot.command.router import CommandContext
 
 
-def test_help_and_admin_catalog_include_dream_commands_but_not_local_session() -> None:
+def test_help_and_admin_catalog_include_gateway_workspace_commands() -> None:
     help_text = "\n".join(help_lines("en"))
     admin_commands = [spec.command for spec in admin_command_specs()]
 
     assert "/dream-log" in help_text
     assert "/dream-restore" in help_text
-    assert "/session" not in help_text
+    assert "/session current" in help_text
+    assert "/repo <status|diff>" in help_text
+    assert "/review [staged|base <rev>|path <repo-path>]" in help_text
+    assert "/compact [key]" in help_text
     assert "/dream" in admin_commands
     assert "/dream-log" in admin_commands
     assert "/dream-restore" in admin_commands
-    assert "/session" not in admin_commands
+    assert "/session" in admin_commands
+    assert "/repo" in admin_commands
+    assert "/review" in admin_commands
+    assert "/compact" in admin_commands
 
 
 def test_interactive_and_telegram_catalog_keep_aliases_and_safe_names() -> None:
@@ -34,10 +40,13 @@ def test_interactive_and_telegram_catalog_keep_aliases_and_safe_names() -> None:
     assert "/session" in names
     assert "/repo" in names
     assert "/review" in names
+    assert "/compact" in names
     assert "language" in telegram_forwardable_commands()
     assert "dream_log" in telegram_forwardable_commands()
-    assert "repo" not in telegram_forwardable_commands()
-    assert "review" not in telegram_forwardable_commands()
+    assert "session" in telegram_forwardable_commands()
+    assert "repo" in telegram_forwardable_commands()
+    assert "review" in telegram_forwardable_commands()
+    assert "compact" in telegram_forwardable_commands()
     assert normalize_telegram_command_text("/dream_log deadbeef") == "/dream-log deadbeef"
     assert normalize_telegram_command_text("/dream_restore deadbeef") == "/dream-restore deadbeef"
 

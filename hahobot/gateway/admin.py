@@ -477,6 +477,13 @@ _CONFIG_FIELDS = (
         restart_required=True,
     ),
     ConfigFieldSpec(
+        "channels_telegram_stream_edit_interval",
+        ("channels", "telegram", "streamEditInterval"),
+        "float",
+        "admin_config_channels_telegram_stream_edit_interval_label",
+        placeholder="0.6",
+    ),
+    ConfigFieldSpec(
         "channels_discord_enabled",
         ("channels", "discord", "enabled"),
         "bool",
@@ -503,6 +510,55 @@ _CONFIG_FIELDS = (
         "int",
         "admin_config_channels_discord_intents_label",
         restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "channels_discord_proxy",
+        ("channels", "discord", "proxy"),
+        "text",
+        "admin_config_channels_discord_proxy_label",
+        placeholder="socks5://127.0.0.1:1080",
+        restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "channels_discord_proxy_username",
+        ("channels", "discord", "proxyUsername"),
+        "text",
+        "admin_config_channels_discord_proxy_username_label",
+        restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "channels_discord_proxy_password",
+        ("channels", "discord", "proxyPassword"),
+        "text",
+        "admin_config_channels_discord_proxy_password_label",
+        restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "channels_discord_streaming",
+        ("channels", "discord", "streaming"),
+        "bool",
+        "admin_config_channels_discord_streaming_label",
+    ),
+    ConfigFieldSpec(
+        "channels_discord_read_receipt_emoji",
+        ("channels", "discord", "readReceiptEmoji"),
+        "text",
+        "admin_config_channels_discord_read_receipt_emoji_label",
+        placeholder="👀",
+    ),
+    ConfigFieldSpec(
+        "channels_discord_working_emoji",
+        ("channels", "discord", "workingEmoji"),
+        "text",
+        "admin_config_channels_discord_working_emoji_label",
+        placeholder="🔧",
+    ),
+    ConfigFieldSpec(
+        "channels_discord_working_emoji_delay",
+        ("channels", "discord", "workingEmojiDelay"),
+        "float",
+        "admin_config_channels_discord_working_emoji_delay_label",
+        placeholder="2.0",
     ),
     ConfigFieldSpec(
         "channels_feishu_enabled",
@@ -764,6 +820,22 @@ _CONFIG_FIELDS = (
         placeholder="/usr/local/bin:/usr/sbin",
     ),
     ConfigFieldSpec(
+        "tools_exec_allowed_env_keys",
+        ("tools", "exec", "allowedEnvKeys"),
+        "csv",
+        "admin_config_exec_allowed_env_keys_label",
+        "admin_config_exec_allowed_env_keys_hint",
+        placeholder="JAVA_HOME, GOPATH",
+    ),
+    ConfigFieldSpec(
+        "tools_exec_sandbox",
+        ("tools", "exec", "sandbox"),
+        "text",
+        "admin_config_exec_sandbox_label",
+        "admin_config_exec_sandbox_hint",
+        placeholder="bwrap",
+    ),
+    ConfigFieldSpec(
         "tools_image_gen_enabled",
         ("tools", "imageGen", "enabled"),
         "bool",
@@ -1022,6 +1094,13 @@ _CONFIG_FIELDS = (
         "admin_config_channel_send_max_retries_label",
     ),
     ConfigFieldSpec(
+        "channels_transcription_provider",
+        ("channels", "transcriptionProvider"),
+        "select",
+        "admin_config_channel_transcription_provider_label",
+        options=("groq", "openai"),
+    ),
+    ConfigFieldSpec(
         "channels_voice_reply_enabled",
         ("channels", "voiceReply", "enabled"),
         "bool",
@@ -1179,6 +1258,9 @@ _BLANK_AS_NONE_FIELDS = {
     "tools_image_gen_proxy",
     "tools_mcp_memorix_type",
     "channels_telegram_proxy",
+    "channels_discord_proxy",
+    "channels_discord_proxy_username",
+    "channels_discord_proxy_password",
     "channels_voice_reply_speed",
 }
 _MEMORIX_CONFIG_FIELD_NAMES = {
@@ -1276,6 +1358,7 @@ _CHANNEL_CONFIG_GROUPS = (
             "channels_telegram_enabled",
             "channels_telegram_token",
             "channels_telegram_proxy",
+            "channels_telegram_stream_edit_interval",
         ),
     ),
     (
@@ -1287,6 +1370,13 @@ _CHANNEL_CONFIG_GROUPS = (
             "channels_discord_token",
             "channels_discord_gateway_url",
             "channels_discord_intents",
+            "channels_discord_proxy",
+            "channels_discord_proxy_username",
+            "channels_discord_proxy_password",
+            "channels_discord_streaming",
+            "channels_discord_read_receipt_emoji",
+            "channels_discord_working_emoji",
+            "channels_discord_working_emoji_delay",
         ),
     ),
     (
@@ -1382,6 +1472,7 @@ _CHANNEL_GROUP_SUMMARY_URL_FIELDS = {
     "channels_whatsapp_bridge_url",
     "channels_telegram_proxy",
     "channels_discord_gateway_url",
+    "channels_discord_proxy",
     "channels_matrix_homeserver",
 }
 _CONFIG_SECTIONS = (
@@ -1473,6 +1564,8 @@ _CONFIG_SECTIONS = (
             "tools_exec_enable",
             "tools_exec_timeout",
             "tools_exec_path_append",
+            "tools_exec_allowed_env_keys",
+            "tools_exec_sandbox",
         ),
     ),
     (
@@ -1535,6 +1628,7 @@ _CONFIG_SECTIONS = (
             "channels_send_progress",
             "channels_send_tool_hints",
             "channels_send_max_retries",
+            "channels_transcription_provider",
         ),
     ),
     (
@@ -3587,6 +3681,7 @@ def _config_form_values(config: Config) -> dict[str, Any]:
                     "channels_telegram_enabled": channel_config.enabled,
                     "channels_telegram_token": channel_config.token,
                     "channels_telegram_proxy": channel_config.proxy or "",
+                    "channels_telegram_stream_edit_interval": str(channel_config.stream_edit_interval),
                 }
             )
         elif group_key == "discord":
@@ -3596,6 +3691,13 @@ def _config_form_values(config: Config) -> dict[str, Any]:
                     "channels_discord_token": channel_config.token,
                     "channels_discord_gateway_url": channel_config.gateway_url,
                     "channels_discord_intents": str(channel_config.intents),
+                    "channels_discord_proxy": channel_config.proxy or "",
+                    "channels_discord_proxy_username": channel_config.proxy_username or "",
+                    "channels_discord_proxy_password": channel_config.proxy_password or "",
+                    "channels_discord_streaming": channel_config.streaming,
+                    "channels_discord_read_receipt_emoji": channel_config.read_receipt_emoji,
+                    "channels_discord_working_emoji": channel_config.working_emoji,
+                    "channels_discord_working_emoji_delay": str(channel_config.working_emoji_delay),
                 }
             )
         elif group_key == "feishu":
@@ -3723,6 +3825,8 @@ def _config_form_values(config: Config) -> dict[str, Any]:
         "tools_exec_enable": config.tools.exec.enable,
         "tools_exec_timeout": str(config.tools.exec.timeout),
         "tools_exec_path_append": config.tools.exec.path_append,
+        "tools_exec_allowed_env_keys": ", ".join(config.tools.exec.allowed_env_keys),
+        "tools_exec_sandbox": config.tools.exec.sandbox,
         "tools_image_gen_enabled": config.tools.image_gen.enabled,
         "tools_image_gen_api_key": config.tools.image_gen.api_key,
         "tools_image_gen_base_url": config.tools.image_gen.base_url,
@@ -3769,6 +3873,7 @@ def _config_form_values(config: Config) -> dict[str, Any]:
         "channels_send_progress": config.channels.send_progress,
         "channels_send_tool_hints": config.channels.send_tool_hints,
         "channels_send_max_retries": str(config.channels.send_max_retries),
+        "channels_transcription_provider": config.channels.transcription_provider,
         "channels_voice_reply_enabled": voice.enabled,
         "channels_voice_reply_channels": ", ".join(voice.channels),
         "channels_voice_reply_provider": voice.provider,

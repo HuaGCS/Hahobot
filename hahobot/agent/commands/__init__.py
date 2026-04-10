@@ -9,6 +9,7 @@ from hahobot.agent.commands.scene import SceneCommandHandler
 from hahobot.agent.commands.skill import SkillCommandHandler
 from hahobot.agent.commands.stchar import STCharCommandHandler
 from hahobot.agent.commands.system import SystemCommandHandler
+from hahobot.agent.commands.workspace import WorkspaceCommandHandler
 
 __all__ = [
     "LanguageCommandHandler",
@@ -19,5 +20,6 @@ __all__ = [
     "SkillCommandHandler",
     "STCharCommandHandler",
     "SystemCommandHandler",
+    "WorkspaceCommandHandler",
     "build_agent_command_router",
 ]

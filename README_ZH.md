@@ -1150,8 +1150,10 @@ hahobot 现在可以把 Mem0 作为真正的用户记忆后端使用。
 - 可视化编辑 `agents.defaults.providerPool`，提供按行维护 targets 的列表式界面，支持新增 / 删除 / 排序，以及故障切换 / 轮询策略
 - 可视化编辑常用 `providers.*` 配置块，例如 `openrouter`、`openai`、`anthropic`、`deepseek`、`custom`、`ollama`、`vllm`，并按 provider 分组成可折叠卡片，收起时显示安全摘要
 - 可视化编辑常见单实例 channel 凭据块，例如 `whatsapp`、`telegram`、`discord`、`feishu`、`dingtalk`、`slack`、`qq`、`matrix`、`weixin`、`wecom`；若某个 channel 已使用 `instances` 多实例结构，这里会只读提示，仍需在高级 JSON 中维护
+- Telegram / Discord 单实例卡片同时覆盖常用附加项，例如 `channels.telegram.streamEditInterval`，以及 Discord 的 `streaming`、`readReceiptEmoji`、`workingEmoji`、`workingEmojiDelay`、`proxy`、`proxyUsername`、`proxyPassword`
 - admin 内置专门的 Weixin 扫码登录页，可直接为当前实例申请并轮询个人微信登录二维码；扫码成功后，token 会保存到当前实例的 Weixin 状态文件
-- 可视化编辑 `tools.exec`，用于控制 shell 命令执行、超时时间和额外 PATH
+- 可视化编辑 `tools.exec`，用于控制 shell 命令执行、超时时间、额外 PATH、`allowedEnvKeys` 和可选 `sandbox`
+- 可视化编辑渠道运行时分区，例如 `channels.sendProgress`、`channels.sendToolHints`、`channels.sendMaxRetries`、`channels.transcriptionProvider` 和 `channels.voiceReply.*`
 - 可视化编辑专门的 `Memorix MCP` 分区，对应 `tools.mcpServers.memorix`
 - 可视化编辑 `Mem0 用户记忆` 分区，对应 `memory.user.backend`、`shadowWriteMem0` 和 `memory.user.mem0`
 - 独立的命令总览页，展示所有聊天 slash 命令、别名和用法
@@ -1316,6 +1318,7 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 | `hahobot sessions list [--json]` | 列出当前 workspace 最近保存的会话，可配合 `hahobot agent --continue` 使用 |
 | `hahobot sessions show <key> [--json]` | 查看指定会话的元数据和最近消息 |
 | `hahobot sessions export <key> [--format md|json] [--output <path>]` | 导出一个已保存会话，默认写到 `workspace/out/sessions/` |
+| `hahobot sessions compact <key> [--json]` | 手动对一个已保存会话执行现有的 token consolidation，并持久化更新后的游标 |
 | `hahobot repo status [--json]` | 只读查看当前 workspace 对应 Git 仓库的分支、跟踪状态和改动计数 |
 | `hahobot repo diff [--staged] [--name-only] [--json]` | 只读查看当前 workspace 对应 Git 仓库的 tracked diff 摘要 |
 | `hahobot review [--staged] [--base <rev>] [--path <path>] [--json]` | 用当前配置的模型只读审查当前 workspace 的 Git diff |
@@ -1343,12 +1346,19 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 - `/repo diff staged`
 - `/review`
 - `/review staged`
+- `/compact`
+- `/compact [key]`
+
+同一组 `/session ...`、`/repo ...`、`/review ...`、`/compact ...` 现在也可以直接在 gateway
+承载的聊天里使用。其中 gateway 下的 `/session use <key>` 和 `/session new [name]` 只影响当前
+聊天的会话路由；如果要切回原始 session key，可用 `/session use default`。
 
 交互式 CLI 输入还会为 slash 命令提供补全，覆盖内置命令、常见子命令，以及当前
-workspace 里的 persona、scene 名称，以及本地 `/session ...`、`/repo ...`、`/review ...` 候选。
+workspace 里的 persona、scene 名称，以及本地 `/session ...`、`/repo ...`、`/review ...`、`/compact` 候选。
 
 其中 `/repo diff` 只看 tracked changes；如果还想确认 untracked 文件数量，用 `/repo status`。
 `/review` 则会把当前 diff 交给已配置模型做 findings-first 的代码审查，不会直接改动仓库文件。
+`/compact` 直接复用现有自动 token consolidation 逻辑，不会额外引入第二套 memory 流程。
 
 ### Persona 资产
 

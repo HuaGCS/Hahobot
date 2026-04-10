@@ -107,6 +107,17 @@ def test_interactive_slash_completer_matches_repo_prefixes():
     assert [completion.text for completion in completions] == ["/restart", "/repo", "/review"]
 
 
+def test_interactive_slash_completer_matches_compact_prefix():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/c", cursor_position=2),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["/compact"]
+
+
 def test_interactive_slash_completer_matches_repo_subcommands():
     completions = list(
         commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
@@ -189,6 +200,30 @@ def test_interactive_slash_completer_matches_dynamic_session_keys(tmp_path):
     )
 
     assert [completion.text for completion in export_completions] == ["cli:beta"]
+
+
+def test_interactive_slash_completer_matches_dynamic_compact_session_keys(tmp_path):
+    from hahobot.session.manager import SessionManager
+
+    manager = SessionManager(tmp_path)
+    for key in ("cli:alpha", "cli:beta"):
+        session = manager.get_or_create(key)
+        session.add_message("user", "hello")
+        manager.save(session)
+
+    commands._set_interactive_completion_context(
+        workspace=tmp_path,
+        session_manager=manager,
+        current_session_id="cli:direct",
+    )
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/compact cli:b", cursor_position=len("/compact cli:b")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["cli:beta"]
 
 
 def test_interactive_slash_completer_matches_dynamic_scene_names(tmp_path):

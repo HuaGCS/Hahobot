@@ -24,6 +24,7 @@ from hahobot.agent.commands import (
     SkillCommandHandler,
     STCharCommandHandler,
     SystemCommandHandler,
+    WorkspaceCommandHandler,
     build_agent_command_router,
 )
 from hahobot.agent.context import ContextBuilder
@@ -335,8 +336,10 @@ class AgentLoop:
         self._skill_commands = SkillCommandHandler(self)
         self._stchar_commands = STCharCommandHandler(self)
         self._system_commands = SystemCommandHandler(self)
+        self._workspace_commands = WorkspaceCommandHandler(self)
         self._command_router = build_agent_command_router()
         self._unified_session = unified_session
+        self._session_route_overrides: dict[str, str] = {}
 
         self.context = ContextBuilder(workspace, timezone=timezone)
         self.sessions = session_manager or SessionManager(workspace)
@@ -999,10 +1002,39 @@ class AgentLoop:
             loop=self,
         )
 
+    def get_session_route(self, origin_key: str) -> str | None:
+        """Return the active chat-level route override for one origin session key."""
+        target = self._session_route_overrides.get(origin_key)
+        if not target or target == origin_key:
+            return None
+        return target
+
+    def set_session_route(self, origin_key: str, target_key: str) -> None:
+        """Route one origin chat session to another logical session key."""
+        if target_key == origin_key:
+            self._session_route_overrides.pop(origin_key, None)
+            return
+        self._session_route_overrides[origin_key] = target_key
+
     def _normalize_session_message(self, msg: InboundMessage) -> InboundMessage:
         """Apply unified-session routing unless the caller already pinned a session key."""
+        metadata = dict(msg.metadata or {})
+        origin_key = str(metadata.get("_origin_session_key") or msg.session_key)
+        target_key = self.get_session_route(origin_key)
+        if target_key:
+            metadata["_origin_session_key"] = origin_key
+            return dataclasses.replace(
+                msg,
+                metadata=metadata,
+                session_key_override=target_key,
+            )
         if self._unified_session and not msg.session_key_override:
-            return dataclasses.replace(msg, session_key_override=UNIFIED_SESSION_KEY)
+            metadata["_origin_session_key"] = origin_key
+            return dataclasses.replace(
+                msg,
+                metadata=metadata,
+                session_key_override=UNIFIED_SESSION_KEY,
+            )
         return msg
 
     async def _handle_skill_command(self, msg: InboundMessage, session: Session) -> OutboundMessage:
@@ -1811,6 +1843,8 @@ class AgentLoop:
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         await self._reload_runtime_config_if_needed()
+        if msg.channel != "system":
+            msg = self._normalize_session_message(msg)
 
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
