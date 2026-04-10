@@ -136,6 +136,9 @@ hahobot onboard --wizard
 
 ```bash
 hahobot agent
+hahobot agent --continue
+hahobot agent --pick-session
+hahobot agent --multiline
 ```
 
 网关模式：
@@ -1297,11 +1300,19 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 | `hahobot onboard` | 初始化默认配置和工作区 |
 | `hahobot onboard --wizard` | 使用交互式向导初始化 |
 | `hahobot agent` | 交互式 CLI 对话 |
+| `hahobot agent --continue` | 自动恢复最近一次本地 CLI 会话 |
+| `hahobot agent --pick-session` | 启动前交互式选择一个最近的本地 CLI 会话 |
+| `hahobot agent --multiline` | 开启多行输入模式，`Enter` 换行，`Ctrl+J` 发送 |
 | `hahobot agent -m "..."` | 单轮消息 |
 | `hahobot agent -w <workspace>` | 指定工作区启动 |
 | `hahobot agent -w <workspace> -c <config>` | 指定工作区和配置启动 |
 | `hahobot serve` | 启动 OpenAI 兼容 API |
 | `hahobot gateway` | 启动网关 |
+| `hahobot doctor [--json]` | 只读检查当前实例的配置、工作区、模型路由、渠道与工具准备情况 |
+| `hahobot model [--json]` | 查看当前默认模型、provider 解析结果与 provider pool 路由 |
+| `hahobot tools [--json]` | 查看 web / exec / imageGen / MCP 当前配置与准备情况 |
+| `hahobot sessions list [--json]` | 列出当前 workspace 最近保存的会话，可配合 `hahobot agent --continue` 使用 |
+| `hahobot sessions show <key> [--json]` | 查看指定会话的元数据和最近消息 |
 | `hahobot status` | 查看状态 |
 | `hahobot companion init [--persona <name>]` | 初始化 companion persona 脚手架 |
 | `hahobot companion doctor [--persona <name>]` | 检查 companion 工作流所需配置与资产 |
@@ -1312,6 +1323,17 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 | `hahobot persona import-st-worldinfo <file> --persona <name>` | 导入 world info 到 persona |
 | `hahobot provider login openai-codex` | Codex OAuth 登录 |
 | `hahobot provider login github-copilot` | GitHub Copilot OAuth 登录 |
+
+在 `hahobot agent` 的本地交互模式里，还支持一组不会发给模型的本地会话控制命令：
+
+- `/session current`
+- `/session list`
+- `/session show [key]`
+- `/session use <key>`
+- `/session new [name]`
+
+交互式 CLI 输入还会为 slash 命令提供补全，覆盖内置命令、常见子命令，以及当前
+workspace 里的 persona、scene 名称和本地 `/session ...` 候选。
 
 ### Persona 资产
 
@@ -1338,6 +1360,10 @@ hahobot persona import-st-worldinfo /path/to/worldinfo.json --persona Aria -w <w
 导入完角色、语音和参考图后，可以先跑一遍只读诊断：
 
 ```bash
+hahobot doctor
+hahobot model
+hahobot tools
+hahobot sessions list
 hahobot companion init --persona Aria
 hahobot companion init --persona Aria --reference-image ./aria.png
 hahobot companion doctor --persona Aria
