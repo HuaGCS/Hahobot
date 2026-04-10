@@ -11,6 +11,7 @@
 - `uv run ruff check .`: lint Python code and normalize import ordering.
 - `uv run hahobot agent`: start the local CLI agent.
 - `uv run hahobot sessions list --json`: inspect recent saved sessions in the active workspace.
+- `uv run hahobot sessions export cli:direct --format md`: export one saved session to a local artifact.
 - `uv run hahobot repo status --json`: inspect the active workspace's local Git state without modifying the repo.
 - `uv run hahobot review --staged`: review the active workspace's staged diff with the configured model.
 - `uv run hahobot doctor --json`: inspect runtime readiness without writing files.
@@ -112,10 +113,11 @@ Do not commit real API keys, tokens, chat logs, or workspace data. Keep local se
 - `hahobot.agent.hook_bridge.ExternalHookBridge` is the supported SDK-side bridge from `AgentHook` lifecycle events to external commands. Keep the stdin payload JSON-based with the current `schema_version/event/context` shape, default event selection non-streaming, and reserve `{"continue": false}` / exit code `2` for explicit pre-run or pre-tool blocking.
 - `tools.exec.allowedEnvKeys` is the narrow allowlist for passing parent env vars into shell subprocesses. Keep the default isolated env, and only forward explicitly named keys such as `JAVA_HOME` / `GOPATH` when configured.
 - `hahobot agent --continue` should resume the most recent local CLI session without making the user name it manually, and `hahobot sessions list [--json]` should expose recent saved sessions for inspection. Keep both read-only with respect to existing session history until the user actually sends a new message.
+- `hahobot sessions export <key> [--format md|json] [--output <path>]` should export an existing saved session to a local artifact without mutating the underlying session history. Default output should live under `workspace/out/sessions/`.
 - `hahobot agent --pick-session` should prompt from recent local CLI sessions and then continue using the selected session key. Keep it mutually exclusive with explicit `--session` and `--continue`.
 - `hahobot agent --multiline` should only affect interactive CLI input mode. Keep the default single-line behavior unchanged, and make the submit gesture explicit in the UI (`Enter` newline, `Ctrl+J` submit).
 - Interactive `hahobot agent` input should provide slash-command completion for built-in commands and common subcommands, including workspace-derived persona / scene names and the CLI-local `/session ...` / `/repo ...` / `/review ...` controls, without affecting normal free-form chat input.
-- Local interactive `/session ...` commands inside `hahobot agent` should be handled by the CLI shell itself rather than forwarded to the model. Keep `/session current`, `/session list`, `/session show [key]`, `/session use <key>`, and `/session new [name]` scoped to local CLI session management.
+- Local interactive `/session ...` commands inside `hahobot agent` should be handled by the CLI shell itself rather than forwarded to the model. Keep `/session current`, `/session list`, `/session show [key]`, `/session export [key]`, `/session use <key>`, and `/session new [name]` scoped to local CLI session management.
 - Local interactive `/repo ...` commands inside `hahobot agent` should also stay in the CLI shell. Keep `/repo status`, `/repo diff`, and `/repo diff staged` read-only; `/repo diff` should stay limited to tracked Git changes, with untracked files surfaced through `/repo status`.
 - Local interactive `/review` commands inside `hahobot agent` should also stay in the CLI shell. Keep `/review` and `/review staged` scoped to provider-backed local diff review, findings-first output, and no repo mutation.
 - `hahobot sessions show <key> [--json]` should expose the saved metadata and a bounded tail of recent messages for one session, without implicitly creating new sessions when the requested key does not exist.

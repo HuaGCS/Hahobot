@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from hahobot.session.manager import SessionManager
+from hahobot.utils.helpers import ensure_dir, safe_filename
 
 _INTERNAL_SESSION_PREFIXES = ("cron:", "api:", "system:")
 _INTERNAL_SESSION_KEYS = {"heartbeat", "dream"}
@@ -86,6 +88,34 @@ class SessionDetail:
             "internal": self.internal,
             "shown_limit": self.shown_limit,
             "messages": [message.to_dict() for message in self.messages],
+        }
+
+
+@dataclass(frozen=True)
+class SessionExport:
+    """Serializable full-fidelity session export payload."""
+
+    key: str
+    created_at: str | None
+    updated_at: str | None
+    path: Path
+    message_count: int
+    persona: str | None
+    metadata: dict[str, Any]
+    internal: bool
+    messages: tuple[dict[str, Any], ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "path": str(self.path),
+            "message_count": self.message_count,
+            "persona": self.persona,
+            "metadata": self.metadata,
+            "internal": self.internal,
+            "messages": [dict(message) for message in self.messages],
         }
 
 
@@ -240,6 +270,41 @@ def load_session_detail(
     )
 
 
+def load_session_export(
+    manager: SessionManager,
+    key: str,
+) -> SessionExport | None:
+    """Load one saved session with full message payloads for export."""
+    path_by_key = {
+        str(item.get("key") or ""): Path(str(item.get("path") or ""))
+        for item in manager.list_sessions()
+        if item.get("key")
+    }
+    if key not in path_by_key:
+        return None
+
+    session = manager.get_or_create(key)
+    created_at = None
+    updated_at = None
+    for item in manager.list_sessions():
+        if item.get("key") == key:
+            created_at = item.get("created_at")
+            updated_at = item.get("updated_at")
+            break
+
+    return SessionExport(
+        key=key,
+        created_at=created_at,
+        updated_at=updated_at,
+        path=path_by_key[key],
+        message_count=len(session.messages),
+        persona=session.metadata.get("persona"),
+        metadata=dict(session.metadata),
+        internal=is_internal_session_key(key),
+        messages=tuple(dict(message) for message in session.messages),
+    )
+
+
 def render_session_list_text(
     sessions: list[SessionSummary],
     *,
@@ -301,3 +366,99 @@ def render_session_detail_text(detail: SessionDetail) -> str:
     else:
         lines.append("No messages saved in this session.")
     return "\n".join(lines)
+
+
+def default_session_export_path(workspace: Path, key: str, export_format: str) -> Path:
+    """Return the default output path for one exported session artifact."""
+    suffix = ".md" if export_format == "md" else ".json"
+    out_dir = ensure_dir(workspace / "out" / "sessions")
+    filename = safe_filename(key.replace(":", "_")) or "session"
+    return out_dir / f"{filename}{suffix}"
+
+
+def render_session_export_markdown(data: SessionExport) -> str:
+    """Render one full session export as human-readable Markdown."""
+    lines = [
+        f"# Session Export: {data.key}",
+        "",
+        f"- Source Path: `{data.path}`",
+        f"- Created: {data.created_at or 'unknown'}",
+        f"- Updated: {data.updated_at or 'unknown'}",
+        f"- Messages: {data.message_count}",
+        f"- Persona: {data.persona or 'default'}",
+        f"- Internal: {'yes' if data.internal else 'no'}",
+    ]
+
+    if data.metadata:
+        lines.extend(
+            [
+                "",
+                "## Metadata",
+                "",
+                "```json",
+                json.dumps(data.metadata, ensure_ascii=False, indent=2),
+                "```",
+            ]
+        )
+
+    lines.extend(["", "## Transcript"])
+    if not data.messages:
+        lines.extend(["", "_No messages saved in this session._"])
+        return "\n".join(lines)
+
+    for index, message in enumerate(data.messages, start=1):
+        role = str(message.get("role") or "unknown")
+        timestamp = str(message.get("timestamp") or "unknown-time")
+        lines.extend(["", f"### {index}. {role} @ {timestamp}", ""])
+        content = message.get("content")
+        if isinstance(content, str):
+            lines.extend(["```text", content, "```"])
+        else:
+            lines.extend(
+                [
+                    "```json",
+                    json.dumps(content, ensure_ascii=False, indent=2),
+                    "```",
+                ]
+            )
+        extras = {
+            key: value
+            for key, value in message.items()
+            if key not in {"role", "content", "timestamp"}
+        }
+        if extras:
+            lines.extend(
+                [
+                    "",
+                    "Extra fields:",
+                    "```json",
+                    json.dumps(extras, ensure_ascii=False, indent=2),
+                    "```",
+                ]
+            )
+    return "\n".join(lines)
+
+
+def export_session_artifact(
+    data: SessionExport,
+    *,
+    workspace: Path,
+    export_format: str,
+    output_path: Path | None = None,
+) -> Path:
+    """Write one session export artifact and return the output path."""
+    target = (
+        output_path.expanduser().resolve()
+        if output_path is not None
+        else default_session_export_path(workspace, data.key, export_format)
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if export_format == "md":
+        target.write_text(render_session_export_markdown(data), encoding="utf-8")
+        return target
+
+    target.write_text(
+        json.dumps(data.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return target

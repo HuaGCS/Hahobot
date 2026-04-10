@@ -1315,6 +1315,7 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 | `hahobot tools [--json]` | 查看 web / exec / imageGen / MCP 当前配置与准备情况 |
 | `hahobot sessions list [--json]` | 列出当前 workspace 最近保存的会话，可配合 `hahobot agent --continue` 使用 |
 | `hahobot sessions show <key> [--json]` | 查看指定会话的元数据和最近消息 |
+| `hahobot sessions export <key> [--format md|json] [--output <path>]` | 导出一个已保存会话，默认写到 `workspace/out/sessions/` |
 | `hahobot repo status [--json]` | 只读查看当前 workspace 对应 Git 仓库的分支、跟踪状态和改动计数 |
 | `hahobot repo diff [--staged] [--name-only] [--json]` | 只读查看当前 workspace 对应 Git 仓库的 tracked diff 摘要 |
 | `hahobot review [--staged] [--base <rev>] [--path <path>] [--json]` | 用当前配置的模型只读审查当前 workspace 的 Git diff |
@@ -1334,6 +1335,7 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 - `/session current`
 - `/session list`
 - `/session show [key]`
+- `/session export [key]`
 - `/session use <key>`
 - `/session new [name]`
 - `/repo status`
