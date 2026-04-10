@@ -151,6 +151,9 @@ Interactive CLI:
 
 ```bash
 hahobot agent
+hahobot agent --continue
+hahobot agent --pick-session
+hahobot agent --multiline
 ```
 
 One-shot prompt:
@@ -176,6 +179,10 @@ hahobot serve
 Useful checks:
 
 ```bash
+hahobot doctor
+hahobot model
+hahobot tools
+hahobot sessions list
 hahobot status
 hahobot channels status
 hahobot companion init --persona Aria
@@ -301,9 +308,36 @@ Before wiring up voice, heartbeat, and image generation for a persona, you can r
 diagnostic pass:
 
 ```bash
+hahobot doctor
+hahobot model
+hahobot tools
 hahobot companion doctor --persona Aria
 hahobot companion doctor --persona Aria --json
 ```
+
+- `hahobot doctor`: read-only runtime readiness check for config, workspace, model route, channels,
+  and tools
+- `hahobot model`: show the active model route, provider resolution, and provider-pool targets
+- `hahobot tools`: show tool-family readiness for web, exec, image generation, and MCP
+- `hahobot sessions list`: inspect recent saved sessions before resuming them with
+  `hahobot agent --continue` or `hahobot agent --session <key>`
+- `hahobot sessions show <key>`: inspect one saved session's metadata and recent messages
+- `hahobot agent --pick-session`: interactively choose a recent CLI session before sending the
+  next message
+- `hahobot agent --multiline`: interactive multiline input mode; `Enter` inserts a newline and
+  `Ctrl+J` submits the message
+- `hahobot agent`: interactive slash completion for built-in commands such as `/status`,
+  `/skill ...`, `/persona ...`, `/dream ...`, workspace persona / scene names, and the local
+  `/session ...` controls
+
+Inside `hahobot agent`, the local interactive shell also supports session control commands that do
+not go through the model:
+
+- `/session current`
+- `/session list`
+- `/session show [key]`
+- `/session use <key>`
+- `/session new [name]`
 
 ### Persona-local extras
 

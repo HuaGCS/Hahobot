@@ -10,6 +10,10 @@
 - `uv run pytest tests/test_skill_commands.py -q`: run the ClawHub slash-command regression tests.
 - `uv run ruff check .`: lint Python code and normalize import ordering.
 - `uv run hahobot agent`: start the local CLI agent.
+- `uv run hahobot sessions list --json`: inspect recent saved sessions in the active workspace.
+- `uv run hahobot doctor --json`: inspect runtime readiness without writing files.
+- `uv run hahobot agent --multiline`: start interactive CLI chat with multiline input enabled.
+- `uv run hahobot agent --pick-session`: choose a recent CLI session interactively before chatting.
 - `cd bridge && npm install && npm run build`: install and compile the WhatsApp bridge.
 - `bash tests/test_docker.sh`: smoke-test the Docker image and onboarding flow.
 
@@ -99,7 +103,14 @@ Do not commit real API keys, tokens, chat logs, or workspace data. Keep local se
 - `hahobot persona import-st-preset <file> --persona <name>` imports a SillyTavern preset into an existing persona by generating `STYLE.md` plus `.hahobot/st_preset.json`.
 - `hahobot persona import-st-worldinfo <file> --persona <name>` imports SillyTavern world info into an existing persona by generating `LORE.md` plus `.hahobot/st_world_info.json`.
 - `hahobot companion init [--persona <name>] [--reference-image <path>]` bootstraps a minimal companion persona scaffold. Keep it conservative: create/update only managed companion files (`SOUL.md`, `USER.md`, `STYLE.md`, `VOICE.json`, optional manifest/reference asset copy, optional default heartbeat task), preserve existing files unless `--force` is passed, and never auto-create `PROFILE.md` or `INSIGHTS.md`.
+- `hahobot doctor [--json]`, `hahobot model [--json]`, and `hahobot tools [--json]` are read-only runtime inspection commands. Keep them non-destructive and focused on the active config/workspace; `doctor` should summarize readiness, `model` should explain provider resolution / provider-pool routing, and `tools` should summarize web / exec / image-gen / MCP state.
 - `tools.exec.allowedEnvKeys` is the narrow allowlist for passing parent env vars into shell subprocesses. Keep the default isolated env, and only forward explicitly named keys such as `JAVA_HOME` / `GOPATH` when configured.
+- `hahobot agent --continue` should resume the most recent local CLI session without making the user name it manually, and `hahobot sessions list [--json]` should expose recent saved sessions for inspection. Keep both read-only with respect to existing session history until the user actually sends a new message.
+- `hahobot agent --pick-session` should prompt from recent local CLI sessions and then continue using the selected session key. Keep it mutually exclusive with explicit `--session` and `--continue`.
+- `hahobot agent --multiline` should only affect interactive CLI input mode. Keep the default single-line behavior unchanged, and make the submit gesture explicit in the UI (`Enter` newline, `Ctrl+J` submit).
+- Interactive `hahobot agent` input should provide slash-command completion for built-in commands and common subcommands, including workspace-derived persona / scene names and the CLI-local `/session ...` controls, without affecting normal free-form chat input.
+- Local interactive `/session ...` commands inside `hahobot agent` should be handled by the CLI shell itself rather than forwarded to the model. Keep `/session current`, `/session list`, `/session show [key]`, `/session use <key>`, and `/session new [name]` scoped to local CLI session management.
+- `hahobot sessions show <key> [--json]` should expose the saved metadata and a bounded tail of recent messages for one session, without implicitly creating new sessions when the requested key does not exist.
 - `hahobot companion doctor [--persona <name>] [--json]` is the read-only readiness check for companion workflows. Keep it inspecting the current workspace/config without writing files; it should cover persona files, heartbeat tasks, voice reply readiness, image generation, reference images, and enabled channels.
 - Persona workspaces may include optional `PROFILE.md`, `INSIGHTS.md`, `STYLE.md`, and `LORE.md`. `PROFILE.md` is the user-model layer for stable user facts/preferences, `INSIGHTS.md` is the learned collaboration-guidance layer for proven workflows and pitfalls, and both should load as separate sections; `USER.md` remains relationship framing; `STYLE.md` and `LORE.md` should continue loading after `SOUL.md` and `USER.md`.
 - Workspace template sync should not auto-create `PROFILE.md` or `INSIGHTS.md`; they remain optional overlays. Keep the seeded `USER.md` template aligned with its relationship-framing role instead of using it as a user-profile questionnaire.
