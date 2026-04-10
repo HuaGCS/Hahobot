@@ -85,6 +85,50 @@ def test_interactive_slash_completer_matches_session_subcommands():
     assert [completion.text for completion in completions] == ["show"]
 
 
+def test_interactive_slash_completer_matches_repo_prefixes():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/r", cursor_position=2),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["/restart", "/repo", "/review"]
+
+
+def test_interactive_slash_completer_matches_repo_subcommands():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/repo d", cursor_position=len("/repo d")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["diff"]
+
+
+def test_interactive_slash_completer_matches_repo_third_token():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/repo diff s", cursor_position=len("/repo diff s")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["staged"]
+
+
+def test_interactive_slash_completer_matches_review_subcommands():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/review s", cursor_position=len("/review s")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["staged"]
+
+
 def test_interactive_slash_completer_matches_dynamic_persona_names(tmp_path):
     (tmp_path / "personas" / "coder").mkdir(parents=True)
 

@@ -161,6 +161,10 @@ class _InteractiveSlashCompleter(Completer):
             return self._available_personas()
         if command == "/session" and subcommand in {"show", "use"}:
             return self._available_cli_sessions()
+        if command == "/repo" and subcommand == "diff":
+            return ["staged"]
+        if command == "/review":
+            return ["staged"]
         return []
 
     def _available_languages(self) -> list[str]:
@@ -260,8 +264,8 @@ def _clear_interactive_completion_context() -> None:
 
 
 @dataclass(frozen=True)
-class _LocalSessionCommandResult:
-    """Result of a local interactive `/session ...` control command."""
+class _LocalInteractiveCommandResult:
+    """Result of a local interactive command handled by the CLI shell."""
 
     text: str
     new_session_id: str | None = None
@@ -307,6 +311,25 @@ def _interactive_session_usage() -> str:
         "/session show [key]\n"
         "/session use <key>\n"
         "/session new [name]"
+    )
+
+
+def _interactive_repo_usage() -> str:
+    """Return help text for local interactive repo inspection controls."""
+    return (
+        "Local repo commands:\n"
+        "/repo status\n"
+        "/repo diff\n"
+        "/repo diff staged"
+    )
+
+
+def _interactive_review_usage() -> str:
+    """Return help text for local interactive review controls."""
+    return (
+        "Local review commands:\n"
+        "/review\n"
+        "/review staged"
     )
 
 
@@ -514,7 +537,7 @@ def _handle_local_session_command(
     *,
     session_manager: Any,
     current_session_id: str,
-) -> _LocalSessionCommandResult:
+) -> _LocalInteractiveCommandResult:
     """Handle CLI-local `/session ...` commands without involving the agent."""
     from hahobot.cli.session_inspector import (
         list_session_summaries,
@@ -525,24 +548,24 @@ def _handle_local_session_command(
 
     parts = command.strip().split(maxsplit=2)
     if len(parts) == 1:
-        return _LocalSessionCommandResult(_interactive_session_usage())
+        return _LocalInteractiveCommandResult(_interactive_session_usage())
 
     action = parts[1].lower()
     if action in {"current", "now"}:
-        return _LocalSessionCommandResult(f"Current session: {current_session_id}")
+        return _LocalInteractiveCommandResult(f"Current session: {current_session_id}")
 
     if action == "list":
         sessions = list_session_summaries(session_manager, cli_only=True, limit=20)
-        return _LocalSessionCommandResult(render_session_list_text(sessions, cli_only=True))
+        return _LocalInteractiveCommandResult(render_session_list_text(sessions, cli_only=True))
 
     if action == "show":
         target = current_session_id if len(parts) < 3 else _coerce_cli_session_key(parts[2])
         detail = load_session_detail(session_manager, target, limit=10)
         if detail is None:
-            return _LocalSessionCommandResult(
+            return _LocalInteractiveCommandResult(
                 f"Session not found: {target}\nUse /session new [name] to start a fresh session."
             )
-        return _LocalSessionCommandResult(render_session_detail_text(detail))
+        return _LocalInteractiveCommandResult(render_session_detail_text(detail))
 
     existing = {
         session.key
@@ -551,15 +574,15 @@ def _handle_local_session_command(
 
     if action == "use":
         if len(parts) < 3:
-            return _LocalSessionCommandResult("Usage: /session use <key>")
+            return _LocalInteractiveCommandResult("Usage: /session use <key>")
         target = _coerce_cli_session_key(parts[2])
         if target == current_session_id:
-            return _LocalSessionCommandResult(f"Already using session: {target}")
+            return _LocalInteractiveCommandResult(f"Already using session: {target}")
         if target != "cli:direct" and target not in existing:
-            return _LocalSessionCommandResult(
+            return _LocalInteractiveCommandResult(
                 f"Session not found: {target}\nUse /session list to inspect saved sessions."
             )
-        return _LocalSessionCommandResult(
+        return _LocalInteractiveCommandResult(
             f"Switched to session: {target}",
             new_session_id=target,
         )
@@ -571,15 +594,84 @@ def _handle_local_session_command(
             else _coerce_cli_session_key(parts[2])
         )
         if target in existing:
-            return _LocalSessionCommandResult(
+            return _LocalInteractiveCommandResult(
                 f"Session already exists: {target}\nUse /session use {target} to resume it."
             )
-        return _LocalSessionCommandResult(
+        return _LocalInteractiveCommandResult(
             f"Started new session: {target}",
             new_session_id=target,
         )
 
-    return _LocalSessionCommandResult(_interactive_session_usage())
+    return _LocalInteractiveCommandResult(_interactive_session_usage())
+
+
+def _handle_local_repo_command(
+    command: str,
+    *,
+    workspace: Path,
+) -> _LocalInteractiveCommandResult:
+    """Handle CLI-local `/repo ...` commands without involving the agent."""
+    from hahobot.cli.repo_inspector import (
+        inspect_repo_diff,
+        inspect_repo_status,
+        render_repo_diff_text,
+        render_repo_status_text,
+    )
+
+    parts = command.strip().split()
+    if len(parts) == 1:
+        return _LocalInteractiveCommandResult(_interactive_repo_usage())
+
+    action = parts[1].lower()
+    if action == "status":
+        return _LocalInteractiveCommandResult(
+            render_repo_status_text(inspect_repo_status(workspace))
+        )
+
+    if action == "diff":
+        staged = len(parts) >= 3 and parts[2].lower() in {"staged", "cached"}
+        if len(parts) >= 3 and not staged:
+            return _LocalInteractiveCommandResult(_interactive_repo_usage())
+        return _LocalInteractiveCommandResult(
+            render_repo_diff_text(inspect_repo_diff(workspace, staged=staged))
+        )
+
+    return _LocalInteractiveCommandResult(_interactive_repo_usage())
+
+
+async def _handle_local_review_command(
+    command: str,
+    *,
+    provider: Any,
+    model: str,
+    workspace: Path,
+    retry_mode: str = "standard",
+) -> _LocalInteractiveCommandResult:
+    """Handle CLI-local `/review ...` commands without involving the agent loop."""
+    from hahobot.cli.review_runner import run_review
+
+    parts = command.strip().split(maxsplit=1)
+    if len(parts) == 1:
+        result = await run_review(
+            provider=provider,
+            model=model,
+            workspace=workspace,
+            retry_mode=retry_mode,
+        )
+        return _LocalInteractiveCommandResult(result.content)
+
+    arg = parts[1].strip().lower()
+    if arg == "staged":
+        result = await run_review(
+            provider=provider,
+            model=model,
+            workspace=workspace,
+            staged=True,
+            retry_mode=retry_mode,
+        )
+        return _LocalInteractiveCommandResult(result.content)
+
+    return _LocalInteractiveCommandResult(_interactive_review_usage())
 
 
 async def _read_interactive_input_async(*, multiline: bool = False) -> str:
@@ -634,6 +726,9 @@ app.add_typer(companion_app, name="companion")
 
 sessions_app = typer.Typer(help="Inspect saved sessions")
 app.add_typer(sessions_app, name="sessions")
+
+repo_app = typer.Typer(help="Inspect local repository state")
+app.add_typer(repo_app, name="repo")
 
 
 # ============================================================================
@@ -1060,6 +1155,89 @@ def tools(
         typer.echo(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
         return
     console.print(render_tools_summary_text(summary))
+
+
+@app.command()
+def review(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    staged: bool = typer.Option(False, "--staged", help="Review staged tracked changes"),
+    base: str | None = typer.Option(None, "--base", help="Review diff against a base revision"),
+    path_filter: str | None = typer.Option(
+        None,
+        "--path",
+        help="Limit review to one repository-relative path",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    markdown: bool = typer.Option(
+        True,
+        "--markdown/--no-markdown",
+        help="Render review output as Markdown",
+    ),
+):
+    """Review the active workspace Git diff with the configured model."""
+    import json
+
+    from hahobot.cli.review_runner import collect_review_input, run_review_for_input
+
+    if staged and base:
+        console.print("[red]Error: choose only one of --staged or --base.[/red]")
+        raise typer.Exit(1)
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    payload = collect_review_input(
+        loaded.workspace_path,
+        staged=staged,
+        base=base,
+        path_filter=path_filter,
+    )
+
+    if payload.error:
+        if json_output:
+            typer.echo(
+                json.dumps(
+                    {
+                        "request": payload.to_dict(),
+                        "model": loaded.agents.defaults.model,
+                        "content": payload.error,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            console.print(f"[red]Error: {payload.error}[/red]")
+        raise typer.Exit(1)
+
+    if payload.clean:
+        result = {"request": payload.to_dict(), "model": loaded.agents.defaults.model, "content": "No diff to review."}
+        if json_output:
+            typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            _print_agent_response("No diff to review.", render_markdown=markdown)
+        return
+
+    async def _run_review() -> Any:
+        provider = _make_provider(loaded)
+        return await run_review_for_input(
+            provider=provider,
+            model=loaded.agents.defaults.model,
+            payload=payload,
+            retry_mode=loaded.agents.defaults.provider_retry_mode,
+        )
+
+    result = asyncio.run(_run_review())
+    if json_output:
+        typer.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        if result.request.error:
+            raise typer.Exit(1)
+        return
+
+    if result.request.error:
+        console.print(f"[red]Error: {result.content}[/red]")
+        raise typer.Exit(1)
+
+    _print_agent_response(result.content, render_markdown=markdown)
 
 
 # ============================================================================
@@ -1706,6 +1884,32 @@ def agent(
                             )
                             continue
 
+                        if command.startswith("/repo"):
+                            result = _handle_local_repo_command(
+                                command,
+                                workspace=config.workspace_path,
+                            )
+                            await _print_interactive_response(
+                                result.text,
+                                render_markdown=False,
+                                metadata={"render_as": "text"},
+                            )
+                            continue
+
+                        if command.startswith("/review"):
+                            result = await _handle_local_review_command(
+                                command,
+                                provider=provider,
+                                model=config.agents.defaults.model,
+                                workspace=config.workspace_path,
+                                retry_mode=config.agents.defaults.provider_retry_mode,
+                            )
+                            await _print_interactive_response(
+                                result.text,
+                                render_markdown=markdown,
+                            )
+                            continue
+
                         turn_done.clear()
                         turn_response.clear()
                         renderer = StreamRenderer(render_markdown=markdown)
@@ -1820,6 +2024,54 @@ def sessions_show(
         typer.echo(json.dumps(detail.to_dict(), ensure_ascii=False, indent=2))
         return
     console.print(render_session_detail_text(detail))
+
+
+@repo_app.command("status")
+def repo_status(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Show read-only Git status for the active workspace."""
+    import json
+
+    from hahobot.cli.repo_inspector import inspect_repo_status, render_repo_status_text
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    summary = inspect_repo_status(loaded.workspace_path)
+    if json_output:
+        typer.echo(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
+        if not summary.is_git_repo:
+            raise typer.Exit(1)
+        return
+    console.print(render_repo_status_text(summary))
+    if not summary.is_git_repo:
+        raise typer.Exit(1)
+
+
+@repo_app.command("diff")
+def repo_diff(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    staged: bool = typer.Option(False, "--staged", help="Inspect staged tracked changes"),
+    name_only: bool = typer.Option(False, "--name-only", help="Only list changed paths"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Show a read-only tracked diff summary for the active workspace repository."""
+    import json
+
+    from hahobot.cli.repo_inspector import inspect_repo_diff, render_repo_diff_text
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    summary = inspect_repo_diff(loaded.workspace_path, staged=staged, name_only=name_only)
+    if json_output:
+        typer.echo(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
+        if not summary.is_git_repo:
+            raise typer.Exit(1)
+        return
+    console.print(render_repo_diff_text(summary))
+    if not summary.is_git_repo:
+        raise typer.Exit(1)
 
 
 @persona_app.command("import-st-card")

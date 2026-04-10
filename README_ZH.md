@@ -1315,6 +1315,9 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 | `hahobot tools [--json]` | 查看 web / exec / imageGen / MCP 当前配置与准备情况 |
 | `hahobot sessions list [--json]` | 列出当前 workspace 最近保存的会话，可配合 `hahobot agent --continue` 使用 |
 | `hahobot sessions show <key> [--json]` | 查看指定会话的元数据和最近消息 |
+| `hahobot repo status [--json]` | 只读查看当前 workspace 对应 Git 仓库的分支、跟踪状态和改动计数 |
+| `hahobot repo diff [--staged] [--name-only] [--json]` | 只读查看当前 workspace 对应 Git 仓库的 tracked diff 摘要 |
+| `hahobot review [--staged] [--base <rev>] [--path <path>] [--json]` | 用当前配置的模型只读审查当前 workspace 的 Git diff |
 | `hahobot status` | 查看状态 |
 | `hahobot companion init [--persona <name>]` | 初始化 companion persona 脚手架 |
 | `hahobot companion doctor [--persona <name>]` | 检查 companion 工作流所需配置与资产 |
@@ -1326,16 +1329,24 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 | `hahobot provider login openai-codex` | Codex OAuth 登录 |
 | `hahobot provider login github-copilot` | GitHub Copilot OAuth 登录 |
 
-在 `hahobot agent` 的本地交互模式里，还支持一组不会发给模型的本地会话控制命令：
+在 `hahobot agent` 的本地交互模式里，还支持一组不会发给模型的本地命令：
 
 - `/session current`
 - `/session list`
 - `/session show [key]`
 - `/session use <key>`
 - `/session new [name]`
+- `/repo status`
+- `/repo diff`
+- `/repo diff staged`
+- `/review`
+- `/review staged`
 
 交互式 CLI 输入还会为 slash 命令提供补全，覆盖内置命令、常见子命令，以及当前
-workspace 里的 persona、scene 名称和本地 `/session ...` 候选。
+workspace 里的 persona、scene 名称，以及本地 `/session ...`、`/repo ...`、`/review ...` 候选。
+
+其中 `/repo diff` 只看 tracked changes；如果还想确认 untracked 文件数量，用 `/repo status`。
+`/review` 则会把当前 diff 交给已配置模型做 findings-first 的代码审查，不会直接改动仓库文件。
 
 ### Persona 资产
 
