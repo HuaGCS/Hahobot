@@ -53,6 +53,7 @@ from hahobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTo
 from hahobot.agent.tools.history import HistoryExpandTool, HistorySearchTool
 from hahobot.agent.tools.image_gen import ImageGenTool
 from hahobot.agent.tools.message import MessageTool
+from hahobot.agent.tools.policy import RuntimeToolPolicy
 from hahobot.agent.tools.registry import ToolRegistry
 from hahobot.agent.tools.search import GlobTool, GrepTool
 from hahobot.agent.tools.shell import ExecTool
@@ -258,6 +259,7 @@ class AgentLoop:
         context_block_limit: int | None = None,
         max_tool_result_chars: int = _TOOL_RESULT_MAX_CHARS,
         provider_retry_mode: str = "standard",
+        web_config: Any | None = None,
         web_search_config: Any | None = None,
         brave_api_key: str | None = None,
         web_proxy: str | None = None,
@@ -277,6 +279,9 @@ class AgentLoop:
         unified_session: bool = False,
     ):
         from hahobot.config.schema import ExecToolConfig, ImageGenConfig, MemoryConfig
+        if web_config is not None:
+            web_proxy = getattr(web_config, "proxy", web_proxy) or None
+            web_search_config = getattr(web_config, "search", web_search_config)
         if web_search_config is not None:
             brave_api_key = getattr(web_search_config, "api_key", brave_api_key) or None
             web_search_provider = getattr(
@@ -310,6 +315,7 @@ class AgentLoop:
         self.web_search_provider = web_search_provider
         self.web_search_base_url = web_search_base_url
         self.web_search_max_results = web_search_max_results
+        self.web_enabled = getattr(web_config or web_search_config, "enable", True)
         self.exec_config = exec_config or ExecToolConfig()
         self.image_gen_config = image_gen_config or ImageGenConfig()
         self.memory_config = memory_config or MemoryConfig()
@@ -343,6 +349,7 @@ class AgentLoop:
             model=self.model,
             brave_api_key=brave_api_key,
             web_proxy=web_proxy,
+            web_enabled=self.web_enabled,
             web_search_provider=web_search_provider,
             web_search_base_url=web_search_base_url,
             web_search_max_results=web_search_max_results,
@@ -655,37 +662,99 @@ class AgentLoop:
         self._memorix_started_sessions.clear()
         self._memorix_session_context.clear()
 
+    def _tool_policy(self) -> RuntimeToolPolicy:
+        """Build the current internal tool policy view."""
+        from hahobot.config.schema import WebSearchConfig, WebToolsConfig
+
+        web_cfg = WebToolsConfig(
+            enable=self.web_enabled,
+            proxy=self.web_proxy,
+            search=WebSearchConfig(
+                provider=self.web_search_provider,
+                api_key=self.brave_api_key or "",
+                base_url=self.web_search_base_url or "",
+                max_results=self.web_search_max_results,
+            ),
+        )
+        return RuntimeToolPolicy(
+            workspace=self.workspace,
+            restrict_to_workspace=self.restrict_to_workspace,
+            web_config=web_cfg,
+            exec_config=self.exec_config,
+            image_gen_config=self.image_gen_config,
+            builtin_read_dirs=(BUILTIN_SKILLS_DIR,),
+        )
+
     def _apply_runtime_tool_config(self) -> None:
         """Apply runtime-configurable settings to already-registered tools."""
-        allowed_dir = self.workspace if self.restrict_to_workspace else None
-        extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
+        policy = self._tool_policy()
+        scope = policy.workspace_scope()
+        allowed_dir = scope.allowed_dir
+        extra_read = list(scope.extra_read_dirs) if scope.extra_read_dirs else None
 
         if read_tool := self.tools.get("read_file"):
             read_tool._workspace = self.workspace
             read_tool._allowed_dir = allowed_dir
             read_tool._extra_allowed_dirs = extra_read
 
-        for name in ("write_file", "edit_file", "list_dir"):
+        for name in ("write_file", "edit_file", "list_dir", "glob", "grep"):
             if tool := self.tools.get(name):
                 tool._workspace = self.workspace
                 tool._allowed_dir = allowed_dir
                 tool._extra_allowed_dirs = None
 
-        if exec_tool := self.tools.get("exec"):
-            exec_tool.timeout = self.exec_config.timeout
-            exec_tool.working_dir = str(self.workspace)
-            exec_tool.restrict_to_workspace = self.restrict_to_workspace
-            exec_tool.path_append = self.exec_config.path_append
+        exec_tool = self.tools.get("exec")
+        if policy.exec().enabled:
+            if isinstance(exec_tool, ExecTool):
+                exec_tool.timeout = self.exec_config.timeout
+                exec_tool.working_dir = str(self.workspace)
+                exec_tool.restrict_to_workspace = self.restrict_to_workspace
+                exec_tool.sandbox = self.exec_config.sandbox
+                exec_tool.path_append = self.exec_config.path_append
+                exec_tool.allowed_env_keys = list(self.exec_config.allowed_env_keys)
+            else:
+                self.tools.register(
+                    ExecTool(
+                        working_dir=str(self.workspace),
+                        timeout=self.exec_config.timeout,
+                        restrict_to_workspace=self.restrict_to_workspace,
+                        sandbox=self.exec_config.sandbox,
+                        path_append=self.exec_config.path_append,
+                        allowed_env_keys=self.exec_config.allowed_env_keys,
+                    )
+                )
+        elif exec_tool:
+            self.tools.unregister("exec")
 
-        if web_search_tool := self.tools.get("web_search"):
-            web_search_tool._init_provider = self.web_search_provider
-            web_search_tool._init_api_key = self.brave_api_key
-            web_search_tool._init_base_url = self.web_search_base_url
-            web_search_tool.max_results = self.web_search_max_results
-            web_search_tool.proxy = self.web_proxy
+        web_search_tool = self.tools.get("web_search")
+        web_fetch_tool = self.tools.get("web_fetch")
+        if policy.web().enabled:
+            if isinstance(web_search_tool, WebSearchTool):
+                web_search_tool._init_provider = self.web_search_provider
+                web_search_tool._init_api_key = self.brave_api_key
+                web_search_tool._init_base_url = self.web_search_base_url
+                web_search_tool.max_results = self.web_search_max_results
+                web_search_tool.proxy = self.web_proxy
+            else:
+                self.tools.register(
+                    WebSearchTool(
+                        provider=self.web_search_provider,
+                        api_key=self.brave_api_key,
+                        base_url=self.web_search_base_url,
+                        max_results=self.web_search_max_results,
+                        proxy=self.web_proxy,
+                    )
+                )
 
-        if web_fetch_tool := self.tools.get("web_fetch"):
-            web_fetch_tool.proxy = self.web_proxy
+            if isinstance(web_fetch_tool, WebFetchTool):
+                web_fetch_tool.proxy = self.web_proxy
+            else:
+                self.tools.register(WebFetchTool(proxy=self.web_proxy))
+        else:
+            if web_search_tool:
+                self.tools.unregister("web_search")
+            if web_fetch_tool:
+                self.tools.unregister("web_fetch")
 
         for name in ("history_search", "history_expand"):
             if tool := self.tools.get(name):
@@ -778,6 +847,7 @@ class AgentLoop:
         self.image_gen_config = tools_cfg.image_gen
         self.memory_config = config.memory
         self.restrict_to_workspace = tools_cfg.restrict_to_workspace
+        self.web_enabled = web_cfg.enable
         self.brave_api_key = search_cfg.api_key or None
         self.web_proxy = web_cfg.proxy or None
         self.web_search_provider = search_cfg.provider
@@ -800,6 +870,7 @@ class AgentLoop:
             model=self.model,
             brave_api_key=self.brave_api_key,
             web_proxy=self.web_proxy,
+            web_enabled=self.web_enabled,
             web_search_provider=self.web_search_provider,
             web_search_base_url=self.web_search_base_url,
             web_search_max_results=self.web_search_max_results,
@@ -995,14 +1066,16 @@ class AgentLoop:
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
-        allowed_dir = self.workspace if (self.restrict_to_workspace or self.exec_config.sandbox) else None
-        extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
+        policy = self._tool_policy()
+        scope = policy.workspace_scope()
+        allowed_dir = scope.allowed_dir
+        extra_read = list(scope.extra_read_dirs) if scope.extra_read_dirs else None
         self.tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
         for cls in (WriteFileTool, EditFileTool, ListDirTool):
             self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
         for cls in (GlobTool, GrepTool):
             self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
-        if self.exec_config.enable:
+        if policy.exec().enabled:
             self.tools.register(ExecTool(
                 working_dir=str(self.workspace),
                 timeout=self.exec_config.timeout,
@@ -1011,16 +1084,17 @@ class AgentLoop:
                 path_append=self.exec_config.path_append,
                 allowed_env_keys=self.exec_config.allowed_env_keys,
             ))
-        self.tools.register(
-            WebSearchTool(
-                provider=self.web_search_provider,
-                api_key=self.brave_api_key,
-                base_url=self.web_search_base_url,
-                max_results=self.web_search_max_results,
-                proxy=self.web_proxy,
+        if policy.web().enabled:
+            self.tools.register(
+                WebSearchTool(
+                    provider=self.web_search_provider,
+                    api_key=self.brave_api_key,
+                    base_url=self.web_search_base_url,
+                    max_results=self.web_search_max_results,
+                    proxy=self.web_proxy,
+                )
             )
-        )
-        self.tools.register(WebFetchTool(proxy=self.web_proxy))
+            self.tools.register(WebFetchTool(proxy=self.web_proxy))
         self.tools.register(HistorySearchTool(workspace=self.workspace))
         self.tools.register(HistoryExpandTool(workspace=self.workspace))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from hahobot.agent.tools.policy import RuntimeToolPolicy, ToolPolicyDecision
 from hahobot.config.schema import Config
 from hahobot.providers.registry import find_by_name
 
@@ -152,6 +153,28 @@ class ToolSummary:
             "detail": self.detail,
             "issues": list(self.issues),
         }
+
+
+def _runtime_tool_policy(config: Config) -> RuntimeToolPolicy:
+    """Build the internal tool-policy view for doctor summaries."""
+    return RuntimeToolPolicy(
+        workspace=config.workspace_path,
+        restrict_to_workspace=config.tools.restrict_to_workspace,
+        web_config=config.tools.web,
+        exec_config=config.tools.exec,
+        image_gen_config=config.tools.image_gen,
+    )
+
+
+def _tool_summary_from_policy(decision: ToolPolicyDecision) -> ToolSummary:
+    """Convert an internal policy decision into a runtime-doctor summary."""
+    return ToolSummary(
+        enabled=decision.enabled,
+        status="ok" if decision.status == "disabled" else decision.status,
+        summary=decision.summary,
+        detail=decision.detail,
+        issues=decision.issues,
+    )
 
 
 @dataclass(frozen=True)
@@ -485,102 +508,15 @@ def build_model_summary(config: Config) -> ModelSummary:
 
 
 def _build_web_summary(config: Config) -> ToolSummary:
-    web_cfg = config.tools.web
-    search_cfg = web_cfg.search
-    detail_parts = [f"provider={search_cfg.provider}", f"max_results={search_cfg.max_results}"]
-    if web_cfg.proxy:
-        detail_parts.append(f"proxy={web_cfg.proxy}")
-
-    if not web_cfg.enable:
-        return ToolSummary(
-            enabled=False,
-            status="ok",
-            summary="Web tool is disabled.",
-            detail=" ".join(detail_parts),
-        )
-
-    issues: list[str] = []
-    if search_cfg.provider == "brave" and not search_cfg.api_key.strip():
-        issues.append("Brave search is selected but tools.web.search.apiKey is empty.")
-    if search_cfg.provider == "searxng" and not search_cfg.base_url.strip():
-        issues.append("SearXNG search is selected but tools.web.search.baseUrl is empty.")
-    if search_cfg.provider == "searxng" and search_cfg.base_url.strip():
-        detail_parts.append(f"base_url={search_cfg.base_url}")
-
-    status: Status = "ok" if not issues else "warn"
-    summary = "Web tool is ready." if not issues else "Web tool is enabled with incomplete search settings."
-    return ToolSummary(
-        enabled=True,
-        status=status,
-        summary=summary,
-        detail=" ".join(detail_parts),
-        issues=tuple(issues),
-    )
+    return _tool_summary_from_policy(_runtime_tool_policy(config).web())
 
 
 def _build_exec_summary(config: Config) -> ToolSummary:
-    exec_cfg = config.tools.exec
-    detail_parts = [f"timeout={exec_cfg.timeout}s"]
-    if exec_cfg.sandbox:
-        detail_parts.append(f"sandbox={exec_cfg.sandbox}")
-    if exec_cfg.path_append:
-        detail_parts.append(f"path_append={exec_cfg.path_append}")
-
-    if not exec_cfg.enable:
-        return ToolSummary(
-            enabled=False,
-            status="ok",
-            summary="Exec tool is disabled.",
-            detail=" ".join(detail_parts),
-        )
-
-    issues: list[str] = []
-    if exec_cfg.sandbox == "bwrap" and shutil.which("bwrap") is None:
-        issues.append("Exec sandbox is set to bwrap, but `bwrap` is not available in PATH.")
-
-    status: Status = "ok" if not issues else "warn"
-    summary = "Exec tool is ready." if not issues else "Exec tool is enabled but sandbox prerequisites are missing."
-    return ToolSummary(
-        enabled=True,
-        status=status,
-        summary=summary,
-        detail=" ".join(detail_parts),
-        issues=tuple(issues),
-    )
+    return _tool_summary_from_policy(_runtime_tool_policy(config).exec())
 
 
 def _build_image_gen_summary(config: Config) -> ToolSummary:
-    image_cfg = config.tools.image_gen
-    detail_parts = [f"model={image_cfg.model}", f"base_url={image_cfg.base_url}"]
-
-    if not image_cfg.enabled:
-        return ToolSummary(
-            enabled=False,
-            status="ok",
-            summary="Image generation tool is disabled.",
-            detail=" ".join(detail_parts),
-        )
-
-    issues: list[str] = []
-    if not image_cfg.api_key.strip():
-        issues.append(
-            "Image generation is enabled without tools.imageGen.apiKey. "
-            "This is only valid if the configured endpoint does not require authentication."
-        )
-
-    status: Status = "ok" if not issues else "warn"
-    summary = (
-        "Image generation tool is ready."
-        if not issues
-        else "Image generation is enabled but authentication may be incomplete."
-    )
-    return ToolSummary(
-        enabled=True,
-        status=status,
-        summary=summary,
-        detail=" ".join(detail_parts),
-        issues=tuple(issues),
-    )
+    return _tool_summary_from_policy(_runtime_tool_policy(config).image_gen())
 
 
 def _detect_transport(server: Any) -> str:
