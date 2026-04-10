@@ -24,6 +24,11 @@ from hahobot.agent.i18n import (
 from hahobot.bus.events import OutboundMessage
 from hahobot.bus.queue import MessageBus
 from hahobot.channels.base import BaseChannel
+from hahobot.command.catalog import (
+    normalize_telegram_command_text,
+    telegram_forwardable_commands,
+    telegram_menu_specs,
+)
 from hahobot.config.paths import get_media_dir
 from hahobot.config.schema import TelegramConfig, TelegramInstanceConfig
 from hahobot.security.network import validate_url_target
@@ -190,25 +195,6 @@ class TelegramChannel(BaseChannel):
     name = "telegram"
     display_name = "Telegram"
 
-    COMMAND_NAMES = (
-        "start",
-        "new",
-        "lang",
-        "persona",
-        "stchar",
-        "preset",
-        "scene",
-        "skill",
-        "mcp",
-        "stop",
-        "restart",
-        "status",
-        "dream",
-        "dream_log",
-        "dream_restore",
-        "help",
-    )
-
     @classmethod
     def default_config(cls) -> dict[str, object]:
         return TelegramConfig().model_dump(by_alias=True)
@@ -250,19 +236,18 @@ class TelegramChannel(BaseChannel):
     @staticmethod
     def _normalize_telegram_command(content: str) -> str:
         """Map Telegram-safe command aliases back to canonical hahobot commands."""
-        if not content.startswith("/"):
-            return content
-        if content == "/dream_log" or content.startswith("/dream_log "):
-            return content.replace("/dream_log", "/dream-log", 1)
-        if content == "/dream_restore" or content.startswith("/dream_restore "):
-            return content.replace("/dream_restore", "/dream-restore", 1)
-        return content
+        return normalize_telegram_command_text(content)
 
     @classmethod
     def _build_bot_commands(cls, language: str) -> list[BotCommand]:
         """Build localized command menu entries."""
         labels = telegram_command_descriptions(language)
-        return [BotCommand(name, labels[name]) for name in cls.COMMAND_NAMES]
+        commands = [BotCommand("start", labels["start"])]
+        commands.extend(
+            BotCommand(spec.telegram_name(), labels[spec.telegram_name()])
+            for spec in telegram_menu_specs()
+        )
+        return commands
 
     @staticmethod
     def _preferred_language(user) -> str:
@@ -305,20 +290,8 @@ class TelegramChannel(BaseChannel):
 
         # Add command handlers
         self._app.add_handler(CommandHandler("start", self._on_start))
-        self._app.add_handler(CommandHandler("new", self._forward_command))
-        self._app.add_handler(CommandHandler("lang", self._forward_command))
-        self._app.add_handler(CommandHandler("persona", self._forward_command))
-        self._app.add_handler(CommandHandler("stchar", self._forward_command))
-        self._app.add_handler(CommandHandler("preset", self._forward_command))
-        self._app.add_handler(CommandHandler("scene", self._forward_command))
-        self._app.add_handler(CommandHandler("skill", self._forward_command))
-        self._app.add_handler(CommandHandler("mcp", self._forward_command))
-        self._app.add_handler(CommandHandler("stop", self._forward_command))
-        self._app.add_handler(CommandHandler("restart", self._forward_command))
-        self._app.add_handler(CommandHandler("status", self._forward_command))
-        self._app.add_handler(CommandHandler("dream", self._forward_command))
-        self._app.add_handler(CommandHandler("dream_log", self._forward_command))
-        self._app.add_handler(CommandHandler("dream_restore", self._forward_command))
+        for command_name in telegram_forwardable_commands():
+            self._app.add_handler(CommandHandler(command_name, self._forward_command))
         self._app.add_handler(CommandHandler("help", self._on_help))
 
         # Add message handler for text, photos, voice, documents, and locations

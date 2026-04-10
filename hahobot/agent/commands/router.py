@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hahobot.command.builtin import cmd_dream, cmd_dream_log, cmd_dream_restore
+from hahobot.command.catalog import agent_command_specs
 from hahobot.command.router import CommandContext, CommandRouter
 
 if TYPE_CHECKING:
@@ -72,36 +74,33 @@ async def _cmd_restart_priority(ctx: CommandContext):
 def build_agent_command_router() -> CommandRouter:
     """Create the slash-command router used by AgentLoop."""
     router = CommandRouter()
+    handlers = {
+        "/new": _cmd_new,
+        "/lang": _cmd_lang,
+        "/persona": _cmd_persona,
+        "/stchar": _cmd_stchar,
+        "/preset": _cmd_preset,
+        "/scene": _cmd_scene,
+        "/skill": _cmd_skill,
+        "/mcp": _cmd_mcp,
+        "/stop": _cmd_stop_priority,
+        "/restart": _cmd_restart_priority,
+        "/status": _cmd_status,
+        "/dream": cmd_dream,
+        "/dream-log": cmd_dream_log,
+        "/dream-restore": cmd_dream_restore,
+        "/help": _cmd_help,
+    }
 
-    router.priority("/stop", _cmd_stop_priority)
-    router.priority("/restart", _cmd_restart_priority)
-    router.priority("/status", _cmd_status)
-
-    router.exact("/new", _cmd_new)
-    router.exact("/status", _cmd_status)
-    router.exact("/help", _cmd_help)
-
-    router.exact("/lang", _cmd_lang)
-    router.exact("/language", _cmd_lang)
-    router.prefix("/lang ", _cmd_lang)
-    router.prefix("/language ", _cmd_lang)
-
-    router.exact("/persona", _cmd_persona)
-    router.prefix("/persona ", _cmd_persona)
-
-    router.exact("/stchar", _cmd_stchar)
-    router.prefix("/stchar ", _cmd_stchar)
-
-    router.exact("/preset", _cmd_preset)
-    router.prefix("/preset ", _cmd_preset)
-
-    router.exact("/scene", _cmd_scene)
-    router.prefix("/scene ", _cmd_scene)
-
-    router.exact("/skill", _cmd_skill)
-    router.prefix("/skill ", _cmd_skill)
-
-    router.exact("/mcp", _cmd_mcp)
-    router.prefix("/mcp ", _cmd_mcp)
+    for spec in agent_command_specs():
+        handler = handlers.get(spec.command)
+        if handler is None:
+            continue
+        for form in spec.forms():
+            if spec.priority:
+                router.priority(form, handler)
+            router.exact(form, handler)
+            if spec.prefix_match:
+                router.prefix(f"{form} ", handler)
 
     return router
