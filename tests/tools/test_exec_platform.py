@@ -45,6 +45,8 @@ class TestBuildEnvWindows:
     _EXPECTED_KEYS = {
         "SYSTEMROOT", "COMSPEC", "USERPROFILE", "HOMEDRIVE",
         "HOMEPATH", "TEMP", "TMP", "PATHEXT", "PATH",
+        "APPDATA", "LOCALAPPDATA", "ProgramData",
+        "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
     }
 
     def test_expected_keys(self):
@@ -75,6 +77,21 @@ class TestBuildEnvWindows:
         with patch("hahobot.agent.tools.shell._IS_WINDOWS", True):
             env = ExecTool()._build_env()
         assert env["SYSTEMROOT"] == r"D:\Windows"
+
+    def test_allowed_env_keys_are_forwarded(self, monkeypatch):
+        monkeypatch.setenv("JAVA_HOME", r"C:\Java")
+        with patch("hahobot.agent.tools.shell._IS_WINDOWS", True):
+            env = ExecTool(allowed_env_keys=["JAVA_HOME"])._build_env()
+        assert env["JAVA_HOME"] == r"C:\Java"
+
+
+class TestBuildEnvUnixAllowedKeys:
+
+    def test_allowed_env_keys_are_forwarded(self, monkeypatch):
+        monkeypatch.setenv("GOPATH", "/opt/go")
+        with patch("hahobot.agent.tools.shell._IS_WINDOWS", False):
+            env = ExecTool(allowed_env_keys=["GOPATH"])._build_env()
+        assert env["GOPATH"] == "/opt/go"
 
 
 # ---------------------------------------------------------------------------
