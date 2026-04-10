@@ -39,6 +39,7 @@
 - [多实例](#多实例)
 - [CLI 参考](#cli-参考)
 - [外部 Hook Bridge](#外部-hook-bridge)
+- [上游同步台账](#上游同步台账)
 - [OpenAI 兼容 API](#openai-兼容-api)
 - [周期任务](#周期任务)
 - [Docker](#docker)
@@ -1674,6 +1675,13 @@ journalctl --user -u hahobot-gateway -f
 ```bash
 loginctl enable-linger $USER
 ```
+
+## 上游同步台账
+
+[`UPSTREAM_PARITY.md`](./UPSTREAM_PARITY.md) 是当前本地 fork 的上游同步台账。
+
+以后手工同步 `HKUDS/nanobot` 时，优先看这里：它会记录哪些能力已经本地对齐、哪些是明确的本地分叉，
+以及下次同步时还需要重点复核哪些区域。
 
 ## 项目结构
 

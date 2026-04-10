@@ -25,6 +25,7 @@ Write pytest tests using `tests/test_<feature>.py` naming. Add a regression test
 
 ## Commit & Pull Request Guidelines
 Recent history favors short Conventional Commit subjects such as `fix(memory): ...`, `feat(web): ...`, and `docs: ...`. Use imperative mood, add a scope when it helps, and keep unrelated changes out of the same commit. PRs should summarize the behavior change, note config or channel impact, list the tests you ran, and link the relevant issue or PR discussion. Include screenshots only when CLI output or user-visible behavior changed.
+- When you manually port or intentionally skip behavior from `HKUDS/nanobot`, update `UPSTREAM_PARITY.md` in the same patch so upstream sync state does not live only in commit history.
 
 ## Security & Configuration Tips
 Do not commit real API keys, tokens, chat logs, or workspace data. Keep local secrets in `~/.hahobot/config.json` and use sanitized examples in docs and tests. If you change authentication, network access, or other safety-sensitive behavior, update `README.md` or `SECURITY.md` in the same PR.
