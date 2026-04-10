@@ -12,6 +12,7 @@ from hahobot.agent.hook import AgentHook, AgentHookContext
 from hahobot.agent.runner import AgentRunner, AgentRunSpec
 from hahobot.agent.skills import BUILTIN_SKILLS_DIR
 from hahobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+from hahobot.agent.tools.policy import RuntimeToolPolicy
 from hahobot.agent.tools.registry import ToolRegistry
 from hahobot.agent.tools.search import GlobTool, GrepTool
 from hahobot.agent.tools.shell import ExecTool
@@ -50,6 +51,7 @@ class SubagentManager:
         model: str | None = None,
         brave_api_key: str | None = None,
         web_proxy: str | None = None,
+        web_enabled: bool = True,
         web_search_provider: str = "brave",
         web_search_base_url: str | None = None,
         web_search_max_results: int = 5,
@@ -64,6 +66,7 @@ class SubagentManager:
         self.max_tool_result_chars = max_tool_result_chars
         self.brave_api_key = brave_api_key
         self.web_proxy = web_proxy
+        self.web_enabled = web_enabled
         self.web_search_provider = web_search_provider
         self.web_search_base_url = web_search_base_url
         self.web_search_max_results = web_search_max_results
@@ -80,6 +83,7 @@ class SubagentManager:
         model: str,
         brave_api_key: str | None,
         web_proxy: str | None,
+        web_enabled: bool,
         web_search_provider: str,
         web_search_base_url: str | None,
         web_search_max_results: int,
@@ -91,6 +95,7 @@ class SubagentManager:
         self.model = model
         self.brave_api_key = brave_api_key
         self.web_proxy = web_proxy
+        self.web_enabled = web_enabled
         self.web_search_provider = web_search_provider
         self.web_search_base_url = web_search_base_url
         self.web_search_max_results = web_search_max_results
@@ -142,32 +147,54 @@ class SubagentManager:
         try:
             # Build subagent tools (no message tool, no spawn tool)
             tools = ToolRegistry()
-            allowed_dir = self.workspace if (self.restrict_to_workspace or self.exec_config.sandbox) else None
-            extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
+            from hahobot.config.schema import ImageGenConfig, WebSearchConfig, WebToolsConfig
+
+            policy = RuntimeToolPolicy(
+                workspace=self.workspace,
+                restrict_to_workspace=self.restrict_to_workspace,
+                web_config=WebToolsConfig(
+                    enable=self.web_enabled,
+                    proxy=self.web_proxy,
+                    search=WebSearchConfig(
+                        provider=self.web_search_provider,
+                        api_key=self.brave_api_key or "",
+                        base_url=self.web_search_base_url or "",
+                        max_results=self.web_search_max_results,
+                    ),
+                ),
+                exec_config=self.exec_config,
+                image_gen_config=ImageGenConfig(),
+                builtin_read_dirs=(BUILTIN_SKILLS_DIR,),
+            )
+            scope = policy.workspace_scope()
+            allowed_dir = scope.allowed_dir
+            extra_read = list(scope.extra_read_dirs) if scope.extra_read_dirs else None
             tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
             tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
             tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
             tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
             tools.register(GlobTool(workspace=self.workspace, allowed_dir=allowed_dir))
             tools.register(GrepTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            if self.exec_config.enable:
+            if policy.exec().enabled:
                 tools.register(ExecTool(
                     working_dir=str(self.workspace),
                     timeout=self.exec_config.timeout,
                     restrict_to_workspace=self.restrict_to_workspace,
                     sandbox=self.exec_config.sandbox,
                     path_append=self.exec_config.path_append,
+                    allowed_env_keys=self.exec_config.allowed_env_keys,
                 ))
-            tools.register(
-                WebSearchTool(
-                    provider=self.web_search_provider,
-                    api_key=self.brave_api_key,
-                    base_url=self.web_search_base_url,
-                    max_results=self.web_search_max_results,
-                    proxy=self.web_proxy,
+            if policy.web().enabled:
+                tools.register(
+                    WebSearchTool(
+                        provider=self.web_search_provider,
+                        api_key=self.brave_api_key,
+                        base_url=self.web_search_base_url,
+                        max_results=self.web_search_max_results,
+                        proxy=self.web_proxy,
+                    )
                 )
-            )
-            tools.register(WebFetchTool(proxy=self.web_proxy))
+                tools.register(WebFetchTool(proxy=self.web_proxy))
 
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [

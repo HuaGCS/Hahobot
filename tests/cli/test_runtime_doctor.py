@@ -71,6 +71,13 @@ def test_doctor_reports_missing_model_credentials_and_no_channels(tmp_path: Path
     assert _check(payload, "channels")["status"] == "warn"
     assert _check(payload, "workspace_bootstrap")["status"] == "ok"
 
+    tools_result = runner.invoke(app, ["tools", "--config", str(config_path), "--json"])
+
+    assert tools_result.exit_code == 0
+    tools_payload = json.loads(tools_result.stdout)
+    assert tools_payload["web"]["enabled"] is False
+    assert tools_payload["web"]["status"] == "ok"
+
 
 def test_model_command_reports_provider_pool_targets(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
