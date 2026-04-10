@@ -49,7 +49,7 @@
 
 - 超轻量：更少的代码和更低的运行复杂度
 - 易扩展：provider、tool、channel、persona、skill 结构清晰
-- 多渠道：Telegram、Discord、WhatsApp、QQ、Slack、Feishu、Matrix、Email、Weixin、Wecom、Mochat
+- 多渠道：Telegram、Discord、WhatsApp、QQ、Slack、Feishu、Matrix、Email、Weixin、Wecom、Mochat、WebSocket
 - 本地优先：支持本地 workspace、私有部署、工作区技能和本地文件交付
 - 当前仓库已增强：SillyTavern 资产导入、persona 参考图、生图、语音回复、自定义声线、陪伴技能
 
@@ -193,6 +193,23 @@ hahobot gateway
 
 - 当模型属于 `gpt-5` / `o1` / `o3` / `o4` 系列，或显式设置了 `reasoningEffort` 时，会优先尝试 Responses API
 - 如果目标 OpenAI 兼容网关并不支持这条路由，会自动回退到 Chat Completions，而不是直接把兼容性报错暴露给最终用户
+
+### 共享会话 unifiedSession
+
+如果你希望 Telegram、Discord、CLI 等多个入口共享同一段会话上下文，可以开启
+`agents.defaults.unifiedSession`：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "unifiedSession": true
+    }
+  }
+}
+```
+
+开启后，在没有显式 `session_key_override` 的情况下，多个渠道会复用同一个默认 session。
 
 ### Web 搜索
 
@@ -506,6 +523,30 @@ hahobot gateway
 
 - `streaming` 默认开启，Discord 现在支持和上游 nanobot 一样的流式回复编辑
 - `readReceiptEmoji` / `workingEmoji` / `workingEmojiDelay` 用来控制收到消息后的已读/处理中反应提示
+- 如果 Discord 需要走代理，可以配置 `proxy`，并按需补充 `proxyUsername` / `proxyPassword`
+
+### WebSocket
+
+如果你想把 hahobot 作为本地 WebSocket server 暴露给别的客户端，可以配置 `channels.websocket`：
+
+```json
+{
+  "channels": {
+    "websocket": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 8765,
+      "path": "/ws",
+      "allowFrom": ["*"],
+      "websocketRequiresToken": false
+    }
+  }
+}
+```
+
+- 连接形式通常是 `ws://127.0.0.1:8765/ws?client_id=your-client`
+- 如果要启用短期 token，可继续配置 `tokenIssuePath` / `tokenIssueSecret`
+- 详细协议说明见 [`docs/WEBSOCKET.md`](./docs/WEBSOCKET.md)
 
 ### Matrix
 
@@ -1067,6 +1108,7 @@ hahobot 现在可以把 Mem0 作为真正的用户记忆后端使用。
 | `tools.restrictToWorkspace` | `false` | 把 shell、读写文件、列目录等工具限制在 workspace 内 |
 | `tools.exec.enable` | `true` | 关闭后不注册 shell 工具 |
 | `tools.exec.pathAppend` | `""` | 给 shell 额外追加 PATH |
+| `tools.exec.allowedEnvKeys` | `[]` | 显式透传给 shell 子进程的环境变量名列表 |
 | `tools.imageGen.enabled` | `false` | 开启内置 `image_gen` |
 | `channels.*.allowFrom` | `[]` | 白名单，空数组默认拒绝所有 |
 
