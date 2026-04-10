@@ -36,6 +36,7 @@ oriented built-in skills.
 - [Tools, Skills, and MCP](#tools-skills-and-mcp)
 - [External Hook Bridge](#external-hook-bridge)
 - [Compatibility with nanobot](#compatibility-with-nanobot)
+- [Upstream Parity](#upstream-parity)
 - [Repository Layout](#repository-layout)
 - [Development](#development)
 
@@ -587,6 +588,13 @@ Legacy upstream runtime behaviors also kept in sync here include:
 - direct OpenAI reasoning requests keep the upstream Responses-API-first fallback strategy
 
 This lets existing `nanobot` automation keep running while new installs converge on `hahobot`.
+
+## Upstream Parity
+
+`[UPSTREAM_PARITY.md](./UPSTREAM_PARITY.md)` is the living ledger for upstream sync status.
+
+Use it when manually porting changes from `HKUDS/nanobot`: it records what is already matched
+locally, what is intentionally different, and which areas should be re-audited on the next sync.
 
 ## Repository Layout
 
