@@ -1001,6 +1001,11 @@ hahobot 支持 [MCP](https://modelcontextprotocol.io/)。
 - `url` + `headers`
   远程 HTTP
 
+如果你只想暴露某个 MCP 服务里的部分工具，可以在单个服务配置里加入 `enabledTools`。
+它既接受原始 MCP 工具名，也接受包装后的 hahobot 工具名，例如
+`mcp_filesystem_write_file`。省略该字段或设为 `["*"]` 表示注册全部工具，设为 `[]`
+表示该服务一个工具也不注册。
+
 ### 通过 MCP 接入 Memorix
 
 [Memorix](https://github.com/AVIDS2/memorix) 更适合作为工作区 / 代码库记忆层，而不是用户长期画像记忆。
@@ -1043,6 +1048,27 @@ HTTP 示例：
 
 - 把内置 `memorix` skill 注入系统提示
 - 在每个 runtime MCP 连接 / chat session 首次使用时调用一次 `memorix_session_start`
+
+### 隐藏内置或工作区 Skill
+
+如果你不希望某些 skill 暴露给主 agent 或 subagent，可以设置
+`agents.defaults.disabledSkills`，填 skill 目录名列表即可：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "disabledSkills": ["github", "weather"]
+    }
+  }
+}
+```
+
+### 空闲会话自动 Compact
+
+可以通过 `agents.defaults.idleCompactAfterMinutes` 让 hahobot 在会话空闲一段时间后，
+后台归档较早的 live 消息，同时保留最近一段合法后缀。用户回来继续说话时，runtime
+context 会先注入一次恢复摘要，再继续正常对话。旧别名 `sessionTtlMinutes` 仍然兼容。
 - 把当前 hahobot workspace 作为 `projectRoot` 绑定给 Memorix
 
 这意味着项目历史、设计原因、排障经验等问题可以直接利用 Memorix，但不会替代当前文件记忆主链路。

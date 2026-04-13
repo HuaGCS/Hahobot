@@ -30,16 +30,29 @@ class ContextBuilder:
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
     _MAX_RECENT_HISTORY = 50
 
-    def __init__(self, workspace: Path, timezone: str | None = None):
+    def __init__(
+        self,
+        workspace: Path,
+        timezone: str | None = None,
+        disabled_skills: list[str] | None = None,
+    ):
         self.workspace = workspace
         self.timezone = timezone
-        self.skills = SkillsLoader(workspace)
+        self._disabled_skills = list(disabled_skills or [])
+        self.skills = SkillsLoader(workspace, disabled_skills=set(self._disabled_skills))
 
-    def rebind_runtime(self, *, workspace: Path, timezone: str | None) -> None:
+    def rebind_runtime(
+        self,
+        *,
+        workspace: Path,
+        timezone: str | None,
+        disabled_skills: list[str] | None = None,
+    ) -> None:
         """Update runtime-bound workspace/timezone references in place."""
         self.workspace = workspace
         self.timezone = timezone
-        self.skills = SkillsLoader(workspace)
+        self._disabled_skills = list(disabled_skills or [])
+        self.skills = SkillsLoader(workspace, disabled_skills=set(self._disabled_skills))
 
     @property
     def memory(self) -> MemoryStore:
@@ -181,12 +194,17 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
 
     @staticmethod
     def _build_runtime_context(
-        channel: str | None, chat_id: str | None, timezone: str | None = None,
+        channel: str | None,
+        chat_id: str | None,
+        timezone: str | None = None,
+        session_summary: str | None = None,
     ) -> str:
         """Build untrusted runtime metadata block for injection before the user message."""
         lines = [f"Current Time: {current_time_str(timezone)}"]
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
+        if session_summary:
+            lines += ["", "[Resumed Session]", session_summary]
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
 
     @staticmethod
@@ -240,10 +258,16 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
         persona: str | None = None,
         language: str | None = None,
         current_role: str = "user",
+        session_summary: str | None = None,
         memory_context: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
-        runtime_ctx = self._build_runtime_context(channel, chat_id, self.timezone)
+        runtime_ctx = self._build_runtime_context(
+            channel,
+            chat_id,
+            self.timezone,
+            session_summary=session_summary,
+        )
         user_content = self._build_user_content(current_message, media)
 
         # Merge runtime context and user content into a single user message

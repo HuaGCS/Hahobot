@@ -27,6 +27,7 @@ from hahobot.agent.commands import (
     WorkspaceCommandHandler,
     build_agent_command_router,
 )
+from hahobot.agent.autocompact import AutoCompact
 from hahobot.agent.context import ContextBuilder
 from hahobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
 from hahobot.agent.hook_bridge import ExternalHookBridgeBlocked
@@ -277,8 +278,10 @@ class AgentLoop:
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
         timezone: str | None = None,
+        session_ttl_minutes: int = 0,
         hooks: list[AgentHook] | None = None,
         unified_session: bool = False,
+        disabled_skills: list[str] | None = None,
     ):
         from hahobot.config.schema import ExecToolConfig, ImageGenConfig, MemoryConfig
         if web_config is not None:
@@ -340,8 +343,13 @@ class AgentLoop:
         self._command_router = build_agent_command_router()
         self._unified_session = unified_session
         self._session_route_overrides: dict[str, str] = {}
+        self._disabled_skills = list(disabled_skills or [])
 
-        self.context = ContextBuilder(workspace, timezone=timezone)
+        self.context = ContextBuilder(
+            workspace,
+            timezone=timezone,
+            disabled_skills=self._disabled_skills,
+        )
         self.sessions = session_manager or SessionManager(workspace)
         self.runner = AgentRunner(provider)
         self.tools = ToolRegistry()
@@ -359,6 +367,7 @@ class AgentLoop:
             web_search_max_results=web_search_max_results,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
+            disabled_skills=self._disabled_skills,
         )
 
         self._running = False
@@ -392,6 +401,11 @@ class AgentLoop:
             max_completion_tokens=provider.generation.max_tokens,
         )
         self.consolidator = self.memory_consolidator
+        self.auto_compact = AutoCompact(
+            sessions=self.sessions,
+            consolidator=self.memory_consolidator,
+            session_ttl_minutes=session_ttl_minutes,
+        )
         self.dream = Dream(
             store=self.context.memory,
             provider=provider,
@@ -569,7 +583,7 @@ class AgentLoop:
     def _runtime_skill_names(self) -> list[str]:
         """Return runtime-activated skills inferred from connected tools."""
         skill_names: list[str] = []
-        if self._has_memorix_tools():
+        if self._has_memorix_tools() and "memorix" not in set(self._disabled_skills):
             skill_names.append("memorix")
         return skill_names
 
@@ -774,7 +788,11 @@ class AgentLoop:
     def _rebind_runtime_workspace(self, workspace: Path) -> None:
         """Switch runtime-bound workspace references in place."""
         self.workspace = workspace
-        self.context.rebind_runtime(workspace=workspace, timezone=self.context.timezone)
+        self.context.rebind_runtime(
+            workspace=workspace,
+            timezone=self.context.timezone,
+            disabled_skills=self._disabled_skills,
+        )
         self.sessions.rebind_workspace(workspace)
         self.memory_consolidator.rebind_runtime(workspace=workspace, sessions=self.sessions)
         self.memory_consolidator.store = self.context.memory
@@ -839,7 +857,12 @@ class AgentLoop:
         if next_workspace.resolve(strict=False) != self.workspace.resolve(strict=False):
             self._rebind_runtime_workspace(next_workspace)
 
-        self.context.rebind_runtime(workspace=self.workspace, timezone=next_timezone)
+        self._disabled_skills = list(defaults.disabled_skills)
+        self.context.rebind_runtime(
+            workspace=self.workspace,
+            timezone=next_timezone,
+            disabled_skills=self._disabled_skills,
+        )
 
         self.model = defaults.model
         self.max_iterations = defaults.max_tool_iterations
@@ -847,6 +870,7 @@ class AgentLoop:
         self.context_block_limit = defaults.context_block_limit
         self.max_tool_result_chars = defaults.max_tool_result_chars
         self.provider_retry_mode = defaults.provider_retry_mode
+        self.auto_compact.set_session_ttl_minutes(defaults.session_ttl_minutes)
         self.exec_config = tools_cfg.exec
         self.image_gen_config = tools_cfg.image_gen
         self.memory_config = config.memory
@@ -880,6 +904,7 @@ class AgentLoop:
             web_search_max_results=self.web_search_max_results,
             exec_config=self.exec_config,
             restrict_to_workspace=self.restrict_to_workspace,
+            disabled_skills=self._disabled_skills,
         )
         self._configure_memory_router()
         self._apply_runtime_tool_config()
@@ -1534,6 +1559,7 @@ class AgentLoop:
             try:
                 msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
             except asyncio.TimeoutError:
+                self.auto_compact.check_expired(self._schedule_background)
                 continue
             except asyncio.CancelledError:
                 # Preserve real task cancellation so shutdown can complete cleanly.
@@ -1855,6 +1881,7 @@ class AgentLoop:
             session = self.sessions.get_or_create(key)
             persona = self._get_session_persona(session)
             language = self._get_session_language(session)
+            session, pending = self.auto_compact.prepare_session(session, key)
             await self._connect_mcp()
             await self._run_preflight_token_consolidation(session)
             self._set_tool_context(
@@ -1885,6 +1912,7 @@ class AgentLoop:
                 persona=persona,
                 language=language,
                 current_role=current_role,
+                session_summary=pending,
                 memory_context=resolved_memory.block,
             )
             self._append_system_section(messages, "Workspace Memory (Memorix)", memorix_context)
@@ -1918,6 +1946,7 @@ class AgentLoop:
         session = self.sessions.get_or_create(key)
         persona = self._get_session_persona(session)
         language = self._get_session_language(session)
+        session, pending = self.auto_compact.prepare_session(session, key)
 
         # Slash commands
         slash_response = await self._command_router.dispatch(
@@ -1959,6 +1988,7 @@ class AgentLoop:
             chat_id=msg.chat_id,
             persona=persona,
             language=language,
+            session_summary=pending,
             memory_context=resolved_memory.block,
         )
         self._append_system_section(

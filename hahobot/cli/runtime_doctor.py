@@ -562,6 +562,9 @@ def _build_mcp_overview(config: Config) -> MCPOverview:
         else:
             issues.append("Cannot infer transport from config.")
 
+        if getattr(server, "enabled_tools", ["*"]) != ["*"]:
+            detail_parts.append(f"enabledTools={','.join(server.enabled_tools)}")
+
         status: Status = "ok" if not issues else "warn"
         servers.append(
             MCPServerSummary(

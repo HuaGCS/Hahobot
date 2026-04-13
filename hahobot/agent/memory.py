@@ -677,6 +677,7 @@ class Consolidator:
         messages: list[dict[str, object]],
         *,
         source: str,
+        extra_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> Callable[[dict[str, Any]], None]:
         """Build the sidecar archive writer for one chunk."""
 
@@ -688,6 +689,11 @@ class Consolidator:
                 source=source,
                 raw_archive=bool(payload.get("raw_archive")),
             )
+            if extra_callback is not None:
+                try:
+                    extra_callback(payload)
+                except Exception:
+                    logger.exception("Extra archive callback failed")
 
         return _callback
 
@@ -738,13 +744,19 @@ class Consolidator:
         messages: list[dict[str, object]],
         *,
         source: str,
+        on_archive: Callable[[dict[str, Any]], None] | None = None,
     ) -> bool:
         """Archive messages with guaranteed persistence (retries until raw-dump fallback)."""
         if not messages:
             return False
         token = self._active_session.set(session)
         cb_token = self._archive_callbacks.set(
-            self._make_archive_callback(session, messages, source=source)
+            self._make_archive_callback(
+                session,
+                messages,
+                source=source,
+                extra_callback=on_archive,
+            )
         )
         try:
             return await self.archive(messages)
@@ -777,17 +789,24 @@ class Consolidator:
         messages: list[dict[str, object]],
         *,
         source: str = "session_archive",
+        on_archive: Callable[[dict[str, Any]], None] | None = None,
     ) -> bool:
         """Archive messages in the background with session-scoped memory persistence."""
         lock = self.get_lock(session.key)
         async with lock:
-            return await self._archive_messages_locked(session, messages, source=source)
+            return await self._archive_messages_locked(
+                session,
+                messages,
+                source=source,
+                on_archive=on_archive,
+            )
 
     async def archive_unconsolidated(
         self,
         session: Session,
         *,
         source: str = "persona_switch",
+        on_archive: Callable[[dict[str, Any]], None] | None = None,
     ) -> bool:
         """Archive the full unconsolidated tail for persona switch and similar rollover flows."""
         lock = self.get_lock(session.key)
@@ -795,7 +814,12 @@ class Consolidator:
             snapshot = session.messages[session.last_consolidated:]
             if not snapshot:
                 return True
-            return await self._archive_messages_locked(session, snapshot, source=source)
+            return await self._archive_messages_locked(
+                session,
+                snapshot,
+                source=source,
+                on_archive=on_archive,
+            )
 
     async def maybe_consolidate_by_tokens(self, session: Session) -> None:
         """Loop: archive old messages until prompt fits within safe budget.

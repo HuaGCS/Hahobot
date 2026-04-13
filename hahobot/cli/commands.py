@@ -1362,6 +1362,8 @@ def serve(
         channels_config=runtime_config.channels,
         timezone=runtime_config.agents.defaults.timezone,
         unified_session=runtime_config.agents.defaults.unified_session,
+        session_ttl_minutes=runtime_config.agents.defaults.session_ttl_minutes,
+        disabled_skills=runtime_config.agents.defaults.disabled_skills,
     )
 
     model_name = runtime_config.agents.defaults.model
@@ -1469,6 +1471,8 @@ def gateway(
         timezone=config.agents.defaults.timezone,
         hooks=[StarOfficeHook(star_office_tracker), GatewayStatusHook(runtime_status_tracker)],
         unified_session=config.agents.defaults.unified_session,
+        session_ttl_minutes=config.agents.defaults.session_ttl_minutes,
+        disabled_skills=config.agents.defaults.disabled_skills,
     )
     runtime_status_tracker.set_model(agent.model)
 
@@ -1776,6 +1780,8 @@ def agent(
         channels_config=config.channels,
         timezone=config.agents.defaults.timezone,
         unified_session=config.agents.defaults.unified_session,
+        session_ttl_minutes=config.agents.defaults.session_ttl_minutes,
+        disabled_skills=config.agents.defaults.disabled_skills,
     )
     restart_notice = consume_restart_notice_from_env()
     if restart_notice and should_show_cli_restart_notice(restart_notice, session_id):
@@ -2187,6 +2193,8 @@ def sessions_compact(
         channels_config=loaded.channels,
         timezone=loaded.agents.defaults.timezone,
         unified_session=loaded.agents.defaults.unified_session,
+        session_ttl_minutes=loaded.agents.defaults.session_ttl_minutes,
+        disabled_skills=loaded.agents.defaults.disabled_skills,
     )
 
     async def _run_compaction() -> Any:
