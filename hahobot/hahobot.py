@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ class Hahobot:
 
     def __init__(self, loop: AgentLoop) -> None:
         self._loop = loop
+        self._run_lock = asyncio.Lock()
 
     @classmethod
     def from_config(
@@ -108,15 +110,18 @@ class Hahobot:
                 Different keys get independent history.
             hooks: Optional lifecycle hooks for this run.
         """
-        prev = self._loop._extra_hooks
-        if hooks is not None:
-            self._loop._extra_hooks = list(hooks)
-        try:
-            response = await self._loop.process_direct(
-                message, session_key=session_key,
-            )
-        finally:
-            self._loop._extra_hooks = prev
+        # Serialize concurrent run() calls so _extra_hooks is not corrupted
+        # when multiple callers overlap.
+        async with self._run_lock:
+            prev = self._loop._extra_hooks
+            if hooks is not None:
+                self._loop._extra_hooks = list(hooks)
+            try:
+                response = await self._loop.process_direct(
+                    message, session_key=session_key,
+                )
+            finally:
+                self._loop._extra_hooks = prev
 
         content = (response.content if response else None) or ""
         return RunResult(content=content, tools_used=[], messages=[])

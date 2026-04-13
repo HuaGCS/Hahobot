@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import inspect
 from pathlib import Path
 from typing import Any
@@ -246,13 +247,13 @@ class ChannelManager:
 
         # Buffer for messages that couldn't be processed during delta coalescing
         # (since asyncio.Queue doesn't support push_front)
-        pending: list[OutboundMessage] = []
+        pending: collections.deque[OutboundMessage] = collections.deque()
 
         while True:
             try:
                 # First check pending buffer before waiting on queue
                 if pending:
-                    msg = pending.pop(0)
+                    msg = pending.popleft()
                 else:
                     msg = await asyncio.wait_for(
                         self.bus.consume_outbound(),

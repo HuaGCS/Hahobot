@@ -38,6 +38,10 @@ def configure_ssrf_whitelist(cidrs: list[str]) -> None:
 
 
 def _is_private(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    # Normalize IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1) to their
+    # IPv4 equivalent so they are correctly matched against _BLOCKED_NETWORKS.
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
     if _allowed_networks and any(addr in net for net in _allowed_networks):
         return False
     return any(addr in net for net in _BLOCKED_NETWORKS)

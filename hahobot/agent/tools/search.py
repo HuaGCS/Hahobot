@@ -50,11 +50,11 @@ def _match_glob(rel_path: str, name: str, pattern: str) -> bool:
 
 
 def _is_binary(raw: bytes) -> bool:
-    if b"\x00" in raw:
-        return True
     sample = raw[:4096]
     if not sample:
         return False
+    if b"\x00" in sample:
+        return True
     non_text = sum(byte < 9 or 13 < byte < 32 for byte in sample)
     return (non_text / len(sample)) > 0.2
 
@@ -423,6 +423,7 @@ class GrepTool(_SearchTool):
             skipped_binary = 0
             skipped_large = 0
             matching_files: list[str] = []
+            matching_files_set: set[str] = set()
             counts: dict[str, int] = {}
             file_mtimes: dict[str, float] = {}
             root = target if target.is_dir() else target.parent
@@ -434,10 +435,13 @@ class GrepTool(_SearchTool):
                 if not _matches_type(file_path.name, type):
                     continue
 
-                raw = file_path.read_bytes()
-                if len(raw) > self._MAX_FILE_BYTES:
-                    skipped_large += 1
+                try:
+                    if file_path.stat().st_size > self._MAX_FILE_BYTES:
+                        skipped_large += 1
+                        continue
+                except OSError:
                     continue
+                raw = file_path.read_bytes()
                 if _is_binary(raw):
                     skipped_binary += 1
                     continue
@@ -463,7 +467,8 @@ class GrepTool(_SearchTool):
                         counts[display_path] = counts.get(display_path, 0) + 1
                         continue
                     if output_mode == "files_with_matches":
-                        if display_path not in matching_files:
+                        if display_path not in matching_files_set:
+                            matching_files_set.add(display_path)
                             matching_files.append(display_path)
                             file_mtimes[display_path] = mtime
                         break

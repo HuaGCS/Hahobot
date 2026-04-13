@@ -14,6 +14,12 @@ from hahobot.agent.tools.schema import (
 from hahobot.cron.service import CronService
 from hahobot.cron.types import CronJob, CronJobState, CronSchedule
 
+# Module-level ContextVars so they work correctly across instances and
+# concurrent sessions without shared mutable state.
+_in_cron_context: ContextVar[bool] = ContextVar("cron_in_context", default=False)
+_cron_channel: ContextVar[str] = ContextVar("cron_channel", default="")
+_cron_chat_id: ContextVar[str] = ContextVar("cron_chat_id", default="")
+
 
 @tool_parameters(
     tool_parameters_schema(
@@ -50,14 +56,11 @@ class CronTool(Tool):
     def __init__(self, cron_service: CronService, default_timezone: str = "UTC"):
         self._cron = cron_service
         self._default_timezone = default_timezone
-        self._channel = ""
-        self._chat_id = ""
-        self._in_cron_context: ContextVar[bool] = ContextVar("cron_in_context", default=False)
 
     def set_context(self, channel: str, chat_id: str) -> None:
-        """Set the current session context for delivery."""
-        self._channel = channel
-        self._chat_id = chat_id
+        """Set the current session context for delivery (via ContextVar)."""
+        _cron_channel.set(channel)
+        _cron_chat_id.set(chat_id)
 
     def set_default_timezone(self, timezone: str) -> None:
         """Update the default timezone used for schedule parsing/display."""
@@ -65,11 +68,11 @@ class CronTool(Tool):
 
     def set_cron_context(self, active: bool):
         """Mark whether the tool is executing inside a cron job callback."""
-        return self._in_cron_context.set(active)
+        return _in_cron_context.set(active)
 
     def reset_cron_context(self, token) -> None:
         """Restore previous cron context."""
-        self._in_cron_context.reset(token)
+        _in_cron_context.reset(token)
 
     @staticmethod
     def _validate_timezone(tz: str) -> str | None:
@@ -117,7 +120,7 @@ class CronTool(Tool):
         **kwargs: Any,
     ) -> str:
         if action == "add":
-            if self._in_cron_context.get():
+            if _in_cron_context.get():
                 return "Error: cannot schedule new jobs from within a cron job execution"
             return self._add_job(name, message, every_seconds, cron_expr, tz, at, deliver)
         elif action == "list":
@@ -138,7 +141,9 @@ class CronTool(Tool):
     ) -> str:
         if not message:
             return "Error: message is required for add"
-        if not self._channel or not self._chat_id:
+        channel = _cron_channel.get()
+        chat_id = _cron_chat_id.get()
+        if not channel or not chat_id:
             return "Error: no session context (channel/chat_id)"
         if tz and not cron_expr:
             return "Error: tz can only be used with cron_expr"
@@ -177,8 +182,8 @@ class CronTool(Tool):
             schedule=schedule,
             message=message,
             deliver=deliver,
-            channel=self._channel,
-            to=self._chat_id,
+            channel=channel,
+            to=chat_id,
             delete_after_run=delete_after,
         )
         return f"Created job '{job.name}' (id: {job.id})"

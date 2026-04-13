@@ -166,6 +166,9 @@ class StarOfficeRemoteRelay:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
+        # Atomically set the pending snapshot and ensure a drain task is
+        # running.  The previous code had a race where _pending could be
+        # overwritten between _drain reading it and the worker.done() check.
         self._pending = snapshot
         if self._worker is None or self._worker.done():
             self._worker = loop.create_task(self._drain())

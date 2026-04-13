@@ -71,14 +71,40 @@ class TestEnforceRoleAlternation:
         tool_msgs = [m for m in result if m["role"] == "tool"]
         assert len(tool_msgs) == 2
 
-    def test_non_string_content_uses_latest(self):
+    def test_non_string_content_merges_list_and_string(self):
         msgs = [
             {"role": "user", "content": [{"type": "text", "text": "A"}]},
             {"role": "user", "content": "B"},
         ]
         result = LLMProvider._enforce_role_alternation(msgs)
         assert len(result) == 1
-        assert result[0]["content"] == "B"
+        # list + string → list with appended text block
+        assert isinstance(result[0]["content"], list)
+        assert len(result[0]["content"]) == 2
+        assert result[0]["content"][0] == {"type": "text", "text": "A"}
+        assert result[0]["content"][1] == {"type": "text", "text": "B"}
+
+    def test_non_string_content_merges_string_and_list(self):
+        msgs = [
+            {"role": "user", "content": "A"},
+            {"role": "user", "content": [{"type": "text", "text": "B"}]},
+        ]
+        result = LLMProvider._enforce_role_alternation(msgs)
+        assert len(result) == 1
+        assert isinstance(result[0]["content"], list)
+        assert len(result[0]["content"]) == 2
+        assert result[0]["content"][0] == {"type": "text", "text": "A"}
+        assert result[0]["content"][1] == {"type": "text", "text": "B"}
+
+    def test_non_string_content_merges_two_lists(self):
+        msgs = [
+            {"role": "user", "content": [{"type": "text", "text": "A"}]},
+            {"role": "user", "content": [{"type": "text", "text": "B"}]},
+        ]
+        result = LLMProvider._enforce_role_alternation(msgs)
+        assert len(result) == 1
+        assert isinstance(result[0]["content"], list)
+        assert len(result[0]["content"]) == 2
 
     def test_original_messages_not_mutated(self):
         msgs = [

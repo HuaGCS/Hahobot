@@ -98,6 +98,13 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     session_locks: dict[str, asyncio.Lock] = request.app["session_locks"]
     session_lock = session_locks.setdefault(session_key, asyncio.Lock())
 
+    # Prune unlocked entries when the cache grows too large.
+    max_locks = request.app.get("_max_session_locks", 1024)
+    if len(session_locks) > max_locks:
+        to_remove = [k for k, v in session_locks.items() if not v.locked()]
+        for k in to_remove[: len(session_locks) - max_locks]:
+            session_locks.pop(k, None)
+
     logger.info("API request session_key={} content={}", session_key, user_content[:80])
 
     _FALLBACK = EMPTY_FINAL_RESPONSE_MESSAGE
@@ -187,7 +194,12 @@ def create_app(agent_loop, model_name: str = "hahobot", request_timeout: float =
     app["agent_loop"] = agent_loop
     app["model_name"] = model_name
     app["request_timeout"] = request_timeout
+    # Bounded session lock cache to prevent unbounded memory growth.
+    # Uses a simple LRU-style dict: when the cache exceeds the limit, the
+    # oldest entries (those not currently held) are pruned.
+    _MAX_SESSION_LOCKS = 1024
     app["session_locks"] = {}  # per-user locks, keyed by session_key
+    app["_max_session_locks"] = _MAX_SESSION_LOCKS
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_models)

@@ -255,6 +255,9 @@ class AnthropicProvider(LLMProvider):
                 cur_c = msg["content"]
                 if isinstance(prev_c, str):
                     prev_c = [{"type": "text", "text": prev_c}]
+                else:
+                    # Copy so we don't mutate the caller's list in-place.
+                    prev_c = list(prev_c)
                 if isinstance(cur_c, str):
                     cur_c = [{"type": "text", "text": cur_c}]
                 if isinstance(cur_c, list):

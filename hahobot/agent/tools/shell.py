@@ -237,6 +237,9 @@ class ExecTool(Tool):
             "HOME": home,
             "LANG": os.environ.get("LANG", "C.UTF-8"),
             "TERM": os.environ.get("TERM", "dumb"),
+            # Provide a fallback PATH for minimal/container environments where
+            # bash -l may not source a profile that sets PATH.
+            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         }
         for key in self.allowed_env_keys:
             value = os.environ.get(key)
@@ -265,7 +268,9 @@ class ExecTool(Tool):
             if "..\\" in cmd or "../" in cmd:
                 return "Error: Command blocked by safety guard (path traversal detected)"
 
-            cwd_path = Path(cwd).resolve()
+            # Use the workspace root (self.working_dir) for containment checks,
+            # not the per-call cwd which may be a subdirectory.
+            workspace_root = Path(self.working_dir or cwd).resolve()
 
             for raw in self._extract_absolute_paths(cmd):
                 try:
@@ -276,8 +281,8 @@ class ExecTool(Tool):
 
                 media_path = get_media_dir().resolve()
                 if (p.is_absolute()
-                    and cwd_path not in p.parents
-                    and p != cwd_path
+                    and workspace_root not in p.parents
+                    and p != workspace_root
                     and media_path not in p.parents
                     and p != media_path
                 ):

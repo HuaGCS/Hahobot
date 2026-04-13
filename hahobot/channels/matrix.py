@@ -251,6 +251,8 @@ class MatrixChannel(BaseChannel):
 
         store_path = self._get_store_path()
         store_path.mkdir(parents=True, exist_ok=True)
+        self.store_path = store_path
+        self.session_path = store_path / "session.json"
 
         self.client = AsyncClient(
             homeserver=self.config.homeserver, user=self.config.user_id,
@@ -553,7 +555,7 @@ class MatrixChannel(BaseChannel):
                 )
                 response = await self._send_room_content(chat_id, content)
                 buf.last_edit = now
-                if not buf.event_id:
+                if not buf.event_id and isinstance(response, RoomSendResponse):
                     # we are editing the same message all the time, so only the first time the event id needs to be set
                     buf.event_id = response.event_id
             except Exception:
