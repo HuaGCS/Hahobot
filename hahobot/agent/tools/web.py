@@ -300,6 +300,8 @@ class WebFetchTool(Tool):
         """Local fallback using readability-lxml."""
         from readability import Document
 
+        from hahobot.security.network import validate_resolved_url
+
         try:
             logger.debug("WebFetch: {}", "proxy enabled" if self.proxy else "direct connection")
             async with httpx.AsyncClient(
@@ -308,22 +310,29 @@ class WebFetchTool(Tool):
                 timeout=30.0,
                 proxy=self.proxy,
             ) as client:
-                r = await client.get(url, headers={"User-Agent": USER_AGENT})
-                r.raise_for_status()
+                # Use streaming to validate the resolved URL BEFORE reading the
+                # response body, preventing SSRF via open redirects.
+                async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as r:
+                    redir_ok, redir_err = validate_resolved_url(str(r.url))
+                    if not redir_ok:
+                        return json.dumps({"error": f"Redirect blocked: {redir_err}", "url": url}, ensure_ascii=False)
 
-            from hahobot.security.network import validate_resolved_url
-            redir_ok, redir_err = validate_resolved_url(str(r.url))
-            if not redir_ok:
-                return json.dumps({"error": f"Redirect blocked: {redir_err}", "url": url}, ensure_ascii=False)
+                    r.raise_for_status()
+                    raw_bytes = await r.aread()
+                    status_code = r.status_code
+                    final_url = str(r.url)
+                    headers = r.headers
 
-            ctype = r.headers.get("content-type", "")
+            ctype = headers.get("content-type", "")
             if ctype.startswith("image/"):
-                return build_image_content_blocks(r.content, ctype, url, f"(Image fetched from: {url})")
+                return build_image_content_blocks(raw_bytes, ctype, url, f"(Image fetched from: {url})")
+
+            response_text = raw_bytes.decode(r.encoding or "utf-8", errors="replace")
 
             if "application/json" in ctype:
-                text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
-            elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
-                doc = Document(r.text)
+                text, extractor = json.dumps(json.loads(response_text), indent=2, ensure_ascii=False), "json"
+            elif "text/html" in ctype or response_text[:256].lower().startswith(("<!doctype", "<html")):
+                doc = Document(response_text)
                 content = (
                     self._to_markdown(doc.summary())
                     if extract_mode == "markdown"
@@ -332,7 +341,7 @@ class WebFetchTool(Tool):
                 text = f"# {doc.title()}\n\n{content}" if doc.title() else content
                 extractor = "readability"
             else:
-                text, extractor = r.text, "raw"
+                text, extractor = response_text, "raw"
 
             truncated = len(text) > max_chars
             if truncated:
@@ -340,7 +349,7 @@ class WebFetchTool(Tool):
             text = f"{_UNTRUSTED_BANNER}\n\n{text}"
 
             return json.dumps({
-                "url": url, "finalUrl": str(r.url), "status": r.status_code,
+                "url": url, "finalUrl": final_url, "status": status_code,
                 "extractor": extractor, "truncated": truncated, "length": len(text),
                 "untrusted": True, "text": text,
             }, ensure_ascii=False)

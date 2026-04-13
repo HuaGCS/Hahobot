@@ -32,7 +32,10 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
     if schedule.kind == "every":
         if not schedule.every_ms or schedule.every_ms <= 0:
             return None
-        # Next interval from now
+        # Next interval from now.  This is intentionally based on now_ms
+        # rather than last_run_at_ms so that long-running jobs don't cause
+        # a burst of catch-up runs.  Callers that need cadence-based
+        # scheduling should pass last_run_at_ms + every_ms as now_ms.
         return now_ms + schedule.every_ms
 
     if schedule.kind == "cron" and schedule.expr:
@@ -339,8 +342,16 @@ class CronService:
                 job.enabled = False
                 job.state.next_run_at_ms = None
         else:
-            # Compute next run
-            job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+            # Compute next run.  For "every" schedules, base the next run on
+            # last_run_at_ms to prevent cumulative drift from execution time.
+            base_ms = _now_ms()
+            if job.schedule.kind == "every" and job.state.last_run_at_ms:
+                candidate = job.state.last_run_at_ms + (job.schedule.every_ms or 0)
+                # Don't schedule in the past — clamp to now.
+                base_ms = max(candidate, base_ms)
+                job.state.next_run_at_ms = base_ms
+            else:
+                job.state.next_run_at_ms = _compute_next_run(job.schedule, base_ms)
 
     # ========== Public API ==========
 

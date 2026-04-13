@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import io
 import json
+import os
 import re
 import secrets
 import time
@@ -2080,7 +2081,18 @@ def _load_raw_config_data(request: web.Request) -> dict[str, Any]:
 def _save_raw_config_data(request: web.Request, data: dict[str, Any]) -> None:
     path = _current_config_path(request)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_pretty_json(data) + "\n", encoding="utf-8")
+    # Atomic write: write to a temp file then rename, so a crash mid-write
+    # cannot leave a truncated/corrupt config.json.
+    import tempfile
+    content = _pretty_json(data) + "\n"
+    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        Path(tmp_path).replace(path)
+    except BaseException:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
 
 
 def _admin_enabled(request: web.Request) -> bool:

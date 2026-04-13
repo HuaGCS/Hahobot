@@ -284,13 +284,13 @@ class FeishuChannel(BaseChannel):
 
     @staticmethod
     async def _run_blocking(func, /, *args, **kwargs):
-        """Run blocking Feishu SDK work.
+        """Run blocking Feishu SDK work in a thread to avoid blocking the event loop.
 
-        The usual threadpool offload path (`asyncio.to_thread` / executors)
-        can hang in some deployment/test environments here, so Feishu falls
-        back to direct execution for reliability.
+        Earlier versions ran these synchronously for reliability in certain
+        deployment/test environments; the threadpool path is now preferred to
+        keep the event loop responsive during slow network operations.
         """
-        return func(*args, **kwargs)
+        return await asyncio.to_thread(func, *args, **kwargs)
 
     @staticmethod
     def _register_optional_event(builder: Any, method_name: str, handler: Any) -> Any:

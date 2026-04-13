@@ -303,13 +303,19 @@ class WeixinChannel(BaseChannel):
         body: dict | None = None,
         *,
         auth: bool = True,
+        timeout: httpx.Timeout | None = None,
     ) -> dict:
         assert self._client is not None
         url = f"{self.config.base_url}/{endpoint}"
         payload = body or {}
         if "base_info" not in payload:
             payload["base_info"] = BASE_INFO
-        resp = await self._client.post(url, json=payload, headers=self._make_headers(auth=auth))
+        kwargs: dict[str, Any] = {"json": payload, "headers": self._make_headers(auth=auth)}
+        # Use a per-request timeout when provided so we don't mutate the
+        # shared client timeout (which could affect concurrent operations).
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        resp = await self._client.post(url, **kwargs)
         resp.raise_for_status()
         return resp.json()
 
@@ -537,11 +543,12 @@ class WeixinChannel(BaseChannel):
             "base_info": BASE_INFO,
         }
 
-        # Adjust httpx timeout to match the current poll timeout
+        # Use a per-request timeout instead of mutating the shared client
+        # timeout, which could affect concurrent send operations.
         assert self._client is not None
-        self._client.timeout = httpx.Timeout(self._next_poll_timeout_s + 10, connect=30)
+        poll_timeout = httpx.Timeout(self._next_poll_timeout_s + 10, connect=30)
 
-        data = await self._api_post("ilink/bot/getupdates", body)
+        data = await self._api_post("ilink/bot/getupdates", body, timeout=poll_timeout)
 
         # Check for API-level errors (monitor.ts checks both ret and errcode)
         ret = data.get("ret", 0)

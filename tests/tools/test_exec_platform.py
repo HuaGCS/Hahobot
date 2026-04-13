@@ -21,7 +21,7 @@ class TestBuildEnvUnix:
     def test_expected_keys(self):
         with patch("hahobot.agent.tools.shell._IS_WINDOWS", False):
             env = ExecTool()._build_env()
-        assert set(env) == {"HOME", "LANG", "TERM"}
+        assert set(env) == {"HOME", "LANG", "TERM", "PATH"}
 
     def test_home_from_environ(self, monkeypatch):
         monkeypatch.setenv("HOME", "/Users/dev")

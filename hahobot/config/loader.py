@@ -117,7 +117,12 @@ def resolve_config_env_vars(config: Config) -> Config:
     """
     data = config.model_dump(mode="json", by_alias=True)
     data = _resolve_env_vars(data)
-    return Config.model_validate(data)
+    resolved = Config.model_validate(data)
+    # Preserve the private _config_path that model_dump/model_validate cannot
+    # round-trip, so downstream code still resolves the correct workspace.
+    if hasattr(config, "_config_path") and config._config_path is not None:
+        resolved.bind_config_path(config._config_path)
+    return resolved
 
 
 def _resolve_env_vars(obj: object) -> object:

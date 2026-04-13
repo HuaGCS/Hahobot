@@ -24,7 +24,7 @@ else:
             "LANGFUSE_SECRET_KEY is set but langfuse is not installed; "
             "install with `pip install langfuse` to enable tracing"
         )
-from openai import AsyncOpenAI
+    from openai import AsyncOpenAI
 
 from hahobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from hahobot.providers.openai_responses import (

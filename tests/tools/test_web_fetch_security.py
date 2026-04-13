@@ -49,19 +49,39 @@ async def test_web_fetch_result_contains_untrusted_flag():
 
     import httpx
 
-    class FakeResponse:
+    class FakeStreamResponse:
         status_code = 200
         url = "https://example.com/page"
-        text = fake_html
         headers = {"content-type": "text/html"}
-        def raise_for_status(self): pass
-        def json(self): return {}
+        encoding = "utf-8"
 
-    async def _fake_get(self, url, **kwargs):
-        return FakeResponse()
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        async def aread(self):
+            return fake_html.encode("utf-8")
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method, url, headers=None):
+            return FakeStreamResponse()
 
     with patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_public), \
-         patch("httpx.AsyncClient.get", _fake_get):
+         patch("hahobot.agent.tools.web.httpx.AsyncClient", FakeClient):
         result = await tool.execute(url="https://example.com/page")
 
     data = json.loads(result)

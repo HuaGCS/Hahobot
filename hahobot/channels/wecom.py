@@ -330,7 +330,7 @@ class WecomChannel(BaseChannel):
             return
 
         try:
-            content = msg.content.strip()
+            content = (msg.content or "").strip()
             if not content:
                 return
 

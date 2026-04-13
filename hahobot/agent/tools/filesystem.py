@@ -278,14 +278,24 @@ class EditFileTool(_FsTool):
 
             if match is None:
                 return self._not_found_msg(old_text, content, path)
-            if count > 1 and not replace_all:
+            # Use the actual literal occurrence count for the uniqueness guard
+            # since fuzzy matching may report a different window count.
+            literal_count = content.count(match)
+            if literal_count > 1 and not replace_all:
                 return (
-                    f"Warning: old_text appears {count} times. "
+                    f"Warning: old_text appears {literal_count} times. "
                     "Provide more context to make it unique, or set replace_all=true."
                 )
 
             norm_new = new_text.replace("\r\n", "\n")
-            new_content = content.replace(match, norm_new) if replace_all else content.replace(match, norm_new, 1)
+            if replace_all:
+                # When using fuzzy match, content.replace(match, ...) may hit
+                # more literal occurrences than the fuzzy window count.  Use the
+                # actual literal count for the duplicate guard above, and replace
+                # all literal occurrences consistently.
+                new_content = content.replace(match, norm_new)
+            else:
+                new_content = content.replace(match, norm_new, 1)
             if uses_crlf:
                 new_content = new_content.replace("\n", "\r\n")
 

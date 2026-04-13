@@ -98,8 +98,12 @@ class WhatsAppChannel(BaseChannel):
 
         logger.info("Starting WhatsApp bridge for QR login...")
         try:
+            npm_path = shutil.which("npm")
+            if not npm_path:
+                logger.error("npm not found in PATH; cannot start WhatsApp bridge")
+                return False
             subprocess.run(
-                [shutil.which("npm"), "start"], cwd=bridge_dir, check=True, env=env
+                [npm_path, "start"], cwd=bridge_dir, check=True, env=env
             )
         except subprocess.CalledProcessError:
             return False

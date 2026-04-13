@@ -448,6 +448,15 @@ class LLMProvider(ABC):
                 curr_content = msg.get("content") or ""
                 if isinstance(prev_content, str) and isinstance(curr_content, str):
                     prev["content"] = (prev_content + "\n\n" + curr_content).strip()
+                elif isinstance(prev_content, list) and isinstance(curr_content, list):
+                    # Both are multimodal content lists — concatenate them.
+                    prev["content"] = list(prev_content) + list(curr_content)
+                elif isinstance(prev_content, list):
+                    # prev is list, curr is string — append as text block.
+                    prev["content"] = list(prev_content) + [{"type": "text", "text": curr_content}]
+                elif isinstance(curr_content, list):
+                    # prev is string, curr is list — prepend as text block.
+                    prev["content"] = [{"type": "text", "text": prev_content}] + list(curr_content)
                 else:
                     merged[-1] = dict(msg)
             else:
@@ -612,7 +621,11 @@ class LLMProvider(ABC):
             if not match:
                 continue
             value = float(match.group(1))
-            unit = match.group(2) if idx < 3 else "s"
+            unit = match.group(2) if idx < 3 else None
+            # Last pattern has no unit group.  Heuristic: values > 300 are
+            # almost certainly milliseconds (e.g. "retry_after": 5000).
+            if unit is None:
+                unit = "ms" if value > 300 else "s"
             return cls._to_retry_seconds(value, unit)
         return None
 
