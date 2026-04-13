@@ -426,11 +426,13 @@ async def test_runtime_config_reload_updates_agent_and_tool_settings(tmp_path: P
         model="reloaded-model",
         brave_api_key="demo-key",
         web_proxy="http://127.0.0.1:7890",
+        web_enabled=True,
         web_search_provider="searxng",
         web_search_base_url="https://search.example.com",
         web_search_max_results=7,
         exec_config=loop.exec_config,
         restrict_to_workspace=True,
+        disabled_skills=[],
     )
     assert exec_tool.timeout == 45
     assert exec_tool.path_append == "/usr/local/bin"

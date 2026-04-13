@@ -549,12 +549,24 @@ Built-in skills currently include:
 - `skill-creator`
 
 Workspace-local skills live under `workspace/skills/` and override built-ins with the same name.
+If you want to hide specific bundled or workspace skills from the main agent and subagents, set
+`agents.defaults.disabledSkills` to a list of skill directory names such as `["github", "weather"]`.
 
 ### MCP
 
 Hahobot supports MCP servers through `tools.mcpServers`. When Memorix MCP tools are connected,
 hahobot can auto-load the built-in `memorix` skill and initialize the session against the active
 workspace.
+You can also use `enabledTools` on one MCP server to register only a subset of raw MCP tool names
+or wrapped hahobot names such as `mcp_filesystem_write_file`. Omit it, or use `["*"]`, to keep all
+tools; use `[]` to register none from that server.
+
+### Auto Compact
+
+Set `agents.defaults.idleCompactAfterMinutes` to proactively archive stale live session prefixes in
+the background while keeping a recent legal suffix ready for the next reply. When the user returns,
+hahobot injects a one-shot resume summary into runtime context before continuing the conversation.
+`sessionTtlMinutes` remains accepted as a legacy alias.
 
 ## External Hook Bridge
 
@@ -613,6 +625,9 @@ Legacy upstream runtime behaviors also kept in sync here include:
 - Telegram streaming reply edits can now be tuned through config rather than code constants
 - Discord streaming replies follow the same edit-then-finalize model as upstream nanobot
 - cross-channel unified-session routing is available through `agents.defaults.unifiedSession`
+- idle auto compact is available through `agents.defaults.idleCompactAfterMinutes`
+- `agents.defaults.disabledSkills` filters both main-agent and subagent skill summaries
+- MCP per-server tool filtering is available through `tools.mcpServers.<name>.enabledTools`
 - the shell tool supports `tools.exec.allowedEnvKeys` for explicit env passthrough
 - the built-in WebSocket server channel is available through `channels.websocket`
 - direct OpenAI reasoning requests keep the upstream Responses-API-first fallback strategy

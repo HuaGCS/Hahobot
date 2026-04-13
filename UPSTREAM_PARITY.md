@@ -36,6 +36,7 @@ from upstream `nanobot` still needs to be ported, re-audited, or deliberately ig
 | Hook lifecycle semantics | `synced` | Hook fan-out supports `reraise` semantics and keeps compatibility behavior for legacy hooks. |
 | OpenAI direct reasoning routing | `synced` | Direct OpenAI GPT-5/o-series requests prefer Responses API and fall back to Chat Completions only for compatibility errors. |
 | Tool hint formatting | `synced` | Exec hints handle quoted paths, path abbreviation, and duplicate collapse in one formatter. |
+| Skill filtering / idle compact / MCP tool filtering | `synced` | `agents.defaults.disabledSkills`, `agents.defaults.idleCompactAfterMinutes` (plus `sessionTtlMinutes` alias), and `tools.mcpServers.<name>.enabledTools` are wired through local runtime, tests, and docs. |
 | Cron state / scheduler behavior | `synced` | Cron preserves last-run status plus merged run history on disk, and the workspace scheduler periodically wakes to reload external `cron/jobs.json` edits via `gateway.cron.maxSleepMs`. |
 | Telegram / Discord streaming | `synced` | Telegram uses configurable `channels.telegram.streamEditInterval`; Discord keeps edit-based streaming enabled by default, and the related runtime knobs are exposed in local schema/docs/admin surfaces. |
 | Legacy rename compatibility | `synced` | `nanobot` CLI/module/import compatibility stays live, and default config fallback is preserved. |
@@ -61,6 +62,11 @@ as "do not re-port unless upstream changes again":
 - Runtime tool hints format shell commands more robustly, including quoted paths and repeated calls.
 - Shell exec passthrough remains explicit through `tools.exec.allowedEnvKeys`, and local admin/docs
   surfaces expose that knob instead of hiding it in raw JSON only.
+- `agents.defaults.disabledSkills` excludes selected skills from main-agent and subagent summaries.
+- Idle session auto compact is available through `agents.defaults.idleCompactAfterMinutes`, with
+  the legacy `sessionTtlMinutes` alias still accepted on load.
+- MCP server configs support `enabledTools` so one server can register all, none, or only a named
+  subset of wrapped/raw MCP tools.
 - Version resolution prefers `importlib.metadata` and falls back to `pyproject.toml` in source trees.
 - Workspace/runtime behavior keeps the rename compatibility layer alive for `nanobot` entrypoints and
   imports.

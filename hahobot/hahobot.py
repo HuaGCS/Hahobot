@@ -88,6 +88,8 @@ class Hahobot:
             channels_config=config.channels,
             timezone=defaults.timezone,
             unified_session=defaults.unified_session,
+            session_ttl_minutes=defaults.session_ttl_minutes,
+            disabled_skills=defaults.disabled_skills,
         )
         return cls(loop)
 
