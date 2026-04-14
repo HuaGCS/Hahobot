@@ -462,8 +462,18 @@ class LLMProvider(ABC):
             else:
                 merged.append(dict(msg))
 
+        last_popped: dict[str, Any] | None = None
         while merged and merged[-1].get("role") == "assistant":
-            merged.pop()
+            last_popped = merged.pop()
+
+        if (
+            merged
+            and last_popped is not None
+            and not any(message.get("role") in ("user", "tool") for message in merged)
+        ):
+            recovered = dict(last_popped)
+            recovered["role"] = "user"
+            merged.append(recovered)
 
         return merged
 

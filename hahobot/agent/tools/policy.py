@@ -74,6 +74,8 @@ class RuntimeToolPolicy:
             issues.append("SearXNG search is selected but tools.web.search.baseUrl is empty.")
         if search_cfg.provider == "searxng" and search_cfg.base_url.strip():
             detail_parts.append(f"base_url={search_cfg.base_url}")
+        if search_cfg.provider == "duckduckgo":
+            detail_parts.append("serialized=true")
 
         return ToolPolicyDecision(
             tool_name="web",

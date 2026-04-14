@@ -115,3 +115,34 @@ class TestEnforceRoleAlternation:
         LLMProvider._enforce_role_alternation(msgs)
         assert msgs[0] == original_first
         assert len(msgs) == 2
+
+    def test_trailing_assistant_recovered_as_user_when_only_system_remains(self):
+        msgs = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "assistant", "content": "Subagent completed successfully."},
+        ]
+        result = LLMProvider._enforce_role_alternation(msgs)
+        assert len(result) == 2
+        assert result[0]["role"] == "system"
+        assert result[1]["role"] == "user"
+        assert "Subagent completed successfully." in result[1]["content"]
+
+    def test_trailing_assistant_not_recovered_when_user_message_present(self):
+        msgs = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello!"},
+        ]
+        result = LLMProvider._enforce_role_alternation(msgs)
+        assert len(result) == 2
+        assert result[-1]["role"] == "user"
+
+    def test_trailing_assistant_not_recovered_when_tool_message_present(self):
+        msgs = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "tool", "content": "result", "tool_call_id": "1"},
+            {"role": "assistant", "content": "Done."},
+        ]
+        result = LLMProvider._enforce_role_alternation(msgs)
+        assert len(result) == 2
+        assert result[-1]["role"] == "tool"

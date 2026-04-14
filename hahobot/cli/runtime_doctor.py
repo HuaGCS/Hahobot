@@ -691,7 +691,7 @@ def run_runtime_doctor(config: Config) -> RuntimeDoctorReport:
             tools_summary.web.summary,
             detail=tools_summary.web.detail or "; ".join(tools_summary.web.issues),
             fix=(
-                "Configure `tools.web.search.apiKey` for Brave or `tools.web.search.baseUrl` for SearXNG."
+                "Configure `tools.web.search.apiKey` for Brave, `tools.web.search.baseUrl` for SearXNG, or switch to `duckduckgo` for zero-config search."
             )
             if tools_summary.web.issues
             else "",

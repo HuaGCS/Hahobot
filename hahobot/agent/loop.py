@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
+from hahobot.agent.autocompact import AutoCompact
 from hahobot.agent.commands import (
     LanguageCommandHandler,
     MCPCommandHandler,
@@ -27,7 +28,6 @@ from hahobot.agent.commands import (
     WorkspaceCommandHandler,
     build_agent_command_router,
 )
-from hahobot.agent.autocompact import AutoCompact
 from hahobot.agent.context import ContextBuilder
 from hahobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
 from hahobot.agent.hook_bridge import ExternalHookBridgeBlocked
@@ -249,6 +249,7 @@ class AgentLoop:
     _CONTEXT_TOOL_RESULT_OMIT = "[tool result omitted to stay within context window]"
     _CONTEXT_TOOL_RESULT_SUFFIX = "\n... (truncated to stay within context window)"
     _RUNTIME_CHECKPOINT_KEY = "runtime_checkpoint"
+    _PENDING_USER_TURN_KEY = "pending_user_turn"
 
     def __init__(
         self,
@@ -1559,7 +1560,10 @@ class AgentLoop:
             try:
                 msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
             except asyncio.TimeoutError:
-                self.auto_compact.check_expired(self._schedule_background)
+                self.auto_compact.check_expired(
+                    self._schedule_background,
+                    active_session_keys=self._active_session_keys(),
+                )
                 continue
             except asyncio.CancelledError:
                 # Preserve real task cancellation so shutdown can complete cleanly.
@@ -1583,7 +1587,9 @@ class AgentLoop:
             else:
                 task = asyncio.create_task(self._dispatch(msg))
                 self._active_tasks.setdefault(msg.session_key, []).append(task)
-                task.add_done_callback(lambda t, k=msg.session_key: self._active_tasks.get(k, []) and self._active_tasks[k].remove(t) if t in self._active_tasks.get(k, []) else None)
+                task.add_done_callback(
+                    lambda t, k=msg.session_key: self._discard_active_task(k, t)
+                )
 
     async def _handle_stop(self, msg: InboundMessage) -> None:
         """Cancel all active tasks and subagents for the session."""
@@ -1627,6 +1633,29 @@ class AgentLoop:
             os.execv(sys.executable, [sys.executable, "-m", "hahobot"] + sys.argv[1:])
 
         asyncio.create_task(_do_restart())
+
+    def _discard_active_task(self, session_key: str, task: asyncio.Task) -> None:
+        """Remove a finished task from active-task tracking."""
+        tasks = self._active_tasks.get(session_key)
+        if not tasks:
+            return
+        if task in tasks:
+            tasks.remove(task)
+        if not tasks:
+            self._active_tasks.pop(session_key, None)
+
+    def _active_session_keys(self) -> set[str]:
+        """Return session keys that still have an in-flight agent task."""
+        active: set[str] = set()
+        for key, tasks in list(self._active_tasks.items()):
+            live = [task for task in tasks if not task.done()]
+            if live:
+                if len(live) != len(tasks):
+                    self._active_tasks[key] = live
+                active.add(key)
+                continue
+            self._active_tasks.pop(key, None)
+        return active
 
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message: per-session serial, cross-session concurrent."""
@@ -1879,6 +1908,10 @@ class AgentLoop:
             logger.info("Processing system message from {}", msg.sender_id)
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
+            restored = self._restore_runtime_checkpoint(session)
+            restored = self._restore_pending_user_turn(session) or restored
+            if restored:
+                self.sessions.save(session)
             persona = self._get_session_persona(session)
             language = self._get_session_language(session)
             session, pending = self.auto_compact.prepare_session(session, key)
@@ -1944,6 +1977,10 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
+        restored = self._restore_runtime_checkpoint(session)
+        restored = self._restore_pending_user_turn(session) or restored
+        if restored:
+            self.sessions.save(session)
         persona = self._get_session_persona(session)
         language = self._get_session_language(session)
         session, pending = self.auto_compact.prepare_session(session, key)
@@ -1968,6 +2005,18 @@ class AgentLoop:
                 message_tool.start_turn()
 
         history = session.get_history(max_messages=0)
+        user_persisted_early = False
+        if isinstance(msg.content, str) and msg.content.strip() and not msg.media:
+            from datetime import datetime
+
+            session.messages.append({
+                "role": "user",
+                "content": msg.content,
+                "timestamp": datetime.now().isoformat(),
+            })
+            self._mark_pending_user_turn(session)
+            self.sessions.save(session)
+            user_persisted_early = True
         memorix_context = await self._maybe_start_memorix_session(session)
         memory_scope = self._memory_scope(
             session,
@@ -2019,7 +2068,12 @@ class AgentLoop:
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
 
-        persisted_messages = self._save_turn(session, all_msgs, 1 + len(history))
+        persisted_messages = self._save_turn(
+            session,
+            all_msgs,
+            1 + len(history) + (1 if user_persisted_early else 0),
+        )
+        self._clear_pending_user_turn(session)
         self.sessions.save(session)
         await self._commit_memory_turn(
             scope=memory_scope,
@@ -2252,6 +2306,13 @@ class AgentLoop:
         session.metadata[self._RUNTIME_CHECKPOINT_KEY] = payload
         self.sessions.save(session)
 
+    def _mark_pending_user_turn(self, session: Session) -> None:
+        """Mark that the current session has only the triggering user turn persisted."""
+        session.metadata[self._PENDING_USER_TURN_KEY] = True
+
+    def _clear_pending_user_turn(self, session: Session) -> None:
+        session.metadata.pop(self._PENDING_USER_TURN_KEY, None)
+
     def _clear_runtime_checkpoint(self, session: Session) -> None:
         if self._RUNTIME_CHECKPOINT_KEY in session.metadata:
             session.metadata.pop(self._RUNTIME_CHECKPOINT_KEY, None)
@@ -2316,7 +2377,26 @@ class AgentLoop:
                 break
         session.messages.extend(restored_messages[overlap:])
 
+        self._clear_pending_user_turn(session)
         self._clear_runtime_checkpoint(session)
+        return True
+
+    def _restore_pending_user_turn(self, session: Session) -> bool:
+        """Close a turn that only persisted the user message before crashing."""
+        from datetime import datetime
+
+        if not session.metadata.get(self._PENDING_USER_TURN_KEY):
+            return False
+
+        if session.messages and session.messages[-1].get("role") == "user":
+            session.messages.append({
+                "role": "assistant",
+                "content": "Error: Task interrupted before a response was generated.",
+                "timestamp": datetime.now().isoformat(),
+            })
+            session.updated_at = datetime.now()
+
+        self._clear_pending_user_turn(session)
         return True
 
     async def process_direct(

@@ -540,6 +540,9 @@ The runtime can expose:
 Workspace restrictions for shell/file tools can be enforced through config.
 The shell tool can also forward a narrow allowlist of environment variables through
 `tools.exec.allowedEnvKeys`.
+`web_search` supports `brave`, `searxng`, and `duckduckgo`; DuckDuckGo needs no extra
+credentials and is executed exclusively so concurrent tool turns do not batch multiple
+DuckDuckGo searches together.
 
 ### Skills
 
@@ -548,6 +551,7 @@ Built-in skills currently include:
 - `living-together`
 - `emotional-companion`
 - `translate`
+- `llm-wiki`
 - `memory`
 - `memorix`
 - `summarize`

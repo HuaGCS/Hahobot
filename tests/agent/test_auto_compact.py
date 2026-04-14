@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import copy
+import os
 from datetime import datetime, timedelta
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -104,6 +105,38 @@ async def test_auto_compact_archives_idle_prefix_and_exposes_resume_summary(tmp_
     assert summary is not None
     assert "Previous conversation summary: summary one" in summary
     assert "_last_summary" not in prepared.metadata
+
+
+@pytest.mark.asyncio
+async def test_auto_compact_skips_active_sessions_until_next_tick(tmp_path) -> None:
+    manager = SessionManager(tmp_path)
+    session = manager.get_or_create("cli:test")
+    for idx in range(1, 7):
+        session.add_message("user", f"u{idx}")
+        session.add_message("assistant", f"a{idx}")
+    manager.save(session)
+    stale_ts = (datetime.now() - timedelta(minutes=20)).timestamp()
+    os.utime(manager._get_session_path("cli:test"), (stale_ts, stale_ts))
+
+    consolidator = _FakeConsolidator()
+    auto = AutoCompact(manager, consolidator, session_ttl_minutes=15)
+    tasks: list[asyncio.Task[None]] = []
+
+    def _schedule(coro) -> None:
+        tasks.append(asyncio.create_task(coro))
+
+    auto.check_expired(_schedule, active_session_keys={"cli:test"})
+    await asyncio.sleep(0)
+    assert tasks == []
+    assert consolidator.calls == []
+
+    auto.check_expired(_schedule)
+    await asyncio.gather(*tasks)
+
+    assert len(tasks) == 1
+    assert consolidator.calls == [
+        ("cli:test", ["u1", "a1", "u2", "a2"], "idle_auto_compact")
+    ]
 
 
 @pytest.mark.asyncio

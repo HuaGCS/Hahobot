@@ -22,7 +22,7 @@
 - persona 级参考图与角色一致性生图
 - persona 级 `VOICE.json`
 - `channels.voiceReply` 下的 `openai` / `edge` / `sovits`
-- `living-together` / `emotional-companion` / `translate` 内置技能
+- `living-together` / `emotional-companion` / `translate` / `llm-wiki` 内置技能
 - WhatsApp 本地 bridge 代理支持
 
 完整英文说明见 [README.md](./README.md)。
@@ -218,7 +218,7 @@ hahobot gateway
 
 ### Web 搜索
 
-`web_search` 支持 Brave Search 和 SearXNG。
+`web_search` 支持 Brave Search、SearXNG 和 DuckDuckGo。
 
 Brave Search：
 
@@ -249,6 +249,22 @@ SearXNG：
   }
 }
 ```
+
+DuckDuckGo：
+
+```json
+{
+  "tools": {
+    "web": {
+      "search": {
+        "provider": "duckduckgo"
+      }
+    }
+  }
+}
+```
+
+`duckduckgo` 不需要额外凭证；运行时会把 DuckDuckGo 搜索串行执行，避免在并发工具回合里把多个 DuckDuckGo 查询打成同一批。
 
 ### 图像生成
 
@@ -393,10 +409,12 @@ OpenAI 兼容 TTS 示例：
 
 ### 内置技能
 
-当前仓库除默认技能外，还补了三类与本地产品化能力强相关的技能：
+当前仓库除默认技能外，还补了几类与本地产品化能力强相关的技能：
 
 - `translate`
   忠实全文翻译，不用摘要代替翻译
+- `llm-wiki`
+  把当前 workspace 当成本地 wiki，用仓库里的文档、代码、配置和测试回答“这个东西在项目里是什么意思”
 - `living-together`
   用 persona 参考图和 `image_gen` 把“你也在场”的生活陪伴场景做出来
 - `emotional-companion`

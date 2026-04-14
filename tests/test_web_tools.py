@@ -150,6 +150,80 @@ def test_web_search_config_accepts_searxng_fields() -> None:
     assert config.tools.web.search.max_results == 7
 
 
+def test_web_search_config_accepts_duckduckgo_provider() -> None:
+    config = Config.model_validate(
+        {
+            "tools": {
+                "web": {
+                    "search": {
+                        "provider": "duckduckgo",
+                    }
+                }
+            }
+        }
+    )
+
+    assert config.tools.web.search.provider == "duckduckgo"
+
+
+@pytest.mark.asyncio
+async def test_web_search_tool_duckduckgo_formats_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+    payload = """
+    <html><body>
+      <a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fduck">Duck Result</a>
+      <div class="result__snippet">Duck snippet content.</div>
+    </body></html>
+    """
+
+    class _FakeDuckResponse:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeAsyncClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.proxy = kwargs.get("proxy")
+            self.follow_redirects = kwargs.get("follow_redirects")
+
+        async def __aenter__(self) -> "_FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(
+            self,
+            url: str,
+            *,
+            params: dict[str, Any] | None = None,
+            headers: dict[str, str] | None = None,
+            timeout: float | None = None,
+        ) -> _FakeDuckResponse:
+            calls.append({"url": url, "params": params, "headers": headers, "timeout": timeout})
+            return _FakeDuckResponse(payload)
+
+    monkeypatch.setattr(web_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+    tool = WebSearchTool(provider="duckduckgo")
+    result = await tool.execute(query="hahobot", count=2)
+
+    assert tool.exclusive is True
+    assert "Duck Result" in result
+    assert "https://example.com/duck" in result
+    assert "Duck snippet content." in result
+    assert calls == [
+        {
+            "url": "https://html.duckduckgo.com/html/",
+            "params": {"q": "hahobot"},
+            "headers": {"User-Agent": web_module.USER_AGENT},
+            "timeout": 10.0,
+        }
+    ]
+
+
 @pytest.mark.asyncio
 async def test_web_search_tool_uses_env_provider_and_base_url(
     monkeypatch: pytest.MonkeyPatch,

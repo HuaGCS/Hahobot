@@ -12,7 +12,16 @@ def test_builtin_skills_include_localized_companion_skills(tmp_path: Path) -> No
 
     names = {skill["name"] for skill in loader.list_skills(filter_unavailable=False)}
 
-    assert {"translate", "living-together", "emotional-companion"}.issubset(names)
+    assert {"translate", "living-together", "emotional-companion", "llm-wiki"}.issubset(names)
+
+
+def test_llm_wiki_builtin_skill_loads(tmp_path: Path) -> None:
+    loader = SkillsLoader(tmp_path)
+
+    content = loader.load_skill("llm-wiki")
+
+    assert content is not None
+    assert "Treat the current workspace as a local wiki." in content
 
 
 def test_living_together_is_loaded_as_always_on_skill(tmp_path: Path) -> None:

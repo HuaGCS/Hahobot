@@ -766,8 +766,8 @@ class GatewayConfig(Base):
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
-    provider: Literal["brave", "searxng"] = "brave"
-    api_key: str = ""  # Brave Search API key (ignored by SearXNG)
+    provider: Literal["brave", "searxng", "duckduckgo"] = "brave"
+    api_key: str = ""  # Brave Search API key (ignored by SearXNG and DuckDuckGo)
     base_url: str = ""  # Required for SearXNG, e.g. "http://localhost:8080"
     max_results: int = 5
     timeout: int = 30  # Wall-clock timeout (seconds) for search operations
