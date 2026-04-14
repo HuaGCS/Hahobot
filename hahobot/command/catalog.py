@@ -175,6 +175,23 @@ _COMMAND_SPECS: tuple[CommandSpec, ...] = (
         telegram_rank=110,
     ),
     CommandSpec(
+        command="/update",
+        description_keys=("cmd_update",),
+        usage_lines=(
+            "/update",
+            "/update check",
+            "/update force",
+            "/update bridge",
+        ),
+        note_key="admin_commands_note_update",
+        completion_subcommands=("check", "force", "bridge"),
+        prefix_match=True,
+        help_rank=105,
+        admin_rank=145,
+        interactive_rank=155,
+        telegram_rank=115,
+    ),
+    CommandSpec(
         command="/status",
         description_keys=("cmd_status",),
         usage_lines=("/status",),

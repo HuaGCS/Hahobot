@@ -383,6 +383,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert "/language" in commands_page.text
     assert "/skill update" in commands_page.text
     assert "/restart" in commands_page.text
+    assert "/update" in commands_page.text
     assert 'data-command-browser' in commands_page.text
     assert 'data-command-target="command-help"' in commands_page.text
     assert 'data-command-panel="command-help"' in commands_page.text

@@ -118,6 +118,28 @@ def test_interactive_slash_completer_matches_compact_prefix():
     assert [completion.text for completion in completions] == ["/compact"]
 
 
+def test_interactive_slash_completer_matches_update_prefix():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/u", cursor_position=2),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["/update"]
+
+
+def test_interactive_slash_completer_matches_update_subcommands():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/update c", cursor_position=len("/update c")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["check"]
+
+
 def test_interactive_slash_completer_matches_repo_subcommands():
     completions = list(
         commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
