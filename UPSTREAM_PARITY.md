@@ -97,7 +97,8 @@ These are local choices. When upstream behaves differently, that is not automati
 - Admin, gateway status, Star-Office integration, companion doctor, and local session inspection
   are first-class local ops features even when upstream does not have equivalents.
 - Hermes-style dashboard/webui is intentionally not mirrored as a second UI stack; equivalent local
-  operational surfaces stay in the existing gateway admin and `/status` endpoints.
+  operational surfaces stay in the existing gateway admin and `/status` endpoints, and related
+  page layouts are folded into the local Jinja-admin shell instead of shipping a separate SPA.
 - Gateway chat surfaces intentionally expose local `/session`, `/repo`, `/review`, and `/compact`
   controls even though upstream parity is tracked primarily at the runtime/tool layer.
 - Extension priority is currently `skills + MCP + hook bridge`; do not add a separate plugin

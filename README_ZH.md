@@ -53,7 +53,7 @@
 - 易扩展：provider、tool、channel、persona、skill 结构清晰
 - 多渠道：Telegram、Discord、WhatsApp、QQ、Slack、Feishu、Matrix、Email、Weixin、Wecom、Mochat、WebSocket
 - 本地优先：支持本地 workspace、私有部署、工作区技能和本地文件交付
-- 当前仓库已增强：SillyTavern 资产导入、persona 参考图、生图、语音回复、自定义声线、陪伴技能
+- 当前仓库已增强：SillyTavern 资产导入、persona 参考图、生图、语音回复、自定义声线、陪伴技能，以及 Hermes 风格的 gateway admin/status 页面
 
 ## 安装
 
@@ -1190,6 +1190,8 @@ hahobot 现在可以把 Mem0 作为真正的用户记忆后端使用。
 当前 admin 页面支持：
 
 - 可视化编辑并校验 `config.json`，同时保留高级 JSON 兜底编辑器
+- `/admin` 和浏览器访问的 `/status` 采用 Hermes 风格的深色 dashboard 视觉，但仍复用当前 hahobot gateway 进程，不额外引入第二套前端运行时
+- admin 新增只读的会话页、技能页和 Cron 页，可直接查看当前 runtime workspace 下保存的 session、已加载 skill 和 `cron/jobs.json`
 - 可视化编辑 `gateway.status`，用于 Star-Office-UI 一类状态看板访问当前实例的 `GET /status`，也可直接配置 HTTP 主动推送
 - 可视化编辑 `agents.defaults.providerPool`，提供按行维护 targets 的列表式界面，支持新增 / 删除 / 排序，以及故障切换 / 轮询策略
 - 可视化编辑常用 `providers.*` 配置块，例如 `openrouter`、`openai`、`anthropic`、`deepseek`、`custom`、`ollama`、`vllm`，并按 provider 分组成可折叠卡片，收起时显示安全摘要

@@ -1,0 +1,71 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<div class="hero-grid">
+  <section class="card stack spotlight">
+    <span class="eyebrow">{{ cron_nav_label }}</span>
+    <h2 class="panel-title">{{ heading_text }}</h2>
+    <div class="muted">{{ cron_intro_html }}</div>
+  </section>
+  <section class="card stack">
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span>{{ total_label }}</span>
+        <strong>{{ total_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ enabled_label }}</span>
+        <strong>{{ enabled_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ error_label }}</span>
+        <strong>{{ error_count }}</strong>
+      </div>
+    </div>
+  </section>
+</div>
+
+{% if rows %}
+<section class="stack admin-list">
+  {% for row in rows %}
+  <article class="card stack">
+    <div class="list-card-summary cron-row-head">
+      <div class="list-card-copy">
+        <strong>{{ row.name }}</strong>
+        <div class="muted"><code>{{ row.id }}</code></div>
+      </div>
+      <span class="{{ row.status_class }}">{{ row.status_label }}</span>
+    </div>
+    <div class="meta-grid">
+      <div class="meta-card">
+        <span>{{ schedule_label }}</span>
+        <strong>{{ row.schedule }}</strong>
+      </div>
+      <div class="meta-card">
+        <span>{{ next_run_label }}</span>
+        <strong>{{ row.next_run }}</strong>
+      </div>
+      <div class="meta-card">
+        <span>{{ last_run_label }}</span>
+        <strong>{{ row.last_run }}</strong>
+      </div>
+      <div class="meta-card">
+        <span>{{ delivery_label }}</span>
+        <strong>{{ row.delivery }}</strong>
+      </div>
+    </div>
+    <div class="stack">
+      <strong>{{ prompt_label }}</strong>
+      <pre class="code-block"><code>{{ row.prompt }}</code></pre>
+    </div>
+    {% if row.last_error %}
+    <div class="notice error">{{ row.last_error }}</div>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% else %}
+<section class="card stack">
+  <div class="muted">{{ empty_label }}</div>
+</section>
+{% endif %}
+{% endblock %}

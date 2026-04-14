@@ -3,85 +3,126 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>hahobot Status</title>
+    <title>hahobot gateway status</title>
     <style>
       :root {
-        --bg: #f4efe6;
-        --panel: rgba(255, 250, 241, 0.92);
-        --panel-strong: #fffdf9;
-        --text: #1f2328;
-        --muted: #6e6255;
-        --ok: #1e7a46;
-        --ok-bg: #e3f6e8;
-        --warn: #8a5a00;
-        --warn-bg: #fff0cf;
-        --err: #a52a2a;
-        --err-bg: #ffe4e1;
-        --line: rgba(61, 43, 23, 0.12);
-        --shadow: 0 18px 48px rgba(88, 56, 21, 0.12);
+        color-scheme: dark;
+        --bg: #041c1c;
+        --panel: rgba(6, 36, 36, 0.92);
+        --panel-strong: rgba(8, 42, 42, 0.98);
+        --line: rgba(255, 230, 203, 0.14);
+        --line-strong: rgba(255, 230, 203, 0.22);
+        --ink: #ffe6cb;
+        --muted: #8aaa9a;
+        --ok: #4ade80;
+        --ok-bg: rgba(74, 222, 128, 0.10);
+        --warn: #ffbd38;
+        --warn-bg: rgba(255, 189, 56, 0.10);
+        --err: #ff8a72;
+        --err-bg: rgba(255, 138, 114, 0.10);
+        --shadow: 0 28px 90px rgba(0, 0, 0, 0.34);
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
-        font-family: "Avenir Next", "PingFang SC", "Noto Sans CJK SC", sans-serif;
-        color: var(--text);
+        font-family: "Palatino Linotype", "Book Antiqua", "STSong", serif;
+        color: var(--ink);
         background:
-          radial-gradient(circle at top left, rgba(226, 182, 104, 0.35), transparent 34%),
-          radial-gradient(circle at top right, rgba(120, 180, 140, 0.18), transparent 28%),
-          linear-gradient(180deg, #fbf6ee 0%, var(--bg) 100%);
+          radial-gradient(circle at top left, rgba(255, 189, 56, 0.18), transparent 34%),
+          radial-gradient(circle at right 10%, rgba(255, 230, 203, 0.06), transparent 28%),
+          var(--bg);
+        position: relative;
+        overflow-x: hidden;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        mix-blend-mode: color-dodge;
+        opacity: 0.10;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' fill='%23eaeaea' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+        background-size: 512px 512px;
       }
       main {
-        width: min(1120px, calc(100vw - 32px));
-        margin: 32px auto;
+        width: min(1280px, calc(100vw - 28px));
+        margin: 18px auto 28px;
+        position: relative;
+        z-index: 1;
+      }
+      .shell {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(14px);
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 52px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        font-size: 12px;
+      }
+      .brand {
+        font-weight: 700;
+      }
+      .version {
+        color: var(--muted);
+      }
+      .content {
+        padding: 22px;
         display: grid;
         gap: 18px;
       }
-      .hero, .card {
-        border: 1px solid var(--line);
-        background: var(--panel);
-        backdrop-filter: blur(12px);
-        box-shadow: var(--shadow);
-        border-radius: 24px;
-      }
       .hero {
-        padding: 28px;
         display: grid;
         gap: 10px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        background: var(--panel-strong);
       }
       .eyebrow {
+        font-size: 11px;
         letter-spacing: 0.18em;
         text-transform: uppercase;
         color: var(--muted);
-        font-size: 12px;
       }
       h1 {
         margin: 0;
-        font-size: clamp(30px, 4vw, 48px);
-        line-height: 1.05;
+        font-size: clamp(30px, 4vw, 52px);
+        line-height: 0.94;
+        letter-spacing: -0.02em;
       }
       .sub {
         margin: 0;
-        max-width: 70ch;
         color: var(--muted);
-        line-height: 1.6;
+        line-height: 1.7;
+        max-width: 72ch;
       }
       .grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 18px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       .card {
-        padding: 22px;
         display: grid;
-        gap: 14px;
+        gap: 12px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        background: var(--panel-strong);
       }
-      .card h2 {
+      h2 {
         margin: 0;
-        font-size: 20px;
+        font-size: 18px;
       }
       .kpi {
-        font-size: clamp(28px, 3vw, 40px);
+        font-size: clamp(26px, 3vw, 42px);
         font-weight: 700;
       }
       .badge {
@@ -89,18 +130,20 @@
         width: fit-content;
         align-items: center;
         gap: 8px;
-        padding: 6px 12px;
-        border-radius: 999px;
-        font-size: 13px;
+        padding: 5px 10px;
+        border: 1px solid var(--line-strong);
+        font-size: 12px;
         font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
       }
       .badge.ok { background: var(--ok-bg); color: var(--ok); }
       .badge.warn { background: var(--warn-bg); color: var(--warn); }
       .badge.err { background: var(--err-bg); color: var(--err); }
-      .meta {
+      .meta,
+      .stack {
         display: grid;
-        gap: 8px;
-        color: var(--muted);
+        gap: 10px;
       }
       .meta-row {
         display: flex;
@@ -113,72 +156,78 @@
         color: var(--muted);
         line-height: 1.6;
       }
-      .stack {
-        display: grid;
-        gap: 12px;
+      code {
+        font-family: ui-monospace, "SFMono-Regular", monospace;
+        font-size: 0.92em;
+        background: rgba(255, 230, 203, 0.08);
+        padding: 0.15em 0.45em;
       }
       .task-title {
         font-size: 18px;
         font-weight: 700;
       }
-      code {
-        font-family: "JetBrains Mono", "SFMono-Regular", monospace;
-        font-size: 0.92em;
-      }
       @media (max-width: 860px) {
-        main { width: min(100vw - 20px, 1120px); margin: 20px auto; }
+        main { width: min(100vw - 16px, 1280px); margin: 10px auto 18px; }
         .grid { grid-template-columns: 1fr; }
-        .hero, .card { border-radius: 20px; }
+        .content { padding: 14px; }
       }
     </style>
   </head>
   <body>
     <main>
-      <section class="hero">
-        <div class="eyebrow">hahobot gateway status</div>
-        <h1>运行状态页</h1>
-        <p class="sub">当前实例会继续对脚本访问保持 `/status` JSON 兼容；浏览器访问时显示这个状态页，汇总运行健康度、连续运行时间、最近一次任务和 heartbeat 检测情况。</p>
-      </section>
-      <section class="grid">
-        <article class="card">
-          <h2>hahobot 是否正常运行</h2>
-          <div class="kpi">{{ runtime_health_text }}</div>
-          <div class="meta">
-            <div class="meta-row">
-              <span class="{{ current_state_badge_class }}">{{ current_state_text }}</span>
-              <span>活跃任务数 <strong>{{ active_runs }}</strong></span>
-            </div>
-            <div>{{ current_detail }}</div>
-            <div>当前模型 <code>{{ current_model }}</code></div>
-          </div>
-        </article>
-        <article class="card">
-          <h2>连续运行时间</h2>
-          <div class="kpi">{{ uptime_text }}</div>
-          <div class="meta">
-            <div>启动时间 <code>{{ started_at }}</code></div>
-            <div>已持续运行 <strong>{{ uptime_s }}</strong> 秒</div>
-          </div>
-        </article>
-        <article class="card">
-          <h2>最近一次处理的任务</h2>
-          {{ task_html }}
-        </article>
-        <article class="card">
-          <h2>模型心跳测试状态</h2>
-          <div class="meta-row">
-            <span class="{{ heartbeat_badge_class }}">{{ heartbeat_status_text }}</span>
-            <span>模型 <code>{{ heartbeat_model }}</code></span>
-          </div>
-          <div class="meta">
-            <div>Heartbeat 开关 <strong>{{ heartbeat_enabled_text }}</strong></div>
-            <div>Heartbeat 运行态 <strong>{{ heartbeat_running_text }}</strong></div>
-            <div>检测间隔 <code>{{ heartbeat_interval }}</code></div>
-            <div>最近检测时间 <code>{{ heartbeat_checked_at }}</code></div>
-            <div>{{ heartbeat_detail }}</div>
-          </div>
-        </article>
-      </section>
+      <div class="shell">
+        <div class="topbar">
+          <div class="brand">hahobot gateway status</div>
+          <div class="version">browser view</div>
+        </div>
+        <div class="content">
+          <section class="hero">
+            <div class="eyebrow">hahobot gateway status</div>
+            <h1>运行状态页</h1>
+            <p class="sub">当前实例继续对脚本访问保持 <code>/status</code> JSON 兼容；浏览器访问时显示这个页面，汇总运行健康度、最近任务和 heartbeat 检测状态。</p>
+          </section>
+          <section class="grid">
+            <article class="card">
+              <h2>hahobot 是否正常运行</h2>
+              <div class="kpi">{{ runtime_health_text }}</div>
+              <div class="meta">
+                <div class="meta-row">
+                  <span class="{{ current_state_badge_class }}">{{ current_state_text }}</span>
+                  <span>活跃任务数 <strong>{{ active_runs }}</strong></span>
+                </div>
+                <div>{{ current_detail }}</div>
+                <div>当前模型 <code>{{ current_model }}</code></div>
+              </div>
+            </article>
+            <article class="card">
+              <h2>连续运行时间</h2>
+              <div class="kpi">{{ uptime_text }}</div>
+              <div class="meta">
+                <div>启动时间 <code>{{ started_at }}</code></div>
+                <div>已持续运行 <strong>{{ uptime_s }}</strong> 秒</div>
+              </div>
+            </article>
+            <article class="card">
+              <h2>最近一次处理的任务</h2>
+              {{ task_html }}
+            </article>
+            <article class="card">
+              <h2>模型心跳测试状态</h2>
+              <div class="meta-row">
+                <span class="{{ heartbeat_badge_class }}">{{ heartbeat_status_text }}</span>
+                <span>模型 <code>{{ heartbeat_model }}</code></span>
+              </div>
+              <div class="meta">
+                <div>Heartbeat 开关 <strong>{{ heartbeat_enabled_text }}</strong></div>
+                <div>Heartbeat 运行态 <strong>{{ heartbeat_running_text }}</strong></div>
+                <div>检测间隔 <code>{{ heartbeat_interval }}</code></div>
+                <div>最近检测时间 <code>{{ heartbeat_checked_at }}</code></div>
+                <div>{{ heartbeat_detail }}</div>
+              </div>
+            </article>
+          </section>
+        </div>
+      </div>
     </main>
   </body>
 </html>

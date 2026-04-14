@@ -15,6 +15,7 @@ from hahobot.config.schema import Config
 from hahobot.gateway.http import create_http_app
 from hahobot.gateway.runtime_status import GatewayRuntimeStatusTracker
 from hahobot.heartbeat.service import HeartbeatService
+from hahobot.session.manager import SessionManager
 
 
 def test_gateway_admin_config_parses_camel_case() -> None:
@@ -577,6 +578,90 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert overview_page.status == 200
     assert "providerPool/failover" in overview_page.text
     assert "openrouter, deepseek" in overview_page.text
+
+
+@pytest.mark.asyncio
+async def test_gateway_admin_hermes_style_pages_render_sessions_skills_and_cron(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    workspace = tmp_path / "workspace"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    manager = SessionManager(workspace)
+    session = manager.get_or_create("cli:alpha")
+    session.metadata["persona"] = "Aria"
+    session.add_message("user", "hello admin")
+    session.add_message("assistant", "hi there")
+    manager.save(session)
+
+    cron_dir = workspace / "cron"
+    cron_dir.mkdir(parents=True)
+    (cron_dir / "jobs.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "job-1",
+                        "name": "daily-check",
+                        "enabled": True,
+                        "schedule": {
+                            "kind": "cron",
+                            "expr": "*/15 * * * *",
+                            "tz": "Asia/Shanghai",
+                        },
+                        "payload": {"message": "summarize pending items"},
+                        "state": {"nextRunAtMs": 1760000000000},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        cookies={"hahobot_admin_lang": "en"},
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    assert login.status == 302
+    cookie = login.cookies["hahobot_admin_session"].value
+    cookies = {"hahobot_admin_session": cookie, "hahobot_admin_lang": "en"}
+
+    overview_page = await _call_route(app, "GET", "/admin", cookies=cookies)
+    assert overview_page.status == 200
+    assert "Recent Sessions" in overview_page.text
+    assert "/admin/sessions" in overview_page.text
+    assert "/admin/skills" in overview_page.text
+    assert "/admin/cron" in overview_page.text
+
+    sessions_page = await _call_route(app, "GET", "/admin/sessions", cookies=cookies)
+    assert sessions_page.status == 200
+    assert "Saved Sessions" in sessions_page.text
+    assert "cli:alpha" in sessions_page.text
+    assert "Aria" in sessions_page.text
+    assert "hello admin" in sessions_page.text
+
+    skills_page = await _call_route(app, "GET", "/admin/skills", cookies=cookies)
+    assert skills_page.status == 200
+    assert "Workspace and Built-in Skills" in skills_page.text
+    assert "Built-in skills" in skills_page.text
+    assert "llm-wiki" in skills_page.text
+
+    cron_page = await _call_route(app, "GET", "/admin/cron", cookies=cookies)
+    assert cron_page.status == 200
+    assert "Workspace Cron Store" in cron_page.text
+    assert "daily-check" in cron_page.text
+    assert "*/15 * * * *" in cron_page.text
+    assert "summarize pending items" in cron_page.text
 
 
 @pytest.mark.asyncio
