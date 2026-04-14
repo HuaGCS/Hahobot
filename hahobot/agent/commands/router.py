@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hahobot.command.builtin import cmd_dream, cmd_dream_log, cmd_dream_restore
+from hahobot.command.builtin import cmd_dream, cmd_dream_log, cmd_dream_restore, cmd_update
 from hahobot.command.catalog import agent_command_specs
 from hahobot.command.router import CommandContext, CommandRouter
 
@@ -101,6 +101,7 @@ def build_agent_command_router() -> CommandRouter:
         "/mcp": _cmd_mcp,
         "/stop": _cmd_stop_priority,
         "/restart": _cmd_restart_priority,
+        "/update": cmd_update,
         "/status": _cmd_status,
         "/dream": cmd_dream,
         "/dream-log": cmd_dream_log,

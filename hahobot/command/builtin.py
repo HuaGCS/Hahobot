@@ -11,6 +11,12 @@ from hahobot.bus.events import OutboundMessage
 from hahobot.command.router import CommandContext, CommandRouter
 from hahobot.utils.helpers import build_status_content
 from hahobot.utils.restart import set_restart_notice_to_env
+from hahobot.utils.self_update import (
+    SelfUpdateError,
+    format_self_update_check,
+    inspect_self_update,
+    perform_self_update,
+)
 
 
 async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
@@ -49,6 +55,103 @@ async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
     )
 
 
+async def cmd_update(ctx: CommandContext) -> OutboundMessage:
+    """Synchronize the current checkout, refresh dependencies, and restart."""
+    from hahobot.agent.i18n import text
+
+    loop = ctx.loop
+    msg = ctx.msg
+    session = ctx.session or loop.sessions.get_or_create(ctx.key)
+    language = loop._get_session_language(session)
+    tokens = [part for part in ctx.args.strip().split() if part]
+    mode = tokens[0].lower() if tokens else ""
+
+    if mode not in {"", "check", "force", "bridge"} or len(tokens) > 1:
+        usage = text(language, "update_usage")
+        invalid = tokens[0] if tokens else ctx.args.strip()
+        content = text(language, "update_unknown_subcommand", name=invalid or "?", usage=usage)
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=content,
+            metadata={**dict(msg.metadata or {}), "render_as": "text"},
+        )
+
+    if mode == "check":
+        result = await asyncio.to_thread(
+            inspect_self_update,
+            channels_config=loop.channels_config,
+            language=language,
+        )
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=format_self_update_check(result, language=language),
+            metadata={**dict(msg.metadata or {}), "render_as": "text"},
+        )
+
+    force = mode == "force"
+    bridge_only = mode == "bridge"
+    started_key = "updating_bridge_started" if bridge_only else (
+        "updating_force_started" if force else "updating_started"
+    )
+    completed_key = "update_bridge_completed_restarting" if bridge_only else (
+        "update_completed_restarting"
+    )
+
+    async def _run_update() -> None:
+        try:
+            await asyncio.to_thread(
+                perform_self_update,
+                channels_config=loop.channels_config,
+                language=language,
+                force=force,
+                bridge_only=bridge_only,
+            )
+        except SelfUpdateError as exc:
+            content = text(language, "update_failed", error=str(exc))
+            await loop.bus.publish_outbound(
+                OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=content,
+                    metadata=dict(msg.metadata or {}),
+                )
+            )
+            return
+        except Exception as exc:
+            content = text(language, "update_failed", error=str(exc))
+            await loop.bus.publish_outbound(
+                OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=content,
+                    metadata=dict(msg.metadata or {}),
+                )
+            )
+            return
+
+        await loop.bus.publish_outbound(
+            OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=text(language, completed_key),
+                metadata=dict(msg.metadata or {}),
+            )
+        )
+        set_restart_notice_to_env(channel=msg.channel, chat_id=msg.chat_id)
+        await asyncio.sleep(1)
+        os.execv(sys.executable, [sys.executable, "-m", "hahobot"] + sys.argv[1:])
+
+    loop._schedule_background(_run_update())
+    return OutboundMessage(
+        channel=msg.channel,
+        chat_id=msg.chat_id,
+        content=text(language, started_key),
+        metadata=dict(msg.metadata or {}),
+    )
+
+
 async def cmd_status(ctx: CommandContext) -> OutboundMessage:
     """Build an outbound status message for a session."""
     loop = ctx.loop
@@ -60,7 +163,7 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
         pass
     if ctx_est <= 0:
         ctx_est = loop._last_usage.get("prompt_tokens", 0)
-    
+
     # Fetch web search provider usage (best-effort, never blocks the response)
     search_usage_text: str | None = None
     try:

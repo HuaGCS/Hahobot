@@ -24,6 +24,7 @@ def test_help_and_admin_catalog_include_gateway_workspace_commands() -> None:
     assert "/repo <status|diff>" in help_text
     assert "/review [staged|base <rev>|path <repo-path>]" in help_text
     assert "/compact [key]" in help_text
+    assert "/update [check|force|bridge]" in help_text
     assert "/dream" in admin_commands
     assert "/dream-log" in admin_commands
     assert "/dream-restore" in admin_commands
@@ -31,6 +32,7 @@ def test_help_and_admin_catalog_include_gateway_workspace_commands() -> None:
     assert "/repo" in admin_commands
     assert "/review" in admin_commands
     assert "/compact" in admin_commands
+    assert "/update" in admin_commands
 
 
 def test_interactive_and_telegram_catalog_keep_aliases_and_safe_names() -> None:
@@ -41,12 +43,14 @@ def test_interactive_and_telegram_catalog_keep_aliases_and_safe_names() -> None:
     assert "/repo" in names
     assert "/review" in names
     assert "/compact" in names
+    assert "/update" in names
     assert "language" in telegram_forwardable_commands()
     assert "dream_log" in telegram_forwardable_commands()
     assert "session" in telegram_forwardable_commands()
     assert "repo" in telegram_forwardable_commands()
     assert "review" in telegram_forwardable_commands()
     assert "compact" in telegram_forwardable_commands()
+    assert "update" in telegram_forwardable_commands()
     assert normalize_telegram_command_text("/dream_log deadbeef") == "/dream-log deadbeef"
     assert normalize_telegram_command_text("/dream_restore deadbeef") == "/dream-restore deadbeef"
 
@@ -75,3 +79,29 @@ async def test_agent_command_router_registers_dream_log_prefix(monkeypatch) -> N
     assert out is not None
     assert out.content == "ok"
     assert seen == {"raw": "/dream-log deadbeef", "args": "deadbeef"}
+
+
+@pytest.mark.asyncio
+async def test_agent_command_router_registers_update_prefix(monkeypatch) -> None:
+    seen: dict[str, str] = {}
+
+    async def fake_update(ctx: CommandContext) -> OutboundMessage:
+        seen["raw"] = ctx.raw
+        seen["args"] = ctx.args
+        return OutboundMessage(channel=ctx.msg.channel, chat_id=ctx.msg.chat_id, content="ok")
+
+    monkeypatch.setattr(router_mod, "cmd_update", fake_update)
+    router = router_mod.build_agent_command_router()
+    ctx = CommandContext(
+        msg=InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content="/update check"),
+        session=None,
+        key="cli:direct",
+        raw="/update check",
+        loop=object(),
+    )
+
+    out = await router.dispatch(ctx)
+
+    assert out is not None
+    assert out.content == "ok"
+    assert seen == {"raw": "/update check", "args": "check"}

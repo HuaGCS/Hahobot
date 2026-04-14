@@ -338,7 +338,7 @@ hahobot companion doctor --persona Aria --json
 - `hahobot agent --multiline`: interactive multiline input mode; `Enter` inserts a newline and
   `Ctrl+J` submits the message
 - `hahobot agent`: interactive slash completion for built-in commands such as `/status`,
-  `/skill ...`, `/persona ...`, `/dream ...`, workspace persona / scene names, and the local
+  `/update`, `/skill ...`, `/persona ...`, `/dream ...`, workspace persona / scene names, and the local
   `/session ...` / `/repo ...` / `/review ...` / `/compact` controls
 
 Inside `hahobot agent`, the local interactive shell also supports commands that do not go through
@@ -367,6 +367,16 @@ file counts.
 
 `/compact` reuses the same automatic token-consolidation logic that hahobot already uses under
 pressure; it does not invent a second memory pipeline.
+
+`/update` supports three modes:
+
+- `/update`: fast-forward the current Git checkout, run `uv sync --locked --all-extras`, refresh
+  the local WhatsApp bridge when `channels.whatsapp` is enabled, and restart on success
+- `/update check`: dry-run the same preflight checks and show whether the update is currently ready
+- `/update force`: skip the clean-working-tree precheck and keep going with the normal update flow
+- `/update bridge`: rebuild only the local WhatsApp bridge from the current repo and restart
+
+The default `/update` flow still refuses dirty working trees and branches without upstream tracking.
 
 ### Persona-local extras
 

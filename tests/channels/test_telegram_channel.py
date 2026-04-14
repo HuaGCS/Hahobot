@@ -191,6 +191,7 @@ async def test_start_creates_separate_pools_with_proxy(monkeypatch) -> None:
     assert any(cmd.command == "dream" for cmd in app.bot.commands)
     assert any(cmd.command == "dream_log" for cmd in app.bot.commands)
     assert any(cmd.command == "dream_restore" for cmd in app.bot.commands)
+    assert any(cmd.command == "update" for cmd in app.bot.commands)
     assert any(cmd.command == "stchar" for cmd in app.bot.commands)
     assert any(cmd.command == "preset" for cmd in app.bot.commands)
     assert any(cmd.command == "scene" for cmd in app.bot.commands)
@@ -1091,6 +1092,7 @@ async def test_on_help_includes_restart_command() -> None:
     update.message.reply_text.assert_awaited_once()
     help_text = update.message.reply_text.await_args.args[0]
     assert "/restart" in help_text
+    assert "/update" in help_text
     assert "/status" in help_text
     assert "/dream" in help_text
     assert "/dream-log" in help_text

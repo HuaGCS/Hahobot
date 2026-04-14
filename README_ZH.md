@@ -1380,11 +1380,20 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 聊天的会话路由；如果要切回原始 session key，可用 `/session use default`。
 
 交互式 CLI 输入还会为 slash 命令提供补全，覆盖内置命令、常见子命令，以及当前
-workspace 里的 persona、scene 名称，以及本地 `/session ...`、`/repo ...`、`/review ...`、`/compact` 候选。
+workspace 里的 persona、scene 名称，以及内置 `/update` 与本地 `/session ...`、`/repo ...`、`/review ...`、`/compact` 候选。
 
 其中 `/repo diff` 只看 tracked changes；如果还想确认 untracked 文件数量，用 `/repo status`。
 `/review` 则会把当前 diff 交给已配置模型做 findings-first 的代码审查，不会直接改动仓库文件。
 `/compact` 直接复用现有自动 token consolidation 逻辑，不会额外引入第二套 memory 流程。
+`/update` 现在支持三种子命令：
+
+- `/update`：对当前 Git checkout 执行 fast-forward 同步、运行 `uv sync --locked --all-extras`，
+  如果当前启用了 WhatsApp 还会刷新本地 bridge，并在成功后自动重启
+- `/update check`：只做体检，不实际修改仓库或重启
+- `/update force`：跳过“工作树必须干净”的前置拒绝，再继续默认更新流程
+- `/update bridge`：只刷新本地 WhatsApp bridge 并重启
+
+默认 `/update` 仍然会在工作树不干净或当前分支没有 upstream 时直接拒绝执行。
 
 ### Persona 资产
 
@@ -1504,6 +1513,10 @@ manifest 中可声明：
 | `/mcp [list]` | 查看 MCP 服务和工具 |
 | `/stop` | 停止当前任务 |
 | `/restart` | 重启进程 |
+| `/update` | 同步仓库、更新依赖/bridge 并重启 |
+| `/update check` | 只检查当前是否可更新 |
+| `/update force` | 跳过工作树干净检查后继续更新 |
+| `/update bridge` | 只刷新 WhatsApp bridge 并重启 |
 | `/status` | 查看运行状态 |
 | `/help` | 查看帮助 |
 
