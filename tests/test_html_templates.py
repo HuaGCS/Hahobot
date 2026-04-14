@@ -32,9 +32,8 @@ def test_gateway_html_templates_render_from_package() -> None:
         active_runs=0,
         current_detail="暂无详细状态",
         current_model="openrouter/sonnet",
-        uptime_text="10m",
         started_at="2026-04-13 10:00:00",
-        uptime_s=600,
+        started_at_ms=1760000000000,
         task_html=Markup("<div class='muted'>no task</div>"),
         heartbeat_badge_class="badge ok",
         heartbeat_status_text="最近一次成功",
@@ -50,3 +49,4 @@ def test_gateway_html_templates_render_from_package() -> None:
     assert "Admin Login" in admin_html
     assert "hahobot gateway status" in status_html
     assert "运行状态页" in status_html
+    assert 'id="status-uptime-kpi"' in status_html

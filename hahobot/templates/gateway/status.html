@@ -201,10 +201,10 @@
             </article>
             <article class="card">
               <h2>连续运行时间</h2>
-              <div class="kpi">{{ uptime_text }}</div>
+              <div class="kpi" id="status-uptime-kpi" data-started-at-ms="{{ started_at_ms }}">--</div>
               <div class="meta">
                 <div>启动时间 <code>{{ started_at }}</code></div>
-                <div>已持续运行 <strong>{{ uptime_s }}</strong> 秒</div>
+                <div>已持续运行 <strong id="status-uptime-seconds" data-started-at-ms="{{ started_at_ms }}">--</strong> 秒</div>
               </div>
             </article>
             <article class="card">
@@ -229,5 +229,38 @@
         </div>
       </div>
     </main>
+    <script>
+      (() => {
+        const uptimeKpi = document.getElementById("status-uptime-kpi");
+        const uptimeSeconds = document.getElementById("status-uptime-seconds");
+        const startedAtMs = Number.parseInt(uptimeKpi?.dataset.startedAtMs || "", 10);
+        if (!Number.isFinite(startedAtMs) || startedAtMs <= 0) {
+          return;
+        }
+
+        const formatUptime = (totalSeconds) => {
+          const safeSeconds = Math.max(totalSeconds, 0);
+          const days = Math.floor(safeSeconds / 86400);
+          const hours = Math.floor((safeSeconds % 86400) / 3600);
+          const minutes = Math.floor((safeSeconds % 3600) / 60);
+          const seconds = safeSeconds % 60;
+          const parts = [];
+          if (days) parts.push(`${days}d`);
+          if (hours || parts.length) parts.push(`${hours}h`);
+          if (minutes || parts.length) parts.push(`${minutes}m`);
+          parts.push(`${seconds}s`);
+          return parts.join(" ");
+        };
+
+        const updateUptime = () => {
+          const totalSeconds = Math.max(Math.floor((Date.now() - startedAtMs) / 1000), 0);
+          if (uptimeKpi) uptimeKpi.textContent = formatUptime(totalSeconds);
+          if (uptimeSeconds) uptimeSeconds.textContent = String(totalSeconds);
+        };
+
+        updateUptime();
+        window.setInterval(updateUptime, 1000);
+      })();
+    </script>
   </body>
 </html>

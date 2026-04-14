@@ -250,6 +250,8 @@ async def test_gateway_status_route_renders_html_status_page_for_browser_request
     assert "运行状态页" in response.text
     assert "正常运行" in response.text
     assert "连续运行时间" in response.text
+    assert 'id="status-uptime-kpi"' in response.text
+    assert 'data-started-at-ms="' in response.text
     assert "整理最近的待办任务" in response.text
     assert "openrouter/sonnet" in response.text
     assert "最近一次成功" in response.text
