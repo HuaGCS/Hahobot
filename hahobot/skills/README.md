@@ -27,6 +27,7 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `weather` | Get weather info using wttr.in and Open-Meteo |
 | `summarize` | Summarize URLs, files, and YouTube videos |
 | `translate` | Faithfully translate full files, documents, or text without summarizing |
+| `llm-wiki` | Use the current workspace like a local wiki for repo-backed concepts, config fields, and architecture answers |
 | `living-together` | Turn shared-life moments into persona-aware image generation flows |
 | `emotional-companion` | Provide empathetic follow-up and heartbeat-style care prompts |
 | `memorix` | Use Memorix MCP tools for workspace memory, project history, and engineering rationale |

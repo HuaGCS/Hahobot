@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
@@ -34,12 +35,16 @@ class AutoCompact:
         """Update the idle compact threshold for future checks."""
         self._ttl = max(0, int(minutes))
 
-    def _is_expired(self, ts: datetime | str | None) -> bool:
+    def _is_expired(
+        self,
+        ts: datetime | str | None,
+        now: datetime | None = None,
+    ) -> bool:
         if self._ttl <= 0 or not ts:
             return False
         if isinstance(ts, str):
             ts = datetime.fromisoformat(ts)
-        return (datetime.now() - ts).total_seconds() >= self._ttl * 60
+        return ((now or datetime.now()) - ts).total_seconds() >= self._ttl * 60
 
     @staticmethod
     def _format_summary(text: str, last_active: datetime) -> str:
@@ -68,13 +73,22 @@ class AutoCompact:
         cut = len(tail) - len(kept)
         return tail[:cut], kept
 
-    def check_expired(self, schedule_background: Callable[[Coroutine[Any, Any, Any]], None]) -> None:
+    def check_expired(
+        self,
+        schedule_background: Callable[[Coroutine[Any, Any, Any]], None],
+        active_session_keys: Collection[str] = (),
+    ) -> None:
         """Schedule background archival for expired sessions."""
         if self._ttl <= 0:
             return
+        now = datetime.now()
         for info in self.sessions.list_sessions():
             key = str(info.get("key") or "")
-            if key and key not in self._archiving and self._is_expired(info.get("updated_at")):
+            if not key or key in self._archiving:
+                continue
+            if key in active_session_keys:
+                continue
+            if self._is_expired(info.get("updated_at"), now):
                 self._archiving.add(key)
                 logger.debug(
                     "Auto-compact: scheduling archival for {} (idle > {} min)",

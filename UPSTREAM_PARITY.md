@@ -33,14 +33,18 @@ from upstream `nanobot` still needs to be ported, re-audited, or deliberately ig
 | Area | Status | Local State |
 | --- | --- | --- |
 | Tool/runtime policy | `synced` | Runtime tool enable/disable checks are centralized, hot reload can add/remove tool families, doctor output reuses the same policy layer, and shell env passthrough stays explicit through `tools.exec.allowedEnvKeys`. |
+| Turn recovery / idle compact safety | `synced` | Session recovery now restores runtime checkpoints before the next request, persists plain-text user turns early so crashes do not lose the prompt, closes orphaned pending user turns, and skips proactive auto-compact while a session still has an in-flight agent task. |
 | Hook lifecycle semantics | `synced` | Hook fan-out supports `reraise` semantics and keeps compatibility behavior for legacy hooks. |
 | OpenAI direct reasoning routing | `synced` | Direct OpenAI GPT-5/o-series requests prefer Responses API and fall back to Chat Completions only for compatibility errors. |
 | Tool hint formatting | `synced` | Exec hints handle quoted paths, path abbreviation, and duplicate collapse in one formatter. |
+| Provider request sanitization | `synced` | Role alternation repair now recovers a trailing assistant message as `user` when otherwise only `system` content would remain, preventing empty/invalid provider requests after assistant-scoped injections. |
 | Skill filtering / idle compact / MCP tool filtering | `synced` | `agents.defaults.disabledSkills`, `agents.defaults.idleCompactAfterMinutes` (plus `sessionTtlMinutes` alias), and `tools.mcpServers.<name>.enabledTools` are wired through local runtime, tests, and docs. |
 | Cron state / scheduler behavior | `synced` | Cron preserves last-run status plus merged run history on disk, and the workspace scheduler periodically wakes to reload external `cron/jobs.json` edits via `gateway.cron.maxSleepMs`. |
 | Telegram / Discord streaming | `synced` | Telegram uses configurable `channels.telegram.streamEditInterval`; Discord keeps edit-based streaming enabled by default, and the related runtime knobs are exposed in local schema/docs/admin surfaces. |
 | Legacy rename compatibility | `synced` | `nanobot` CLI/module/import compatibility stays live, and default config fallback is preserved. |
 | Config fallback behavior | `intentional_divergence` | When no config path is passed, hahobot checks `~/.hahobot/config.json` first, then copies `~/.nanobot/config.json` into the hahobot location instead of migrating in place. |
+| Web search backend mix | `synced` | Built-in web search now supports Brave, SearXNG, and DuckDuckGo; DuckDuckGo runs as an exclusive tool so concurrent tool batches do not group multiple searches together. |
+| Hermes-inspired workspace wiki skill | `local_extension` | Built-in `llm-wiki` treats the repo itself as a local concept/config/architecture wiki, using docs + code + tests as the evidence chain without adding another runtime service. |
 | Persona / companion workflow | `local_extension` | `PROFILE.md`, `INSIGHTS.md`, `STYLE.md`, `LORE.md`, companion commands, SillyTavern imports, voice overrides, and scene generation are local-first features. |
 | Memory architecture | `local_extension` | Dream maintenance, archive sidecars, Mem0 backend/shadow-write, and structured profile/insight hygiene go beyond upstream nanobot. |
 | Gateway/admin/runtime ops | `local_extension` | Admin UI, `/status`, Star-Office push, companion doctor, runtime doctor, session inspection, and gateway-backed `/session` / `/repo` / `/review` / `/compact` controls are local operational surfaces. |
@@ -62,6 +66,15 @@ as "do not re-port unless upstream changes again":
 - Runtime tool hints format shell commands more robustly, including quoted paths and repeated calls.
 - Shell exec passthrough remains explicit through `tools.exec.allowedEnvKeys`, and local admin/docs
   surfaces expose that knob instead of hiding it in raw JSON only.
+- Interrupted turns are recovered before the next request: runtime checkpoints are replayed,
+  plain-text user prompts are persisted up front, and orphaned early-persisted user turns are
+  closed with an interruption placeholder instead of leaving illegal session tails.
+- Proactive auto-compact skips sessions that still have an active agent task, so long-running
+  turns are not archived out from under themselves.
+- Provider request sanitation recovers a trailing assistant message as a user message when that is
+  the only non-system content left after alternation repair.
+- Web search supports Brave, SearXNG, and DuckDuckGo, and DuckDuckGo searches are serialized at the
+  tool-runner layer when concurrent tool execution is enabled.
 - `agents.defaults.disabledSkills` excludes selected skills from main-agent and subagent summaries.
 - Idle session auto compact is available through `agents.defaults.idleCompactAfterMinutes`, with
   the legacy `sessionTtlMinutes` alias still accepted on load.
@@ -83,6 +96,8 @@ These are local choices. When upstream behaves differently, that is not automati
   treating all long-term user/context data as one flat store.
 - Admin, gateway status, Star-Office integration, companion doctor, and local session inspection
   are first-class local ops features even when upstream does not have equivalents.
+- Hermes-style dashboard/webui is intentionally not mirrored as a second UI stack; equivalent local
+  operational surfaces stay in the existing gateway admin and `/status` endpoints.
 - Gateway chat surfaces intentionally expose local `/session`, `/repo`, `/review`, and `/compact`
   controls even though upstream parity is tracked primarily at the runtime/tool layer.
 - Extension priority is currently `skills + MCP + hook bridge`; do not add a separate plugin

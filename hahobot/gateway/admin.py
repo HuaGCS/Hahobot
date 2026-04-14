@@ -48,8 +48,8 @@ from hahobot.agent.tools.image_gen import ImageGenTool
 from hahobot.command.catalog import CommandSpec, admin_command_specs
 from hahobot.config.loader import _migrate_config, load_config
 from hahobot.config.schema import Config
-from hahobot.utils.html_templates import render_html_template
 from hahobot.utils.helpers import detect_image_mime, ensure_dir
+from hahobot.utils.html_templates import render_html_template
 
 _ADMIN_COOKIE = "hahobot_admin_session"
 _LEGACY_ADMIN_COOKIE = "nanobot_admin_session"
@@ -780,7 +780,7 @@ _CONFIG_FIELDS = (
         ("tools", "web", "search", "provider"),
         "select",
         "admin_config_web_search_provider_label",
-        options=("brave", "searxng"),
+        options=("brave", "searxng", "duckduckgo"),
     ),
     ConfigFieldSpec(
         "tools_web_search_api_key",
@@ -3945,7 +3945,6 @@ def _render_config_page(
             "</a>"
         )
     sections = "".join(sections_parts)
-    raw_open = " open" if active_mode == "raw" else ""
     return _page(
         template_name="gateway/admin/config.html",
         title=_t(request, "admin_config_title"),

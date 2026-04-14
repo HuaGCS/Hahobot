@@ -47,6 +47,24 @@ def test_apply_runtime_tool_config_toggles_exec_and_web_tools(tmp_path) -> None:
     assert loop.tools.get("web_search") is None
     assert loop.tools.get("web_fetch") is None
 
+
+def test_duckduckgo_web_policy_is_ready_without_extra_config(tmp_path) -> None:
+    with patch("hahobot.agent.loop.SubagentManager") as mock_sub_mgr:
+        mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
+        loop = AgentLoop(
+            bus=MessageBus(),
+            provider=_provider(),
+            workspace=tmp_path,
+            web_config=WebToolsConfig.model_validate(
+                {"enable": True, "search": {"provider": "duckduckgo"}}
+            ),
+        )
+
+    decision = loop._tool_policy().web()
+    assert decision.status == "ok"
+    assert "provider=duckduckgo" in decision.detail
+    assert "serialized=true" in decision.detail
+
     loop.exec_config = ExecToolConfig(enable=True, allowed_env_keys=["JAVA_HOME"])
     loop.web_enabled = True
     loop.web_search_provider = "searxng"
