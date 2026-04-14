@@ -1,0 +1,37 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+{% if missing_key %}
+<div class="card"><p class="muted">{{ missing_key_body_html }}</p></div>
+{% elif form_only %}
+<form method="post" action="/admin/login" class="card stack">
+  <input type="hidden" name="next" value="{{ next_path }}">
+  <label class="field">
+    <span class="label">{{ auth_key_label }}</span>
+    <input type="password" name="auth_key" autocomplete="current-password" required>
+  </label>
+  <div class="actions">
+    <button type="submit">{{ submit_label }}</button>
+  </div>
+</form>
+{% else %}
+<div class="hero-grid">
+  <section class="card stack spotlight">
+    <span class="eyebrow">{{ brand }}</span>
+    <h2 class="panel-title">{{ heading_text }}</h2>
+    <ul class="detail-list">
+      {{ login_feature_items_html }}
+    </ul>
+  </section>
+  <form method="post" action="/admin/login" class="card stack">
+    <input type="hidden" name="next" value="{{ next_path }}">
+    <label class="field">
+      <span class="label">{{ auth_key_label }}</span>
+      <input type="password" name="auth_key" autocomplete="current-password" required>
+    </label>
+    <div class="actions">
+      <button type="submit">{{ submit_label }}</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<div class="section-layout">
+  <aside class="sticky-stack">
+    <div class="card stack spotlight">
+      <span class="eyebrow">{{ config_nav_label }}</span>
+      <p class="muted">{{ config_intro_html }}</p>
+      <div class="muted">{{ config_reload_notice_html }}</div>
+      <div class="badge-row">
+        <span class="pill hot">{{ hot_reload_label }}</span>
+        <span class="pill restart">{{ restart_required_label }}</span>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <span>{{ sections_label }}</span>
+          <strong>{{ sections_count }}</strong>
+        </div>
+        <div class="stat-card">
+          <span>{{ fields_label }}</span>
+          <strong>{{ fields_count }}</strong>
+        </div>
+      </div>
+    </div>
+    <nav class="card stack">
+      <div class="section-head">
+        <h2>{{ jump_title }}</h2>
+        <div class="muted">{{ jump_desc }}</div>
+      </div>
+      <div class="jump-list">
+        {{ jump_links_html }}
+      </div>
+    </nav>
+  </aside>
+  <div class="stack">
+    <form method="post" action="/admin/config" class="stack">
+      <input type="hidden" name="mode" value="visual">
+      {{ sections_html }}
+      <div class="card actions">
+        <button type="submit">{{ save_visual_label }}</button>
+      </div>
+    </form>
+    <details class="card stack"{% if raw_open %} open{% endif %}>
+      <summary>{{ advanced_title }}</summary>
+      <p class="muted">{{ advanced_desc_html }}</p>
+      <form method="post" action="/admin/config" class="stack">
+        <input type="hidden" name="mode" value="raw">
+        <label class="field full">
+          <span class="label">{{ raw_label }}</span>
+          <textarea class="json-editor" name="config_json" spellcheck="false">{{ raw_text }}</textarea>
+        </label>
+        <div class="actions">
+          <button type="submit" class="ghost">{{ save_raw_label }}</button>
+        </div>
+      </form>
+    </details>
+  </div>
+</div>
+<script>
+{% include "gateway/admin/_provider_pool_editor.js" %}
+</script>
+{% endblock %}

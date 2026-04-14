@@ -1,0 +1,39 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<div class="hero-grid">
+  <div class="card stack spotlight">
+    <span class="eyebrow">{{ commands_nav_label }}</span>
+    <h2 class="panel-title">{{ heading_text }}</h2>
+    <p class="muted">{{ commands_intro_html }}</p>
+  </div>
+  <div class="card stack">
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span>{{ commands_title }}</span>
+        <strong>{{ command_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ aliases_label }}</span>
+        <strong>{{ alias_count }}</strong>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="command-browser" data-command-browser>
+  <aside class="card stack command-sidebar">
+    <div class="section-head">
+      <h2>{{ list_title }}</h2>
+      <div class="muted">{{ list_desc }}</div>
+    </div>
+    <nav class="command-nav" role="tablist">
+      {{ nav_items_html }}
+    </nav>
+  </aside>
+  <div class="command-detail-stack">
+    {{ panels_html }}
+  </div>
+</div>
+<script>
+{% include "gateway/admin/_command_browser.js" %}
+</script>
+{% endblock %}

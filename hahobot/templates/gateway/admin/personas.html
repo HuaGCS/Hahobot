@@ -1,0 +1,31 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<div class="hero-grid">
+  <div class="card stack spotlight">
+    <span class="eyebrow">{{ personas_nav_label }}</span>
+    <h2 class="panel-title">{{ heading_text }}</h2>
+    <div class="muted">{{ personas_desc_html }}</div>
+    <div class="muted">{{ workspace_label }}: <code>{{ workspace_path }}</code></div>
+  </div>
+  <div class="card stack">
+    <strong>{{ create_persona_title }}</strong>
+    <p class="muted">{{ create_persona_desc_html }}</p>
+    <form method="post" action="/admin/personas/new" class="stack">
+      <label class="field">
+        <span class="label">{{ persona_name_label }}</span>
+        <input type="text" name="name" placeholder="Aria" required>
+      </label>
+      <div class="actions">
+        <button type="submit">{{ create_persona_button }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+<section class="card stack">
+  <div class="section-head">
+    <h2>{{ personas_title }}</h2>
+    <div class="muted">{{ workspace_label }}: <code>{{ workspace_path }}</code></div>
+  </div>
+  <ul class="list grid persona-list">{{ persona_items_html }}</ul>
+</section>
+{% endblock %}
