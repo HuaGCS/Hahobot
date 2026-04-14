@@ -57,6 +57,8 @@ Core capabilities:
 
 - Direct CLI chat with a single local workspace as the source of truth.
 - Built-in gateway for messaging channels, status pages, and an admin UI.
+- Hermes-style gateway surfaces: the built-in admin/status pages now use a darker dashboard shell
+  and include read-only sessions, skills, and cron views for the active runtime workspace.
 - Persona workspaces with SillyTavern import, voice overrides, reference images, and companion
   focused skills.
 - Long-term memory split across stable user facts, learned collaboration patterns, relationship
@@ -491,6 +493,9 @@ Notable gateway features:
 - `/status` endpoint for machine-readable or browser-readable runtime state
 - optional status push integration for Star-Office-UI style dashboards
 - optional built-in admin UI at `/admin`
+- Hermes-inspired dashboard styling for `/admin` and browser `/status`, without introducing a
+  second SPA runtime
+- read-only sessions, skills, and cron pages in the admin UI for the active runtime workspace
 - visual config coverage for `tools.exec.*`, channel runtime controls such as
   `channels.transcriptionProvider`, and the common Telegram/Discord single-instance extras
   (`channels.telegram.streamEditInterval`, Discord streaming/emoji/proxy fields)

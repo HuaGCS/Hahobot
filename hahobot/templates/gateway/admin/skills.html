@@ -1,0 +1,78 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<div class="hero-grid">
+  <section class="card stack spotlight">
+    <span class="eyebrow">{{ skills_nav_label }}</span>
+    <h2 class="panel-title">{{ heading_text }}</h2>
+    <div class="muted">{{ skills_intro_html }}</div>
+  </section>
+  <section class="card stack">
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span>{{ total_label }}</span>
+        <strong>{{ total_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ workspace_label }}</span>
+        <strong>{{ workspace_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ builtin_label }}</span>
+        <strong>{{ builtin_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ disabled_label }}</span>
+        <strong>{{ disabled_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ unavailable_label }}</span>
+        <strong>{{ unavailable_count }}</strong>
+      </div>
+    </div>
+  </section>
+</div>
+
+{% if groups %}
+<div class="stack">
+  {% for group in groups %}
+  <section class="card stack">
+    <div class="section-head">
+      <h2>{{ group.title }}</h2>
+      <div class="muted">{{ group.skills | length }}</div>
+    </div>
+    <div class="skill-grid">
+      {% for skill in group.skills %}
+      <article class="skill-card">
+        <div class="skill-card-head">
+          <strong>{{ skill.name }}</strong>
+          <div class="badge-row">
+            {% if skill.available %}
+            <span class="pill hot">{{ ready_label }}</span>
+            {% else %}
+            <span class="pill restart">{{ missing_label }}</span>
+            {% endif %}
+            {% if skill.always %}
+            <span class="pill">{{ always_label }}</span>
+            {% endif %}
+            {% if skill.disabled %}
+            <span class="pill restart">{{ hidden_label }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="muted">{{ skill.description }}</div>
+        <div class="muted"><code>{{ skill.path }}</code></div>
+        {% if skill.missing %}
+        <div class="notice error">{{ skill.missing }}</div>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<section class="card stack">
+  <div class="muted">{{ no_skills_label }}</div>
+</section>
+{% endif %}
+{% endblock %}

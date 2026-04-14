@@ -1,0 +1,93 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<div class="hero-grid">
+  <section class="card stack spotlight">
+    <span class="eyebrow">{{ sessions_nav_label }}</span>
+    <h2 class="panel-title">{{ heading_text }}</h2>
+    <div class="muted">{{ sessions_intro_html }}</div>
+  </section>
+  <section class="card stack">
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span>{{ total_label }}</span>
+        <strong>{{ total_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ cli_label }}</span>
+        <strong>{{ cli_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ internal_label }}</span>
+        <strong>{{ internal_count }}</strong>
+      </div>
+    </div>
+  </section>
+</div>
+
+{% if sessions %}
+<section class="stack admin-list">
+  {% for session in sessions %}
+  <details class="card list-card"{% if loop.first %} open{% endif %}>
+    <summary class="list-card-summary">
+      <div class="list-card-copy">
+        <strong>{{ session.preview }}</strong>
+        <div class="muted">
+          <code>{{ session.key }}</code> · {{ session.source }} · {{ session.persona }}
+        </div>
+      </div>
+      <div class="badge-row">
+        <span class="pill hot">{{ session.message_count }}</span>
+        <span class="pill">{{ session.updated_at }}</span>
+      </div>
+    </summary>
+    <div class="list-card-body stack">
+      <div class="meta-grid">
+        <div class="meta-card">
+          <span>{{ source_label }}</span>
+          <strong>{{ session.source }}</strong>
+        </div>
+        <div class="meta-card">
+          <span>{{ persona_label }}</span>
+          <strong>{{ session.persona }}</strong>
+        </div>
+        <div class="meta-card">
+          <span>{{ created_label }}</span>
+          <strong>{{ session.created_at }}</strong>
+        </div>
+        <div class="meta-card">
+          <span>{{ updated_label }}</span>
+          <strong>{{ session.updated_at }}</strong>
+        </div>
+      </div>
+      <div class="muted">{{ path_label }}: <code>{{ session.path }}</code></div>
+      {% if session.messages %}
+      <div class="stack">
+        <strong>{{ messages_label }}</strong>
+        <div class="message-stack">
+          {% for message in session.messages %}
+          <article class="message-card role-{{ message.role }}">
+            <div class="message-card-head">
+              <strong>{{ message.role }}</strong>
+              <span class="muted">{{ message.timestamp }}</span>
+            </div>
+            <div class="message-card-body">
+              <pre class="code-block"><code>{{ message.content }}</code></pre>
+            </div>
+            {% if message.tool_call_count %}
+            <div class="muted">tool calls: <code>{{ message.tool_call_count }}</code></div>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</section>
+{% else %}
+<section class="card stack">
+  <div class="muted">{{ empty_label }}</div>
+</section>
+{% endif %}
+{% endblock %}

@@ -18,6 +18,18 @@
         <span>{{ config_workspace_label }}</span>
         <strong><code>{{ config_workspace }}</code></strong>
       </div>
+      <div class="stat-card">
+        <span>{{ session_count_label }}</span>
+        <strong>{{ session_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ skill_count_label }}</span>
+        <strong>{{ skill_count }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ cron_count_label }}</span>
+        <strong>{{ cron_count }}</strong>
+      </div>
     </div>
   </div>
   <div class="card stack">
@@ -28,7 +40,49 @@
     <div class="muted">{{ workspace_label }}: <code>{{ runtime_workspace }}</code></div>
   </div>
 </section>
-<div class="grid">
+<section class="card stack">
+  <div class="section-head">
+    <h2>{{ recent_sessions_title }}</h2>
+    <div class="muted">{{ recent_sessions_desc }}</div>
+  </div>
+  {% if recent_sessions %}
+  <div class="admin-list">
+    {% for session in recent_sessions %}
+    <details class="list-card"{% if loop.first %} open{% endif %}>
+      <summary class="list-card-summary">
+        <div class="list-card-copy">
+          <strong>{{ session.preview }}</strong>
+          <div class="muted">{{ session.source }} · {{ session.persona }} · {{ session.updated_at }}</div>
+        </div>
+        <span class="pill hot">{{ session.message_count }}</span>
+      </summary>
+      <div class="list-card-body stack">
+        <div class="muted"><code>{{ session.key }}</code></div>
+        <div class="muted"><code>{{ session.path }}</code></div>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="muted">{{ recent_sessions_desc }}</div>
+  {% endif %}
+</section>
+<div class="grid module-grid">
+  <div class="card stack feature-card">
+    <strong>{{ sessions_card_title }}</strong>
+    <p class="muted">{{ sessions_card_desc_html }}</p>
+    <a class="nav-link active" href="/admin/sessions">{{ sessions_card_open_label }}</a>
+  </div>
+  <div class="card stack feature-card">
+    <strong>{{ skills_card_title }}</strong>
+    <p class="muted">{{ skills_card_desc_html }}</p>
+    <a class="nav-link active" href="/admin/skills">{{ skills_card_open_label }}</a>
+  </div>
+  <div class="card stack feature-card">
+    <strong>{{ cron_card_title }}</strong>
+    <p class="muted">{{ cron_card_desc_html }}</p>
+    <a class="nav-link active" href="/admin/cron">{{ cron_card_open_label }}</a>
+  </div>
   <div class="card stack feature-card">
     <strong>{{ config_card_title }}</strong>
     <p class="muted">{{ config_card_desc_html }}</p>
