@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · {{ brand }}</title>
+  <style>
+{% include "gateway/admin/_styles.css" %}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="shell">
+      <header>
+        <div class="header-top">
+          <div class="header-copy">
+            <span class="eyebrow">{{ brand }}</span>
+            <h1>{{ heading_text }}</h1>
+            <div class="meta muted">
+              <div>{{ admin_meta_config_label }}: <code>{{ config_path }}</code></div>
+              <div>{{ admin_meta_workspace_label }}: <code>{{ workspace }}</code></div>
+            </div>
+          </div>
+          {{ language_switch_html }}
+        </div>
+        {% if nav_html %}{{ nav_html }}{% endif %}
+      </header>
+      <section class="content">
+        {% if notices_html %}{{ notices_html }}{% endif %}
+        <div class="page-flow">
+          {% block page_body %}{% endblock %}
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

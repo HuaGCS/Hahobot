@@ -1,0 +1,53 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+{{ mismatch_html }}
+<section class="hero-grid">
+  <div class="card stack spotlight">
+    <span class="eyebrow">{{ brand }}</span>
+    <h2 class="panel-title">{{ heading_text }}</h2>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span>{{ model_label }}</span>
+        <strong><code>{{ model_name }}</code></strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ provider_label }}</span>
+        {{ provider_summary_html }}
+      </div>
+      <div class="stat-card">
+        <span>{{ config_workspace_label }}</span>
+        <strong><code>{{ config_workspace }}</code></strong>
+      </div>
+    </div>
+  </div>
+  <div class="card stack">
+    <strong>{{ admin_card_title }}</strong>
+    <div class="muted">{{ enabled_label }}: <code>{{ admin_enabled_text }}</code></div>
+    <div class="muted">{{ auth_configured_label }}: <code>{{ auth_configured_text }}</code></div>
+    <div class="muted">{{ scope_label }}: {{ scope_text }}</div>
+    <div class="muted">{{ workspace_label }}: <code>{{ runtime_workspace }}</code></div>
+  </div>
+</section>
+<div class="grid">
+  <div class="card stack feature-card">
+    <strong>{{ config_card_title }}</strong>
+    <p class="muted">{{ config_card_desc_html }}</p>
+    <a class="nav-link active" href="/admin/config">{{ config_card_open_label }}</a>
+  </div>
+  <div class="card stack feature-card">
+    <strong>{{ weixin_card_title }}</strong>
+    <p class="muted">{{ weixin_card_desc_html }}</p>
+    <a class="nav-link active" href="/admin/weixin">{{ weixin_card_open_label }}</a>
+  </div>
+  <div class="card stack feature-card">
+    <strong>{{ personas_card_title }}</strong>
+    <p class="muted">{{ personas_card_desc_html }}</p>
+    <a class="nav-link active" href="/admin/personas">{{ personas_card_open_label }}</a>
+  </div>
+  <div class="card stack feature-card">
+    <strong>{{ commands_card_title }}</strong>
+    <p class="muted">{{ commands_card_desc_html }}</p>
+    <a class="nav-link active" href="/admin/commands">{{ commands_card_open_label }}</a>
+  </div>
+</div>
+{% endblock %}

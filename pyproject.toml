@@ -96,6 +96,9 @@ include = [
     "nanobot/**/*.py",
     "hahobot/locales/**/*.json",
     "hahobot/templates/**/*.md",
+    "hahobot/templates/**/*.html",
+    "hahobot/templates/**/*.css",
+    "hahobot/templates/**/*.js",
     "hahobot/skills/**/*.md",
     "hahobot/skills/**/*.sh",
 ]

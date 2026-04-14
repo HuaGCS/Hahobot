@@ -1,0 +1,43 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<div class="hero-grid">
+  <div class="card stack spotlight">
+    <span class="eyebrow">{{ personas_nav_label }}</span>
+    <h2 class="panel-title"><code>{{ persona_name }}</code></h2>
+    <div class="muted">{{ persona_label }}: <code>{{ persona_name }}</code></div>
+    <div class="muted">{{ directory_label }}: <code>{{ persona_root }}</code></div>
+  </div>
+  <div class="card stack">
+    <span class="eyebrow">{{ save_persona_label }}</span>
+    <div class="muted">{{ persona_intro_html }}</div>
+    <div class="muted">{{ optional_hint_html }}</div>
+    <div class="muted">{{ migrate_desc_html }}</div>
+  </div>
+</div>
+{{ preview_card_html }}
+{{ scene_preview_card_html }}
+{{ metadata_card_html }}
+<form method="post" action="/admin/personas/{{ persona_name }}" class="stack" id="persona-form">
+  <div class="editor-grid">
+    {{ primary_editor_cards_html }}
+  </div>
+  <div class="editor-grid">
+    {{ secondary_editor_cards_html }}
+  </div>
+  <div class="editor-grid">
+    {{ tertiary_editor_cards_html }}
+  </div>
+  <div class="editor-grid">
+    {{ manifest_editor_cards_html }}
+  </div>
+  <div class="card stack">
+    <div class="muted">{{ optional_hint_html }}</div>
+    <div class="actions">
+      <button type="submit">{{ save_persona_label }}</button>
+    </div>
+  </div>
+</form>
+<script>
+{% include "gateway/admin/_scene_map_editor.js" %}
+</script>
+{% endblock %}

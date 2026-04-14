@@ -21,6 +21,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 from aiohttp import web
+from markupsafe import Markup
 
 from hahobot.agent.commands.scene import (
     available_scene_names,
@@ -47,6 +48,7 @@ from hahobot.agent.tools.image_gen import ImageGenTool
 from hahobot.command.catalog import CommandSpec, admin_command_specs
 from hahobot.config.loader import _migrate_config, load_config
 from hahobot.config.schema import Config
+from hahobot.utils.html_templates import render_html_template
 from hahobot.utils.helpers import detect_image_mime, ensure_dir
 
 _ADMIN_COOKIE = "hahobot_admin_session"
@@ -2245,18 +2247,25 @@ def _nav_link(request: web.Request, href: str, label_key: str) -> str:
     return f'<a class="{css_class}" href="{href}">{escape(_t(request, label_key))}</a>'
 
 
+def _markup(value: str | Markup | None = None) -> Markup:
+    if value is None:
+        return Markup("")
+    if isinstance(value, Markup):
+        return value
+    return Markup(value)
+
+
 def _page(
     *,
+    template_name: str,
     title: str,
-    body: str,
     request: web.Request,
     heading: str | None = None,
     flash: str | None = None,
     error: str | None = None,
+    **context: Any,
 ) -> web.Response:
     heading_text = heading or title
-    config_path = escape(str(_current_config_path(request)))
-    workspace = escape(str(_runtime_workspace(request)))
     lang = _admin_language(request)
     nav = ""
     if _is_authenticated(request):
@@ -2279,911 +2288,21 @@ def _page(
     if error:
         notices.append(f'<div class="notice error">{escape(error)}</div>')
 
-    html = f"""<!doctype html>
-<html lang="{escape(lang)}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escape(title)} · {escape(_t(request, "admin_brand"))}</title>
-  <style>
-    :root {{
-      color-scheme: light dark;
-      --bg: #efe9dc;
-      --bg-accent: rgba(190, 116, 55, 0.12);
-      --panel: rgba(255, 251, 245, 0.92);
-      --panel-strong: #fffdf8;
-      --panel-soft: rgba(255, 255, 255, 0.56);
-      --line: rgba(88, 68, 40, 0.18);
-      --line-strong: rgba(88, 68, 40, 0.28);
-      --ink: #1d1a15;
-      --muted: #6e6354;
-      --accent: #0c7a6c;
-      --accent-strong: #0a5b51;
-      --success: #166534;
-      --error: #b42318;
-      --shadow: 0 24px 70px rgba(29, 26, 21, 0.12);
-      --code-bg: rgba(17, 24, 39, 0.06);
-    }}
-    @media (prefers-color-scheme: dark) {{
-      :root {{
-        --bg: #171410;
-        --bg-accent: rgba(90, 190, 171, 0.12);
-        --panel: rgba(26, 22, 17, 0.94);
-        --panel-strong: #211c16;
-        --panel-soft: rgba(255, 255, 255, 0.04);
-        --line: rgba(235, 225, 205, 0.10);
-        --line-strong: rgba(235, 225, 205, 0.18);
-        --ink: #f6efe4;
-        --muted: #b4a995;
-        --accent: #7be2d2;
-        --accent-strong: #a5fff1;
-        --success: #6ee7a7;
-        --error: #ff8f82;
-        --shadow: 0 28px 80px rgba(0, 0, 0, 0.36);
-        --code-bg: rgba(255, 255, 255, 0.06);
-      }}
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      min-height: 100vh;
-      font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
-      line-height: 1.5;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, var(--bg-accent), transparent 30%),
-        radial-gradient(circle at right 15%, rgba(12, 122, 108, 0.08), transparent 32%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 40%),
-        var(--bg);
-    }}
-    main {{
-      max-width: 1380px;
-      margin: 0 auto;
-      padding: 28px 18px 56px;
-    }}
-    .shell {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 28px;
-      overflow: hidden;
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(14px);
-    }}
-    header {{
-      padding: 28px;
-      border-bottom: 1px solid var(--line);
-      background:
-        radial-gradient(circle at top right, rgba(12, 122, 108, 0.16), transparent 36%),
-        linear-gradient(135deg, rgba(12, 122, 108, 0.14), transparent 55%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 70%);
-    }}
-    .header-top {{
-      display: flex;
-      justify-content: space-between;
-      gap: 20px;
-      align-items: flex-start;
-      flex-wrap: wrap;
-    }}
-    .header-copy {{
-      max-width: 860px;
-      display: grid;
-      gap: 12px;
-    }}
-    .eyebrow {{
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      width: fit-content;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid rgba(12, 122, 108, 0.20);
-      background: rgba(12, 122, 108, 0.08);
-      color: var(--accent-strong);
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-    }}
-    h1 {{
-      margin: 0;
-      font-size: 36px;
-      line-height: 1;
-      letter-spacing: -0.02em;
-    }}
-    p, li, label, input, textarea, button, select, summary {{
-      font-size: 14px;
-      line-height: 1.5;
-    }}
-    a {{
-      color: var(--accent-strong);
-      text-decoration: none;
-    }}
-    a:hover {{
-      text-decoration: underline;
-    }}
-    .muted {{ color: var(--muted); }}
-    .muted,
-    .notice,
-    .section-head,
-    .section-topline,
-    .field,
-    .jump-link,
-    .jump-link-meta,
-    .stat-card,
-    .list a,
-    .detail-list li,
-    .panel-title,
-    .nav-link,
-    .lang-link,
-    strong,
-    h1,
-    h2 {{
-      overflow-wrap: anywhere;
-      word-break: break-word;
-    }}
-    .page-flow {{
-      display: grid;
-      gap: 20px;
-    }}
-    .meta {{
-      display: grid;
-      gap: 8px;
-      min-width: 0;
-    }}
-    .nav {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-      margin-top: 22px;
-      padding-top: 18px;
-      border-top: 1px solid var(--line);
-    }}
-    .nav-link {{
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 40px;
-      padding: 10px 14px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--ink);
-      font-weight: 600;
-      text-decoration: none;
-      text-align: center;
-      white-space: normal;
-    }}
-    .nav-link:hover {{
-      text-decoration: none;
-      border-color: rgba(12, 122, 108, 0.35);
-      transform: translateY(-1px);
-    }}
-    .nav-link.active {{
-      border-color: rgba(12, 122, 108, 0.35);
-      background: rgba(12, 122, 108, 0.14);
-      color: var(--accent-strong);
-      box-shadow: inset 0 0 0 1px rgba(12, 122, 108, 0.08);
-    }}
-    .nav-link-button {{
-      font: inherit;
-    }}
-    .lang-switch {{
-      display: inline-flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }}
-    .lang-link {{
-      display: inline-flex;
-      align-items: center;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--ink);
-      text-decoration: none;
-    }}
-    .lang-link.active {{
-      border-color: rgba(12, 122, 108, 0.35);
-      background: rgba(12, 122, 108, 0.14);
-      color: var(--accent-strong);
-    }}
-    .content {{
-      padding: 24px;
-      display: grid;
-      gap: 20px;
-    }}
-    .card {{
-      background: var(--panel-strong);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 20px;
-    }}
-    .spotlight {{
-      background:
-        linear-gradient(140deg, rgba(12, 122, 108, 0.10), transparent 46%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 100%),
-        var(--panel-strong);
-      border-color: rgba(12, 122, 108, 0.16);
-    }}
-    .hero-grid {{
-      display: grid;
-      gap: 18px;
-      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr);
-      align-items: start;
-    }}
-    .hero-grid > *,
-    .section-layout > *,
-    .grid > *,
-    .field-grid > *,
-    .editor-grid > * {{
-      min-width: 0;
-    }}
-    .panel-title {{
-      margin: 0;
-      font-size: 24px;
-      line-height: 1.1;
-      letter-spacing: -0.02em;
-    }}
-    .stat-grid {{
-      display: grid;
-      gap: 12px;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    }}
-    .stat-card {{
-      display: grid;
-      gap: 6px;
-      padding: 14px 16px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: var(--panel-soft);
-    }}
-    .stat-card span {{
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }}
-    .stat-card strong {{
-      font-size: 16px;
-      line-height: 1.35;
-      word-break: break-word;
-    }}
-    .grid {{
-      display: grid;
-      gap: 16px;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    }}
-    .feature-card {{
-      height: 100%;
-    }}
-    .field-grid {{
-      display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    }}
-    .section-layout {{
-      display: grid;
-      gap: 18px;
-      grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
-      align-items: start;
-    }}
-    .sticky-stack {{
-      position: sticky;
-      top: 18px;
-      display: grid;
-      gap: 16px;
-    }}
-    .jump-list {{
-      display: grid;
-      gap: 8px;
-    }}
-    .jump-link {{
-      display: grid;
-      gap: 4px;
-      padding: 12px 14px;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: var(--panel-soft);
-      color: var(--ink);
-      text-decoration: none;
-    }}
-    .jump-link:hover {{
-      text-decoration: none;
-      border-color: rgba(12, 122, 108, 0.35);
-      transform: translateY(-1px);
-    }}
-    .jump-link-top {{
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-      flex-wrap: wrap;
-    }}
-    .jump-link-index,
-    .section-index {{
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 42px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid rgba(12, 122, 108, 0.22);
-      background: rgba(12, 122, 108, 0.08);
-      color: var(--accent-strong);
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-    }}
-    .jump-link-meta {{
-      font-size: 12px;
-      color: var(--muted);
-    }}
-    .stack {{
-      display: grid;
-      gap: 12px;
-    }}
-    .field {{
-      display: grid;
-      gap: 8px;
-      align-content: start;
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: var(--panel-soft);
-    }}
-    .field.full {{
-      grid-column: 1 / -1;
-    }}
-    .provider-pool-editor {{
-      display: grid;
-      gap: 12px;
-    }}
-    .provider-groups {{
-      display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    }}
-    .provider-group {{
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background: var(--panel-soft);
-      overflow: hidden;
-    }}
-    .provider-group[open] {{
-      border-color: rgba(12, 122, 108, 0.28);
-      box-shadow: inset 0 0 0 1px rgba(12, 122, 108, 0.06);
-    }}
-    .provider-group summary {{
-      list-style: none;
-      display: grid;
-      gap: 10px;
-      padding: 16px;
-      cursor: pointer;
-    }}
-    .provider-group summary::-webkit-details-marker {{
-      display: none;
-    }}
-    .provider-group-top {{
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }}
-    .provider-group-title {{
-      margin: 0;
-      font-size: 16px;
-      line-height: 1.2;
-    }}
-    .provider-group-desc {{
-      color: var(--muted);
-      font-size: 13px;
-    }}
-    .provider-group-meta {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-    }}
-    .provider-group-chip {{
-      display: inline-flex;
-      align-items: center;
-      min-height: 28px;
-      max-width: 100%;
-      padding: 5px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.10);
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
-    }}
-    .provider-group-chip.code {{
-      background: rgba(12, 122, 108, 0.08);
-      color: var(--ink);
-    }}
-    .provider-group-chip code {{
-      font-size: 12px;
-      white-space: normal;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-    }}
-    .provider-group-body {{
-      padding: 0 16px 16px;
-    }}
-    .provider-group-fields {{
-      display: grid;
-      gap: 12px;
-    }}
-    .provider-pool-head,
-    .provider-pool-row,
-    .scene-map-head,
-    .scene-map-row {{
-      display: grid;
-      gap: 10px;
-      grid-template-columns: minmax(0, 220px) minmax(0, 1fr) auto;
-      align-items: center;
-    }}
-    .provider-pool-head,
-    .scene-map-head {{
-      padding: 0 2px;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }}
-    .provider-pool-rows,
-    .scene-map-rows {{
-      display: grid;
-      gap: 10px;
-    }}
-    .provider-pool-row,
-    .scene-map-row {{
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.03);
-    }}
-    .provider-pool-row-actions,
-    .scene-map-row-actions {{
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      justify-content: flex-end;
-      flex-wrap: wrap;
-    }}
-    .provider-pool-move,
-    .provider-pool-remove {{
-      white-space: nowrap;
-    }}
-    .provider-pool-actions {{
-      justify-content: flex-start;
-    }}
-    .field .label {{
-      font-weight: 600;
-    }}
-    .label-row {{
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      width: 100%;
-      max-width: 100%;
-      flex-wrap: wrap;
-    }}
-    .tooltip-anchor {{
-      position: relative;
-      cursor: help;
-      outline: none;
-      width: 100%;
-    }}
-    .tooltip-trigger {{
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      border: 1px solid var(--line-strong);
-      color: var(--accent-strong);
-      font-size: 11px;
-      font-weight: 800;
-      background: rgba(12, 122, 108, 0.08);
-      flex: 0 0 auto;
-    }}
-    .tooltip-card {{
-      position: absolute;
-      left: 0;
-      top: calc(100% + 8px);
-      min-width: 240px;
-      max-width: min(420px, 80vw);
-      padding: 12px 14px;
-      border-radius: 12px;
-      border: 1px solid var(--line-strong);
-      background: var(--panel-strong);
-      color: var(--ink);
-      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
-      opacity: 0;
-      pointer-events: none;
-      transform: translateY(-4px);
-      transition: opacity 120ms ease, transform 120ms ease;
-      z-index: 20;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-    }}
-    .tooltip-anchor:hover .tooltip-card,
-    .tooltip-anchor:focus .tooltip-card,
-    .tooltip-anchor:focus-within .tooltip-card {{
-      opacity: 1;
-      pointer-events: auto;
-      transform: translateY(0);
-    }}
-    .hint {{
-      color: var(--muted);
-      font-size: 13px;
-    }}
-    .pill {{
-      display: inline-flex;
-      align-items: center;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 700;
-      border: 1px solid var(--line-strong);
-      color: var(--muted);
-      background: rgba(255, 255, 255, 0.04);
-      flex: 0 0 auto;
-    }}
-    .pill.restart {{
-      color: var(--error);
-      border-color: rgba(180, 35, 24, 0.28);
-      background: rgba(180, 35, 24, 0.08);
-    }}
-    .pill.hot {{
-      color: var(--accent-strong);
-      border-color: rgba(12, 122, 108, 0.26);
-      background: rgba(12, 122, 108, 0.10);
-    }}
-    .badge-row {{
-      display: inline-flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-    }}
-    .toggle {{
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      gap: 10px;
-      align-items: flex-start;
-      font-weight: 600;
-      width: 100%;
-    }}
-    .toggle input[type="checkbox"] {{
-      margin-top: 2px;
-    }}
-    input[type="text"],
-    input[type="password"],
-    input[type="number"],
-    textarea,
-    select {{
-      width: 100%;
-      border: 1px solid var(--line-strong);
-      border-radius: 12px;
-      padding: 10px 12px;
-      background: rgba(255, 255, 255, 0.68);
-      color: var(--ink);
-      font: inherit;
-    }}
-    @media (prefers-color-scheme: dark) {{
-      input[type="text"],
-      input[type="password"],
-      input[type="number"],
-      textarea,
-      select {{
-        background: rgba(255, 255, 255, 0.04);
-      }}
-    }}
-    textarea {{
-      min-height: 160px;
-      resize: vertical;
-      font-family: "IBM Plex Mono", "Noto Sans Mono", monospace;
-    }}
-    .json-editor {{
-      min-height: 300px;
-    }}
-    button {{
-      appearance: none;
-      border: none;
-      border-radius: 12px;
-      padding: 10px 16px;
-      background: var(--accent);
-      color: #fff;
-      cursor: pointer;
-      font-weight: 700;
-    }}
-    button.ghost {{
-      background: transparent;
-      color: var(--accent-strong);
-      border: 1px solid var(--line-strong);
-    }}
-    .inline-form {{ display: inline; }}
-    .notice {{
-      border-radius: 12px;
-      padding: 12px 14px;
-      border: 1px solid var(--line);
-    }}
-    .notice.success {{
-      color: var(--success);
-      border-color: rgba(22, 101, 52, 0.28);
-      background: rgba(22, 101, 52, 0.08);
-    }}
-    .notice.error {{
-      color: var(--error);
-      border-color: rgba(180, 35, 24, 0.28);
-      background: rgba(180, 35, 24, 0.08);
-    }}
-    .list {{
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: grid;
-      gap: 10px;
-    }}
-    .list a {{
-      display: block;
-      padding: 12px 14px;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      color: var(--ink);
-      background: var(--panel-soft);
-      text-decoration: none;
-    }}
-    .list a:hover {{
-      text-decoration: none;
-      border-color: rgba(12, 122, 108, 0.35);
-    }}
-    .list a strong,
-    .list a span {{
-      display: block;
-      min-width: 0;
-    }}
-    .persona-list {{
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    }}
-    .detail-list {{
-      margin: 0;
-      padding-left: 18px;
-      display: grid;
-      gap: 8px;
-    }}
-    .inline-actions {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-    }}
-    .state-grid {{
-      display: grid;
-      gap: 12px;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    }}
-    .weixin-status {{
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      width: fit-content;
-    }}
-    .qr-shell {{
-      display: grid;
-      gap: 18px;
-      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-      align-items: start;
-    }}
-    .qr-preview {{
-      display: grid;
-      place-items: center;
-      min-height: 240px;
-      padding: 16px;
-      border-radius: 22px;
-      border: 1px solid var(--line);
-      background: var(--panel-strong);
-    }}
-    .qr-preview img {{
-      display: block;
-      width: min(100%, 240px);
-      height: auto;
-    }}
-    code {{
-      font-family: "IBM Plex Mono", "Noto Sans Mono", monospace;
-      font-size: 13px;
-      background: var(--code-bg);
-      padding: 2px 6px;
-      border-radius: 8px;
-      white-space: break-spaces;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-    }}
-    pre {{
-      margin: 0;
-    }}
-    .code-block {{
-      padding: 14px 16px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: var(--code-bg);
-      overflow-x: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-family: "IBM Plex Mono", "Noto Sans Mono", monospace;
-      font-size: 13px;
-      line-height: 1.6;
-    }}
-    .code-block code {{
-      padding: 0;
-      background: transparent;
-      border-radius: 0;
-    }}
-    summary {{
-      cursor: pointer;
-      font-weight: 700;
-    }}
-    .section-head {{
-      display: grid;
-      gap: 4px;
-      margin-bottom: 14px;
-    }}
-    .section-head h2 {{
-      margin: 0;
-      font-size: 18px;
-    }}
-    .section-topline {{
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
-    }}
-    .section-card {{
-      scroll-margin-top: 24px;
-    }}
-    .command-browser {{
-      display: grid;
-      gap: 18px;
-      grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
-      align-items: start;
-    }}
-    .command-sidebar {{
-      position: sticky;
-      top: 18px;
-    }}
-    .command-nav {{
-      display: grid;
-      gap: 10px;
-    }}
-    .command-nav-item {{
-      display: grid;
-      gap: 6px;
-      padding: 14px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: var(--panel-soft);
-      color: var(--ink);
-      text-decoration: none;
-      transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
-    }}
-    .command-nav-item:hover {{
-      text-decoration: none;
-      border-color: rgba(12, 122, 108, 0.35);
-      transform: translateY(-1px);
-    }}
-    .command-nav-item.active {{
-      border-color: rgba(12, 122, 108, 0.35);
-      background: rgba(12, 122, 108, 0.12);
-      box-shadow: inset 0 0 0 1px rgba(12, 122, 108, 0.08);
-    }}
-    .command-nav-item code {{
-      width: fit-content;
-      max-width: 100%;
-    }}
-    .command-nav-preview {{
-      font-size: 13px;
-      color: var(--muted);
-    }}
-    .command-detail-stack {{
-      display: grid;
-      gap: 16px;
-    }}
-    .command-panel {{
-      align-self: start;
-    }}
-    .command-panel[hidden] {{
-      display: none;
-    }}
-    .editor-grid {{
-      display: grid;
-      gap: 16px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }}
-    .editor-card textarea {{
-      min-height: 240px;
-    }}
-    .actions {{
-      display: flex;
-      justify-content: flex-end;
-      gap: 12px;
-      flex-wrap: wrap;
-    }}
-    @media (max-width: 1080px) {{
-      .hero-grid,
-      .section-layout,
-      .editor-grid,
-      .command-browser {{
-        grid-template-columns: 1fr;
-      }}
-      .sticky-stack,
-      .command-sidebar {{
-        position: static;
-      }}
-    }}
-    @media (max-width: 720px) {{
-      main {{
-        padding: 16px 12px 32px;
-      }}
-      header,
-      .content,
-      .card {{
-        padding: 16px;
-      }}
-      h1 {{
-        font-size: 28px;
-      }}
-      .field {{
-        padding: 12px;
-      }}
-      .provider-pool-head,
-      .provider-pool-row {{
-        grid-template-columns: 1fr;
-      }}
-      .provider-pool-row-actions {{
-        justify-content: flex-start;
-      }}
-      .qr-shell {{
-        grid-template-columns: 1fr;
-      }}
-    }}
-  </style>
-</head>
-<body>
-  <main>
-    <div class="shell">
-      <header>
-        <div class="header-top">
-          <div class="header-copy">
-            <span class="eyebrow">{escape(_t(request, "admin_brand"))}</span>
-            <h1>{escape(heading_text)}</h1>
-            <div class="meta muted">
-              <div>{escape(_t(request, "admin_meta_config"))}: <code>{config_path}</code></div>
-              <div>{escape(_t(request, "admin_meta_workspace"))}: <code>{workspace}</code></div>
-            </div>
-          </div>
-          {_language_switch(request)}
-        </div>
-        {nav}
-      </header>
-      <section class="content">
-        {''.join(notices)}
-        <div class="page-flow">
-          {body}
-        </div>
-      </section>
-    </div>
-  </main>
-</body>
-</html>"""
+    html = render_html_template(
+        template_name,
+        title=title,
+        brand=_t(request, "admin_brand"),
+        heading_text=heading_text,
+        lang=lang,
+        config_path=str(_current_config_path(request)),
+        workspace=str(_runtime_workspace(request)),
+        admin_meta_config_label=_t(request, "admin_meta_config"),
+        admin_meta_workspace_label=_t(request, "admin_meta_workspace"),
+        language_switch_html=_markup(_language_switch(request)),
+        nav_html=_markup(nav),
+        notices_html=_markup("".join(notices)),
+        **context,
+    )
     response = web.Response(text=html, content_type="text/html")
     _set_lang_cookie(response, request)
     return response
@@ -3206,6 +2325,40 @@ def _read_json_text(path: Path) -> str:
         return _pretty_json(json.loads(path.read_text(encoding="utf-8")))
     except ValueError:
         return path.read_text(encoding="utf-8")
+
+
+def _render_login_page(
+    request: web.Request,
+    *,
+    next_path: str,
+    missing_key_body_html: str | None = None,
+    form_only: bool = False,
+    error: str | None = None,
+) -> web.Response:
+    feature_items_html = _markup(
+        "".join(
+            f"<li>{_th(request, key)}</li>"
+            for key in (
+                "admin_card_config_desc",
+                "admin_card_commands_desc",
+                "admin_card_personas_desc",
+            )
+        )
+    )
+    return _page(
+        template_name="gateway/admin/login.html",
+        title=_t(request, "admin_login_title"),
+        heading=_t(request, "admin_login_heading"),
+        request=request,
+        error=error,
+        missing_key=missing_key_body_html is not None,
+        missing_key_body_html=_markup(missing_key_body_html),
+        form_only=form_only,
+        next_path=next_path,
+        auth_key_label=_t(request, "admin_login_key_label"),
+        submit_label=_t(request, "admin_login_submit"),
+        login_feature_items_html=feature_items_html,
+    )
 
 
 def _write_text_file(path: Path, content: str, *, optional: bool = False) -> None:
@@ -4644,44 +3797,15 @@ async def _admin_login_page(request: web.Request) -> web.Response:
 
     auth_key = _admin_auth_key(request)
     if not auth_key:
-        return _page(
-            title=_t(request, "admin_login_title"),
-            heading=_t(request, "admin_login_heading"),
-            body=f'<div class="card"><p class="muted">{_th(request, "admin_login_missing_key_body")}</p></div>',
-            request=request,
+        return _render_login_page(
+            request,
+            next_path="",
+            missing_key_body_html=_th(request, "admin_login_missing_key_body"),
             error=_t(request, "admin_login_missing_key_error"),
         )
 
     next_path = _normalize_next_path(request.query.get("next"))
-    body = f"""
-      <div class="hero-grid">
-        <section class="card stack spotlight">
-          <span class="eyebrow">{escape(_t(request, "admin_brand"))}</span>
-          <h2 class="panel-title">{escape(_t(request, "admin_login_heading"))}</h2>
-          <ul class="detail-list">
-            <li>{_th(request, "admin_card_config_desc")}</li>
-            <li>{_th(request, "admin_card_commands_desc")}</li>
-            <li>{_th(request, "admin_card_personas_desc")}</li>
-          </ul>
-        </section>
-        <form method="post" action="/admin/login" class="card stack">
-          <input type="hidden" name="next" value="{escape(next_path)}">
-          <label class="field">
-            <span class="label">{escape(_t(request, "admin_login_key_label"))}</span>
-            <input type="password" name="auth_key" autocomplete="current-password" required>
-          </label>
-          <div class="actions">
-            <button type="submit">{escape(_t(request, "admin_login_submit"))}</button>
-          </div>
-        </form>
-      </div>
-    """
-    return _page(
-        title=_t(request, "admin_login_title"),
-        heading=_t(request, "admin_login_heading"),
-        body=body,
-        request=request,
-    )
+    return _render_login_page(request, next_path=next_path)
 
 
 async def _admin_login_submit(request: web.Request) -> web.Response:
@@ -4691,28 +3815,19 @@ async def _admin_login_submit(request: web.Request) -> web.Response:
     next_path = _normalize_next_path(form.get("next"))
 
     if not auth_key:
-        return _page(
-            title=_t(request, "admin_login_title"),
-            heading=_t(request, "admin_login_heading"),
-            body=f'<div class="card"><p class="muted">{_th(request, "admin_login_configure_key")}</p></div>',
-            request=request,
+        return _render_login_page(
+            request,
+            next_path="",
+            missing_key_body_html=_th(request, "admin_login_configure_key"),
             error=_t(request, "admin_login_missing_key_error"),
         )
 
     submitted = str(form.get("auth_key", ""))
     if not hmac.compare_digest(submitted, auth_key):
-        return _page(
-            title=_t(request, "admin_login_title"),
-            heading=_t(request, "admin_login_heading"),
-            body=(
-                f'<form method="post" action="/admin/login" class="card stack">'
-                f'<input type="hidden" name="next" value="{escape(next_path)}">'
-                f'<label class="field"><span class="label">{escape(_t(request, "admin_login_key_label"))}</span>'
-                '<input type="password" name="auth_key" autocomplete="current-password" required>'
-                f"</label><div class=\"actions\"><button type=\"submit\">{escape(_t(request, 'admin_login_submit'))}</button></div>"
-                "</form>"
-            ),
-            request=request,
+        return _render_login_page(
+            request,
+            next_path=next_path,
+            form_only=True,
             error=_t(request, "admin_login_invalid_error"),
         )
 
@@ -4755,63 +3870,45 @@ async def _admin_index(request: web.Request) -> web.Response:
     if config_workspace.resolve(strict=False) != runtime_workspace.resolve(strict=False):
         mismatch = f'<div class="notice error">{_th(request, "admin_overview_workspace_mismatch")}</div>'
 
-    body = f"""
-      {mismatch}
-      <section class="hero-grid">
-        <div class="card stack spotlight">
-          <span class="eyebrow">{escape(_t(request, "admin_brand"))}</span>
-          <h2 class="panel-title">{escape(_t(request, "admin_overview_heading"))}</h2>
-          <div class="stat-grid">
-            <div class="stat-card">
-              <span>{escape(_t(request, "admin_label_model"))}</span>
-              <strong><code>{escape(config.agents.defaults.model)}</code></strong>
-            </div>
-            <div class="stat-card">
-              <span>{escape(_t(request, "admin_label_provider"))}</span>
-              {provider_summary}
-            </div>
-            <div class="stat-card">
-              <span>{escape(_t(request, "admin_label_config_workspace"))}</span>
-              <strong><code>{escape(str(config_workspace))}</code></strong>
-            </div>
-          </div>
-        </div>
-        <div class="card stack">
-          <strong>{escape(_t(request, "admin_card_admin"))}</strong>
-          <div class="muted">{escape(_t(request, "admin_label_enabled"))}: <code>{escape(_t(request, "admin_boolean_true" if config.gateway.admin.enabled else "admin_boolean_false"))}</code></div>
-          <div class="muted">{escape(_t(request, "admin_label_auth_configured"))}: <code>{escape(_t(request, "admin_boolean_true" if bool(config.gateway.admin.auth_key.strip()) else "admin_boolean_false"))}</code></div>
-          <div class="muted">{escape(_t(request, "admin_label_scope"))}: {escape(_t(request, "admin_scope_text"))}</div>
-          <div class="muted">{escape(_t(request, "admin_meta_workspace"))}: <code>{escape(str(runtime_workspace))}</code></div>
-        </div>
-      </section>
-      <div class="grid">
-        <div class="card stack feature-card">
-          <strong>{escape(_t(request, "admin_card_config"))}</strong>
-          <p class="muted">{_th(request, "admin_card_config_desc")}</p>
-          <a class="nav-link active" href="/admin/config">{escape(_t(request, "admin_card_config_open"))}</a>
-        </div>
-        <div class="card stack feature-card">
-          <strong>{escape(_t(request, "admin_card_weixin"))}</strong>
-          <p class="muted">{_th(request, "admin_card_weixin_desc")}</p>
-          <a class="nav-link active" href="/admin/weixin">{escape(_t(request, "admin_card_weixin_open"))}</a>
-        </div>
-        <div class="card stack feature-card">
-          <strong>{escape(_t(request, "admin_card_personas"))}</strong>
-          <p class="muted">{_th(request, "admin_card_personas_desc")}</p>
-          <a class="nav-link active" href="/admin/personas">{escape(_t(request, "admin_card_personas_open"))}</a>
-        </div>
-        <div class="card stack feature-card">
-          <strong>{escape(_t(request, "admin_card_commands"))}</strong>
-          <p class="muted">{_th(request, "admin_card_commands_desc")}</p>
-          <a class="nav-link active" href="/admin/commands">{escape(_t(request, "admin_card_commands_open"))}</a>
-        </div>
-      </div>
-    """
     return _page(
+        template_name="gateway/admin/overview.html",
         title=_t(request, "admin_overview_title"),
         heading=_t(request, "admin_overview_heading"),
-        body=body,
         request=request,
+        mismatch_html=_markup(mismatch),
+        model_label=_t(request, "admin_label_model"),
+        model_name=config.agents.defaults.model,
+        provider_label=_t(request, "admin_label_provider"),
+        provider_summary_html=_markup(provider_summary),
+        config_workspace_label=_t(request, "admin_label_config_workspace"),
+        config_workspace=str(config_workspace),
+        admin_card_title=_t(request, "admin_card_admin"),
+        enabled_label=_t(request, "admin_label_enabled"),
+        admin_enabled_text=_t(
+            request,
+            "admin_boolean_true" if config.gateway.admin.enabled else "admin_boolean_false",
+        ),
+        auth_configured_label=_t(request, "admin_label_auth_configured"),
+        auth_configured_text=_t(
+            request,
+            "admin_boolean_true" if bool(config.gateway.admin.auth_key.strip()) else "admin_boolean_false",
+        ),
+        scope_label=_t(request, "admin_label_scope"),
+        scope_text=_t(request, "admin_scope_text"),
+        workspace_label=_t(request, "admin_meta_workspace"),
+        runtime_workspace=str(runtime_workspace),
+        config_card_title=_t(request, "admin_card_config"),
+        config_card_desc_html=_markup(_th(request, "admin_card_config_desc")),
+        config_card_open_label=_t(request, "admin_card_config_open"),
+        weixin_card_title=_t(request, "admin_card_weixin"),
+        weixin_card_desc_html=_markup(_th(request, "admin_card_weixin_desc")),
+        weixin_card_open_label=_t(request, "admin_card_weixin_open"),
+        personas_card_title=_t(request, "admin_card_personas"),
+        personas_card_desc_html=_markup(_th(request, "admin_card_personas_desc")),
+        personas_card_open_label=_t(request, "admin_card_personas_open"),
+        commands_card_title=_t(request, "admin_card_commands"),
+        commands_card_desc_html=_markup(_th(request, "admin_card_commands_desc")),
+        commands_card_open_label=_t(request, "admin_card_commands_open"),
     )
 
 
@@ -4849,127 +3946,35 @@ def _render_config_page(
         )
     sections = "".join(sections_parts)
     raw_open = " open" if active_mode == "raw" else ""
-    body = f"""
-      <div class="section-layout">
-        <aside class="sticky-stack">
-          <div class="card stack spotlight">
-            <span class="eyebrow">{escape(_t(request, "admin_nav_config"))}</span>
-            <p class="muted">{_th(request, "admin_config_intro", config_path=_current_config_path(request))}</p>
-            <div class="muted">{_th(request, "admin_config_reload_notice")}</div>
-            <div class="badge-row">
-              <span class="pill hot">{escape(_t(request, "admin_badge_hot_reload"))}</span>
-              <span class="pill restart">{escape(_t(request, "admin_badge_restart_required"))}</span>
-            </div>
-            <div class="stat-grid">
-              <div class="stat-card">
-                <span>{escape(_t(request, "admin_label_sections"))}</span>
-                <strong>{len(_CONFIG_SECTIONS)}</strong>
-              </div>
-              <div class="stat-card">
-                <span>{escape(_t(request, "admin_label_fields"))}</span>
-                <strong>{len(_CONFIG_FIELDS)}</strong>
-              </div>
-            </div>
-          </div>
-          <nav class="card stack">
-            <div class="section-head">
-              <h2>{escape(_t(request, "admin_config_jump_title"))}</h2>
-              <div class="muted">{escape(_t(request, "admin_config_jump_desc"))}</div>
-            </div>
-            <div class="jump-list">
-              {''.join(jump_links)}
-            </div>
-          </nav>
-        </aside>
-        <div class="stack">
-          <form method="post" action="/admin/config" class="stack">
-            <input type="hidden" name="mode" value="visual">
-            {sections}
-            <div class="card actions">
-              <button type="submit">{escape(_t(request, "admin_config_save_visual"))}</button>
-            </div>
-          </form>
-          <details class="card stack"{raw_open}>
-            <summary>{escape(_t(request, "admin_config_advanced_title"))}</summary>
-            <p class="muted">{_th(request, "admin_config_advanced_desc")}</p>
-            <form method="post" action="/admin/config" class="stack">
-              <input type="hidden" name="mode" value="raw">
-              <label class="field full">
-                <span class="label">{escape(_t(request, "admin_config_raw_label"))}</span>
-                <textarea class="json-editor" name="config_json" spellcheck="false">{escape(raw_text)}</textarea>
-              </label>
-              <div class="actions">
-                <button type="submit" class="ghost">{escape(_t(request, "admin_config_save_raw"))}</button>
-              </div>
-            </form>
-          </details>
-        </div>
-      </div>
-      <script>
-        (() => {{
-          const editors = Array.from(document.querySelectorAll("[data-provider-pool-editor]"));
-          if (!editors.length) return;
-
-          const createRow = (editor) => {{
-            const template = editor.querySelector("[data-provider-pool-template]");
-            if (!template) return null;
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = template.innerHTML.trim();
-            return wrapper.firstElementChild;
-          }};
-
-          const ensureRow = (editor) => {{
-            const rows = editor.querySelector("[data-provider-pool-rows]");
-            if (!rows) return;
-            if (!rows.querySelector("[data-provider-pool-row]")) {{
-              const row = createRow(editor);
-              if (row) rows.appendChild(row);
-            }}
-          }};
-
-          editors.forEach((editor) => {{
-            ensureRow(editor);
-            editor.addEventListener("click", (event) => {{
-              const row = event.target.closest("[data-provider-pool-row]");
-              const rows = editor.querySelector("[data-provider-pool-rows]");
-
-              const addButton = event.target.closest("[data-provider-pool-add]");
-              if (addButton) {{
-                const row = createRow(editor);
-                if (rows && row) rows.appendChild(row);
-                return;
-              }}
-
-              const moveUpButton = event.target.closest("[data-provider-pool-move-up]");
-              if (moveUpButton && rows && row) {{
-                const previous = row.previousElementSibling;
-                if (previous) rows.insertBefore(row, previous);
-                return;
-              }}
-
-              const moveDownButton = event.target.closest("[data-provider-pool-move-down]");
-              if (moveDownButton && rows && row) {{
-                const next = row.nextElementSibling;
-                if (next) rows.insertBefore(next, row);
-                return;
-              }}
-
-              const removeButton = event.target.closest("[data-provider-pool-remove]");
-              if (!removeButton) return;
-              if (row) row.remove();
-              ensureRow(editor);
-            }});
-          }});
-        }})();
-      </script>
-    """
     return _page(
+        template_name="gateway/admin/config.html",
         title=_t(request, "admin_config_title"),
         heading=_t(request, "admin_config_heading"),
-        body=body,
         request=request,
         flash=flash,
         error=error,
+        config_nav_label=_t(request, "admin_nav_config"),
+        config_intro_html=_markup(
+            _th(request, "admin_config_intro", config_path=_current_config_path(request))
+        ),
+        config_reload_notice_html=_markup(_th(request, "admin_config_reload_notice")),
+        hot_reload_label=_t(request, "admin_badge_hot_reload"),
+        restart_required_label=_t(request, "admin_badge_restart_required"),
+        sections_label=_t(request, "admin_label_sections"),
+        sections_count=len(_CONFIG_SECTIONS),
+        fields_label=_t(request, "admin_label_fields"),
+        fields_count=len(_CONFIG_FIELDS),
+        jump_title=_t(request, "admin_config_jump_title"),
+        jump_desc=_t(request, "admin_config_jump_desc"),
+        jump_links_html=_markup("".join(jump_links)),
+        sections_html=_markup(sections),
+        save_visual_label=_t(request, "admin_config_save_visual"),
+        advanced_title=_t(request, "admin_config_advanced_title"),
+        advanced_desc_html=_markup(_th(request, "admin_config_advanced_desc")),
+        raw_label=_t(request, "admin_config_raw_label"),
+        raw_text=raw_text,
+        save_raw_label=_t(request, "admin_config_save_raw"),
+        raw_open=active_mode == "raw",
     )
 
 
@@ -5115,7 +4120,7 @@ def _render_weixin_page(
         <div class="notice">{state_notice}</div>
       </section>
     """
-    auto_refresh_script = ""
+    pending_session_id = ""
 
     if session is not None:
         status_map = {
@@ -5158,15 +4163,7 @@ def _render_weixin_page(
                 </form>
               </div>
             """
-            auto_refresh_script = f"""
-              <script>
-                setTimeout(() => {{
-                  const url = new URL(window.location.href);
-                  url.searchParams.set("session", "{escape(session.session_id)}");
-                  window.location.replace(url.toString());
-                }}, 2000);
-              </script>
-            """
+            pending_session_id = session.session_id
         session_card = f"""
           <section class="card stack">
             <div class="section-head">
@@ -5183,62 +4180,37 @@ def _render_weixin_page(
               </div>
             </div>
           </section>
-          {auto_refresh_script}
         """
 
-    body = f"""
-      <div class="section-layout">
-        <aside class="sticky-stack">
-          <div class="card stack spotlight">
-            <span class="eyebrow">{escape(_t(request, "admin_nav_weixin"))}</span>
-            <p class="muted">{_th(request, "admin_weixin_intro")}</p>
-            <div class="inline-actions">
-              <form method="post" action="/admin/weixin/start" class="inline-form">
-                <button type="submit">{escape(_t(request, "admin_weixin_start"))}</button>
-              </form>
-              <form method="post" action="/admin/weixin/start" class="inline-form">
-                <input type="hidden" name="force" value="1">
-                <button type="submit" class="ghost">{escape(_t(request, "admin_weixin_force_start"))}</button>
-              </form>
-            </div>
-          </div>
-          <div class="card stack">
-            <div class="section-head">
-              <h2>{escape(_t(request, "admin_weixin_saved_state_title"))}</h2>
-              <div class="muted">{_th(request, "admin_weixin_saved_state_desc")}</div>
-            </div>
-            <div class="state-grid">
-              <div class="stat-card">
-                <span>{escape(_t(request, "admin_weixin_label_state_file"))}</span>
-                <strong><code>{escape(str(saved_state["state_file"]))}</code></strong>
-              </div>
-              <div class="stat-card">
-                <span>{escape(_t(request, "admin_weixin_label_saved_token"))}</span>
-                <strong>{escape(_t(request, "admin_boolean_true" if saved_state["token_present"] else "admin_boolean_false"))}</strong>
-              </div>
-              <div class="stat-card">
-                <span>{escape(_t(request, "admin_weixin_label_config_token"))}</span>
-                <strong>{escape(_t(request, "admin_boolean_true" if config_token_present else "admin_boolean_false"))}</strong>
-              </div>
-              <div class="stat-card">
-                <span>{escape(_t(request, "admin_weixin_label_context_tokens"))}</span>
-                <strong>{saved_state["context_tokens"]}</strong>
-              </div>
-            </div>
-          </div>
-        </aside>
-        <div class="stack">
-          {session_card}
-        </div>
-      </div>
-    """
     return _page(
+        template_name="gateway/admin/weixin.html",
         title=_t(request, "admin_weixin_title"),
         heading=_t(request, "admin_weixin_heading"),
-        body=body,
         request=request,
         flash=flash,
         error=error,
+        weixin_nav_label=_t(request, "admin_nav_weixin"),
+        weixin_intro_html=_markup(_th(request, "admin_weixin_intro")),
+        start_label=_t(request, "admin_weixin_start"),
+        force_start_label=_t(request, "admin_weixin_force_start"),
+        saved_state_title=_t(request, "admin_weixin_saved_state_title"),
+        saved_state_desc_html=_markup(_th(request, "admin_weixin_saved_state_desc")),
+        state_file_label=_t(request, "admin_weixin_label_state_file"),
+        state_file_path=str(saved_state["state_file"]),
+        saved_token_label=_t(request, "admin_weixin_label_saved_token"),
+        saved_token_text=_t(
+            request,
+            "admin_boolean_true" if saved_state["token_present"] else "admin_boolean_false",
+        ),
+        config_token_label=_t(request, "admin_weixin_label_config_token"),
+        config_token_text=_t(
+            request,
+            "admin_boolean_true" if config_token_present else "admin_boolean_false",
+        ),
+        context_tokens_label=_t(request, "admin_weixin_label_context_tokens"),
+        context_tokens=saved_state["context_tokens"],
+        session_card_html=_markup(session_card),
+        pending_session_id=pending_session_id,
     )
 
 
@@ -5371,98 +4343,21 @@ async def _admin_commands_page(request: web.Request) -> web.Response:
         _render_command_panel(request, spec, active=index == 0)
         for index, spec in enumerate(_COMMAND_DOCS)
     )
-    body = f"""
-      <div class="hero-grid">
-        <div class="card stack spotlight">
-          <span class="eyebrow">{escape(_t(request, "admin_nav_commands"))}</span>
-          <h2 class="panel-title">{escape(_t(request, "admin_commands_heading"))}</h2>
-          <p class="muted">{_th(request, "admin_commands_intro")}</p>
-        </div>
-        <div class="card stack">
-          <div class="stat-grid">
-            <div class="stat-card">
-              <span>{escape(_t(request, "admin_commands_title"))}</span>
-              <strong>{len(_COMMAND_DOCS)}</strong>
-            </div>
-            <div class="stat-card">
-              <span>{escape(_t(request, "admin_commands_aliases_label"))}</span>
-              <strong>{sum(len(spec.aliases) for spec in _COMMAND_DOCS)}</strong>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="command-browser" data-command-browser>
-        <aside class="card stack command-sidebar">
-          <div class="section-head">
-            <h2>{escape(_t(request, "admin_commands_list_title"))}</h2>
-            <div class="muted">{escape(_t(request, "admin_commands_list_desc"))}</div>
-          </div>
-          <nav class="command-nav" role="tablist">
-            {nav_items}
-          </nav>
-        </aside>
-        <div class="command-detail-stack">
-          {panels}
-        </div>
-      </div>
-      <script>
-        (() => {{
-          const root = document.querySelector("[data-command-browser]");
-          if (!root) return;
-          const items = Array.from(root.querySelectorAll("[data-command-target]"));
-          const panels = new Map(
-            Array.from(root.querySelectorAll("[data-command-panel]")).map((panel) => [
-              panel.dataset.commandPanel,
-              panel,
-            ]),
-          );
-
-          const select = (id, updateHash = false) => {{
-            items.forEach((item) => {{
-              const active = item.dataset.commandTarget === id;
-              item.classList.toggle("active", active);
-              item.setAttribute("aria-selected", String(active));
-            }});
-            panels.forEach((panel, panelId) => {{
-              const active = panelId === id;
-              panel.classList.toggle("active", active);
-              panel.hidden = !active;
-              panel.setAttribute("aria-hidden", String(!active));
-            }});
-            if (updateHash && window.location.hash !== "#" + id) {{
-              history.replaceState(null, "", "#" + id);
-            }}
-          }};
-
-          const initialId = (() => {{
-            const hash = window.location.hash.replace(/^#/, "");
-            if (hash && panels.has(hash)) return hash;
-            const first = items[0];
-            return first ? first.dataset.commandTarget : null;
-          }})();
-
-          if (initialId) select(initialId);
-
-          items.forEach((item) => {{
-            item.addEventListener("click", (event) => {{
-              event.preventDefault();
-              const id = item.dataset.commandTarget;
-              if (id) select(id, true);
-            }});
-          }});
-
-          window.addEventListener("hashchange", () => {{
-            const hash = window.location.hash.replace(/^#/, "");
-            if (hash && panels.has(hash)) select(hash);
-          }});
-        }})();
-      </script>
-    """
     return _page(
+        template_name="gateway/admin/commands.html",
         title=_t(request, "admin_commands_title"),
         heading=_t(request, "admin_commands_heading"),
-        body=body,
         request=request,
+        commands_nav_label=_t(request, "admin_nav_commands"),
+        commands_intro_html=_markup(_th(request, "admin_commands_intro")),
+        commands_title=_t(request, "admin_commands_title"),
+        command_count=len(_COMMAND_DOCS),
+        aliases_label=_t(request, "admin_commands_aliases_label"),
+        alias_count=sum(len(spec.aliases) for spec in _COMMAND_DOCS),
+        list_title=_t(request, "admin_commands_list_title"),
+        list_desc=_t(request, "admin_commands_list_desc"),
+        nav_items_html=_markup(nav_items),
+        panels_html=_markup(panels),
     )
 
 
@@ -5481,43 +4376,23 @@ def _render_personas_page(
             f'<span class="muted">{escape(str(persona_workspace(workspace, persona)))}</span></a></li>'
         )
 
-    body = f"""
-      <div class="hero-grid">
-        <div class="card stack spotlight">
-          <span class="eyebrow">{escape(_t(request, "admin_nav_personas"))}</span>
-          <h2 class="panel-title">{escape(_t(request, "admin_personas_heading"))}</h2>
-          <div class="muted">{_th(request, "admin_card_personas_desc")}</div>
-          <div class="muted">{escape(_t(request, "admin_meta_workspace"))}: <code>{escape(str(workspace))}</code></div>
-        </div>
-        <div class="card stack">
-          <strong>{escape(_t(request, "admin_card_create_persona"))}</strong>
-          <p class="muted">{_th(request, "admin_card_create_persona_desc")}</p>
-          <form method="post" action="/admin/personas/new" class="stack">
-            <label class="field">
-              <span class="label">{escape(_t(request, "admin_persona_name_label"))}</span>
-              <input type="text" name="name" placeholder="Aria" required>
-            </label>
-            <div class="actions">
-              <button type="submit">{escape(_t(request, "admin_button_create_persona"))}</button>
-            </div>
-          </form>
-        </div>
-      </div>
-      <section class="card stack">
-        <div class="section-head">
-          <h2>{escape(_t(request, "admin_card_personas"))}</h2>
-          <div class="muted">{escape(_t(request, "admin_meta_workspace"))}: <code>{escape(str(workspace))}</code></div>
-        </div>
-        <ul class="list grid persona-list">{''.join(items)}</ul>
-      </section>
-    """
     return _page(
+        template_name="gateway/admin/personas.html",
         title=_t(request, "admin_personas_title"),
         heading=_t(request, "admin_personas_heading"),
-        body=body,
         request=request,
         flash=flash,
         error=error,
+        personas_nav_label=_t(request, "admin_nav_personas"),
+        personas_desc_html=_markup(_th(request, "admin_card_personas_desc")),
+        workspace_label=_t(request, "admin_meta_workspace"),
+        workspace_path=str(workspace),
+        create_persona_title=_t(request, "admin_card_create_persona"),
+        create_persona_desc_html=_markup(_th(request, "admin_card_create_persona_desc")),
+        persona_name_label=_t(request, "admin_persona_name_label"),
+        create_persona_button=_t(request, "admin_button_create_persona"),
+        personas_title=_t(request, "admin_card_personas"),
+        persona_items_html=_markup("".join(items)),
     )
 
 
@@ -5910,114 +4785,57 @@ def _render_persona_detail_page(
       </section>
     """
 
-    body = f"""
-      <div class="hero-grid">
-        <div class="card stack spotlight">
-          <span class="eyebrow">{escape(_t(request, "admin_nav_personas"))}</span>
-          <h2 class="panel-title"><code>{escape(persona)}</code></h2>
-          <div class="muted">{escape(_t(request, "admin_persona_label"))}: <code>{escape(persona)}</code></div>
-          <div class="muted">{escape(_t(request, "admin_persona_directory_label"))}: <code>{escape(str(persona_root))}</code></div>
-        </div>
-        <div class="card stack">
-          <span class="eyebrow">{escape(_t(request, "admin_button_save_persona"))}</span>
-          <div class="muted">{_th(request, "admin_persona_intro")}</div>
-          <div class="muted">{_th(request, "admin_persona_optional_hint")}</div>
-          <div class="muted">{_th(request, "admin_persona_migrate_desc")}</div>
-        </div>
-      </div>
-      {preview_card}
-      {_scene_preview_card()}
-      {metadata_card}
-      <form method="post" action="/admin/personas/{escape(persona)}" class="stack" id="persona-form">
-        <div class="editor-grid">
-          {_editor_card("SOUL.md", "admin_persona_soul_desc", "soul_md", values["SOUL.md"])}
-          {_editor_card("USER.md", "admin_persona_user_desc", "user_md", values["USER.md"])}
-        </div>
-        <div class="editor-grid">
-          {_editor_card("PROFILE.md", "admin_persona_profile_desc", "profile_md", values["PROFILE.md"])}
-          {_editor_card("INSIGHTS.md", "admin_persona_insights_desc", "insights_md", values["INSIGHTS.md"])}
-          {_editor_card("STYLE.md", "admin_persona_style_desc", "style_md", values["STYLE.md"])}
-        </div>
-        <div class="editor-grid">
-          {_editor_card("LORE.md", "admin_persona_lore_desc", "lore_md", values["LORE.md"])}
-          {_editor_card("VOICE.json", "admin_persona_voice_desc", "voice_json", values["VOICE.json"])}
-          {_scene_editor_card()}
-        </div>
-        <div class="editor-grid">
-          {_editor_card("st_manifest.json", "admin_persona_manifest_desc", "manifest_json", values["st_manifest.json"])}
-        </div>
-        <div class="card stack">
-          <div class="muted">{_th(request, "admin_persona_optional_hint")}</div>
-          <div class="actions">
-            <button type="submit">{escape(_t(request, "admin_button_save_persona"))}</button>
-          </div>
-        </div>
-      </form>
-      <script>
-        (() => {{
-          const editors = Array.from(document.querySelectorAll("[data-scene-map-editor]"));
-          if (!editors.length) return;
-
-          const createRow = (editor) => {{
-            const template = editor.querySelector("[data-scene-map-template]");
-            if (!template) return null;
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = template.innerHTML.trim();
-            return wrapper.firstElementChild;
-          }};
-
-          const ensureRow = (editor) => {{
-            const rows = editor.querySelector("[data-scene-map-rows]");
-            if (!rows) return;
-            if (!rows.querySelector("[data-scene-map-row]")) {{
-              const row = createRow(editor);
-              if (row) rows.appendChild(row);
-            }}
-          }};
-
-          editors.forEach((editor) => {{
-            ensureRow(editor);
-            editor.addEventListener("click", (event) => {{
-              const row = event.target.closest("[data-scene-map-row]");
-              const rows = editor.querySelector("[data-scene-map-rows]");
-
-              const addButton = event.target.closest("[data-scene-map-add]");
-              if (addButton) {{
-                const nextRow = createRow(editor);
-                if (rows && nextRow) rows.appendChild(nextRow);
-                return;
-              }}
-
-              const moveUpButton = event.target.closest("[data-scene-map-move-up]");
-              if (moveUpButton && rows && row) {{
-                const previous = row.previousElementSibling;
-                if (previous) rows.insertBefore(row, previous);
-                return;
-              }}
-
-              const moveDownButton = event.target.closest("[data-scene-map-move-down]");
-              if (moveDownButton && rows && row) {{
-                const next = row.nextElementSibling;
-                if (next) rows.insertBefore(next, row);
-                return;
-              }}
-
-              const removeButton = event.target.closest("[data-scene-map-remove]");
-              if (!removeButton) return;
-              if (row) row.remove();
-              ensureRow(editor);
-            }});
-          }});
-        }})();
-      </script>
-    """
     return _page(
+        template_name="gateway/admin/persona_detail.html",
         title=_t(request, "admin_persona_title", persona=persona),
         heading=_t(request, "admin_persona_heading", persona=persona),
-        body=body,
         request=request,
         flash=flash,
         error=error,
+        personas_nav_label=_t(request, "admin_nav_personas"),
+        persona_name=persona,
+        persona_label=_t(request, "admin_persona_label"),
+        directory_label=_t(request, "admin_persona_directory_label"),
+        persona_root=str(persona_root),
+        save_persona_label=_t(request, "admin_button_save_persona"),
+        persona_intro_html=_markup(_th(request, "admin_persona_intro")),
+        optional_hint_html=_markup(_th(request, "admin_persona_optional_hint")),
+        migrate_desc_html=_markup(_th(request, "admin_persona_migrate_desc")),
+        preview_card_html=_markup(preview_card),
+        scene_preview_card_html=_markup(_scene_preview_card()),
+        metadata_card_html=_markup(metadata_card),
+        primary_editor_cards_html=_markup(
+            _editor_card("SOUL.md", "admin_persona_soul_desc", "soul_md", values["SOUL.md"])
+            + _editor_card("USER.md", "admin_persona_user_desc", "user_md", values["USER.md"])
+        ),
+        secondary_editor_cards_html=_markup(
+            _editor_card(
+                "PROFILE.md",
+                "admin_persona_profile_desc",
+                "profile_md",
+                values["PROFILE.md"],
+            )
+            + _editor_card(
+                "INSIGHTS.md",
+                "admin_persona_insights_desc",
+                "insights_md",
+                values["INSIGHTS.md"],
+            )
+            + _editor_card("STYLE.md", "admin_persona_style_desc", "style_md", values["STYLE.md"])
+        ),
+        tertiary_editor_cards_html=_markup(
+            _editor_card("LORE.md", "admin_persona_lore_desc", "lore_md", values["LORE.md"])
+            + _editor_card("VOICE.json", "admin_persona_voice_desc", "voice_json", values["VOICE.json"])
+            + _scene_editor_card()
+        ),
+        manifest_editor_cards_html=_markup(
+            _editor_card(
+                "st_manifest.json",
+                "admin_persona_manifest_desc",
+                "manifest_json",
+                values["st_manifest.json"],
+            )
+        ),
     )
 
 
