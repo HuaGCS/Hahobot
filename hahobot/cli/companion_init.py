@@ -11,8 +11,8 @@ from hahobot.agent.personas import (
     DEFAULT_PERSONA,
     PERSONA_METADATA_DIRNAME,
     PERSONA_ST_MANIFEST_FILENAME,
-    normalize_persona_name,
     PERSONAS_DIRNAME,
+    normalize_persona_name,
 )
 from hahobot.config.schema import Config
 from hahobot.utils.helpers import safe_filename, sync_workspace_templates

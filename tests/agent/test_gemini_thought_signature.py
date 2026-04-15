@@ -11,7 +11,6 @@ from unittest.mock import patch
 from hahobot.providers.base import ToolCallRequest
 from hahobot.providers.openai_compat_provider import OpenAICompatProvider
 
-
 GEMINI_EXTRA = {"google": {"thought_signature": "sig-abc-123"}}
 
 

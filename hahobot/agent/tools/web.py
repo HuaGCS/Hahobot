@@ -55,10 +55,10 @@ def _validate_url(url: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def _validate_url_safe(url: str) -> tuple[bool, str]:
+async def _validate_url_safe(url: str) -> tuple[bool, str]:
     """Validate URL with SSRF protection: scheme, domain, and resolved IP check."""
     from hahobot.security.network import validate_url_target
-    return validate_url_target(url)
+    return await validate_url_target(url)
 
 
 class WebSearchTool(Tool):
@@ -309,7 +309,7 @@ class WebFetchTool(Tool):
 
     async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> Any:  # noqa: N803
         max_chars = maxChars or self.max_chars
-        is_valid, error_msg = _validate_url_safe(url)
+        is_valid, error_msg = await _validate_url_safe(url)
         if not is_valid:
             return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False)
 
@@ -319,7 +319,7 @@ class WebFetchTool(Tool):
                 async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as r:
                     from hahobot.security.network import validate_resolved_url
 
-                    redir_ok, redir_err = validate_resolved_url(str(r.url))
+                    redir_ok, redir_err = await validate_resolved_url(str(r.url))
                     if not redir_ok:
                         return json.dumps({"error": f"Redirect blocked: {redir_err}", "url": url}, ensure_ascii=False)
 
@@ -389,7 +389,7 @@ class WebFetchTool(Tool):
                 # Use streaming to validate the resolved URL BEFORE reading the
                 # response body, preventing SSRF via open redirects.
                 async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as r:
-                    redir_ok, redir_err = validate_resolved_url(str(r.url))
+                    redir_ok, redir_err = await validate_resolved_url(str(r.url))
                     if not redir_ok:
                         return json.dumps({"error": f"Redirect blocked: {redir_err}", "url": url}, ensure_ascii=False)
 

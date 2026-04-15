@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -117,6 +118,54 @@ def test_openai_speech_provider_accepts_direct_endpoint_url() -> None:
     )
 
     assert provider._speech_url() == "https://tts.example.com/v1/audio/speech"
+
+
+def test_voice_reply_profile_returns_structured_settings(tmp_path: Path) -> None:
+    (tmp_path / "SOUL.md").write_text("default soul", encoding="utf-8")
+    persona_dir = tmp_path / "personas" / "coder"
+    persona_dir.mkdir(parents=True)
+    (persona_dir / "SOUL.md").write_text("sharp engineer", encoding="utf-8")
+    (persona_dir / "VOICE.json").write_text(
+        (
+            '{"provider":"sovits","apiBase":"http://localhost:9880","referWavPath":"/tmp/ref.wav",'
+            '"promptText":"reference transcript","promptLanguage":"zh","textLanguage":"en",'
+            '"cutPunc":"，。","topK":8,"topP":0.85,"temperature":0.65,"speed":1.2}'
+        ),
+        encoding="utf-8",
+    )
+
+    loop, _provider = _make_loop(
+        tmp_path,
+        channels_payload={
+            "voiceReply": {
+                "enabled": True,
+                "channels": ["telegram"],
+                "provider": "openai",
+                "voice": "alloy",
+                "instructions": "keep the pacing steady",
+                "sovitsApiUrl": "http://127.0.0.1:9880",
+            }
+        },
+    )
+
+    profile = loop._voice_reply_profile("coder")
+
+    assert dataclasses.is_dataclass(profile)
+    assert not isinstance(profile, dict)
+    assert profile.provider == "sovits"
+    assert profile.voice == "alloy"
+    assert profile.speed == 1.2
+    assert profile.sovits_api_url == "http://localhost:9880"
+    assert profile.sovits_refer_wav_path == "/tmp/ref.wav"
+    assert profile.sovits_prompt_text == "reference transcript"
+    assert profile.sovits_prompt_language == "zh"
+    assert profile.sovits_text_language == "en"
+    assert profile.sovits_cut_punc == "，。"
+    assert profile.sovits_top_k == 8
+    assert profile.sovits_top_p == 0.85
+    assert profile.sovits_temperature == 0.65
+    assert "keep the pacing steady" in profile.instructions
+    assert "sharp engineer" in profile.instructions
 
 
 @pytest.mark.asyncio

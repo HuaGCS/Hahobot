@@ -198,6 +198,39 @@ async def test_manager_loads_plugin_from_dict_config():
     assert isinstance(mgr.channels["fakeplugin"], _FakePlugin)
 
 
+@pytest.mark.asyncio
+async def test_manager_loads_plugin_instances_from_dict_config():
+    """ChannelManager should honor plugin multi-instance config stored as raw dicts."""
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig.model_validate({
+            "fakeplugin": {
+                "enabled": True,
+                "instances": [
+                    {"name": "alpha", "allowFrom": ["*"]},
+                    {"name": "beta", "allowFrom": ["*"]},
+                ],
+            },
+        }),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+
+    with patch(
+        "hahobot.channels.registry.discover_all",
+        return_value={"fakeplugin": _FakePlugin},
+    ):
+        mgr = ChannelManager.__new__(ChannelManager)
+        mgr.config = fake_config
+        mgr.bus = MessageBus()
+        mgr.channels = {}
+        mgr._dispatch_task = None
+        mgr._init_channels()
+
+    assert sorted(mgr.channels) == ["fakeplugin/alpha", "fakeplugin/beta"]
+    assert isinstance(mgr.channels["fakeplugin/alpha"], _FakePlugin)
+    assert mgr.channels["fakeplugin/alpha"].config["name"] == "alpha"
+    assert mgr.channels["fakeplugin/beta"].config["name"] == "beta"
+
+
 def test_channels_login_uses_discovered_plugin_class(monkeypatch):
     from typer.testing import CliRunner
 

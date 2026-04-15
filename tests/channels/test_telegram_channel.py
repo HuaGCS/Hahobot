@@ -603,7 +603,10 @@ async def test_send_remote_media_url_after_security_validation(monkeypatch) -> N
         MessageBus(),
     )
     channel._app = _FakeApp(lambda: None)
-    monkeypatch.setattr("hahobot.channels.telegram.validate_url_target", lambda url: (True, ""))
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.validate_url_target",
+        AsyncMock(return_value=(True, "")),
+    )
 
     await channel.send(
         OutboundMessage(
@@ -633,7 +636,12 @@ async def test_send_blocks_unsafe_remote_media_url(monkeypatch) -> None:
     channel._app = _FakeApp(lambda: None)
     monkeypatch.setattr(
         "hahobot.channels.telegram.validate_url_target",
-        lambda url: (False, "Blocked: example.com resolves to private/internal address 127.0.0.1"),
+        AsyncMock(
+            return_value=(
+                False,
+                "Blocked: example.com resolves to private/internal address 127.0.0.1",
+            )
+        ),
     )
 
     await channel.send(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import inspect
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -49,19 +50,11 @@ class ChannelManager:
             section = getattr(self.config.channels, name, None)
             if section is None:
                 continue
-            enabled = (
-                section.get("enabled", False)
-                if isinstance(section, dict)
-                else getattr(section, "enabled", False)
-            )
+            enabled = self._config_field(section, "enabled", False)
             if not enabled:
                 continue
             try:
-                instances = (
-                    section.get("instances")
-                    if isinstance(section, dict)
-                    else getattr(section, "instances", None)
-                )
+                instances = self._config_field(section, "instances")
                 if instances is not None:
                     if not instances:
                         logger.warning(
@@ -71,11 +64,7 @@ class ChannelManager:
                         continue
 
                     for inst in instances:
-                        inst_name = (
-                            inst.get("name")
-                            if isinstance(inst, dict)
-                            else getattr(inst, "name", None)
-                        )
+                        inst_name = self._config_field(inst, "name")
                         if not inst_name:
                             raise ValueError(
                                 f'{name}.instances item missing required field "name"'
@@ -114,6 +103,13 @@ class ChannelManager:
                 logger.warning("{} channel not available: {}", name, e)
 
         self._validate_allow_from()
+
+    @staticmethod
+    def _config_field(config: Any, field: str, default: Any = None) -> Any:
+        """Read one config field from either a plugin dict or a typed config object."""
+        if isinstance(config, Mapping):
+            return config.get(field, default)
+        return getattr(config, field, default)
 
     def _configure_transcription(
         self,

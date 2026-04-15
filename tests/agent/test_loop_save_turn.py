@@ -285,6 +285,34 @@ async def test_process_message_does_not_duplicate_early_persisted_user_message(t
 
 
 @pytest.mark.asyncio
+async def test_process_system_message_uses_origin_route_context(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    loop._run_agent_loop = AsyncMock(return_value=(
+        "background done",
+        [],
+        [
+            {"role": "system", "content": "system"},
+            {"role": "assistant", "content": "background done"},
+        ],
+        "stop",
+    ))  # type: ignore[method-assign]
+
+    result = await loop._process_message(
+        InboundMessage(
+            channel="system",
+            sender_id="subagent",
+            chat_id="feishu:c-system",
+            content="background task",
+        )
+    )
+
+    assert result is not None
+    assert result.channel == "feishu"
+    assert result.chat_id == "c-system"
+    assert result.content == "background done"
+
+
+@pytest.mark.asyncio
 async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
     session = loop.sessions.get_or_create("feishu:c3")

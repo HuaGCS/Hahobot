@@ -1,5 +1,6 @@
 from base64 import b64encode
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -224,7 +225,7 @@ async def test_send_group_remote_media_url_uses_file_api_then_media_message(monk
     channel = QQChannel(QQConfig(app_id="app", secret="secret", allow_from=["*"]), MessageBus())
     channel._client = _FakeClient()
     channel._chat_type_cache["group123"] = "group"
-    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", lambda url: (True, ""))
+    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", AsyncMock(return_value=(True, "")))
 
     await channel.send(
         OutboundMessage(
@@ -334,7 +335,7 @@ async def test_send_local_media_under_out_dir_uses_c2c_file_api(
         workspace=workspace,
     )
     channel._client = _FakeClient()
-    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", lambda url: (True, ""))
+    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", AsyncMock(return_value=(True, "")))
 
     await channel.send(
         OutboundMessage(
@@ -395,7 +396,7 @@ async def test_send_local_media_in_nested_out_path_uses_relative_url(
         workspace=workspace,
     )
     channel._client = _FakeClient()
-    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", lambda url: (True, ""))
+    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", AsyncMock(return_value=(True, "")))
 
     await channel.send(
         OutboundMessage(
@@ -455,7 +456,7 @@ async def test_send_local_media_outside_out_falls_back_to_text_notice(
         workspace=workspace,
     )
     channel._client = _FakeClient()
-    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", lambda url: (True, ""))
+    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", AsyncMock(return_value=(True, "")))
 
     await channel.send(
         OutboundMessage(
@@ -594,7 +595,7 @@ async def test_send_local_media_symlink_to_outside_out_dir_is_rejected(
         workspace=workspace,
     )
     channel._client = _FakeClient()
-    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", lambda url: (True, ""))
+    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", AsyncMock(return_value=(True, "")))
 
     await channel.send(
         OutboundMessage(
@@ -644,7 +645,7 @@ async def test_send_non_image_media_from_out_falls_back_to_text_notice(
         workspace=workspace,
     )
     channel._client = _FakeClient()
-    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", lambda url: (True, ""))
+    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", AsyncMock(return_value=(True, "")))
 
     await channel.send(
         OutboundMessage(

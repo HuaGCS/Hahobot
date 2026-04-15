@@ -26,8 +26,8 @@ def _make_loop(*, exec_config=None):
 
     with patch("hahobot.agent.loop.ContextBuilder"), \
          patch("hahobot.agent.loop.SessionManager"), \
-         patch("hahobot.agent.loop.SubagentManager") as MockSubMgr:
-        MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
+         patch("hahobot.agent.loop.SubagentManager") as mock_sub_mgr:
+        mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, exec_config=exec_config)
     return loop, bus
 

@@ -320,7 +320,7 @@ class HistoryArchiveStore:
     @staticmethod
     def _build_title(summary: str, messages: list[dict[str, Any]]) -> str:
         cleaned = _TIMESTAMP_PREFIX_RE.sub("", summary.strip())
-        cleaned = re.split(r"[\n。！？!?;；]", cleaned, 1)[0].strip()
+        cleaned = re.split(r"[\n。！？!?;；]", cleaned, maxsplit=1)[0].strip()
         if cleaned:
             return cleaned[:120]
 

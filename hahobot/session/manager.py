@@ -165,6 +165,7 @@ class SessionManager:
             messages = []
             metadata = {}
             created_at = None
+            updated_at = None
             last_consolidated = 0
 
             with open(path, encoding="utf-8") as f:
@@ -178,15 +179,21 @@ class SessionManager:
                     if data.get("_type") == "metadata":
                         metadata = data.get("metadata", {})
                         created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
+                        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else updated_at
                         last_consolidated = data.get("last_consolidated", 0)
                     else:
                         messages.append(data)
 
+            resolved_created_at = created_at or datetime.now()
+            resolved_updated_at = updated_at or datetime.fromtimestamp(path.stat().st_mtime)
+            if resolved_updated_at < resolved_created_at:
+                resolved_updated_at = resolved_created_at
+
             session = Session(
                 key=key,
                 messages=messages,
-                created_at=created_at or datetime.now(),
-                updated_at=datetime.fromtimestamp(path.stat().st_mtime),
+                created_at=resolved_created_at,
+                updated_at=resolved_updated_at,
                 metadata=metadata,
                 last_consolidated=last_consolidated
             )
