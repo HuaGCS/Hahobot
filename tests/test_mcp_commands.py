@@ -444,3 +444,4 @@ async def test_runtime_config_reload_updates_agent_and_tool_settings(tmp_path: P
     assert web_search_tool.proxy == "http://127.0.0.1:7890"
     assert web_fetch_tool.proxy == "http://127.0.0.1:7890"
     assert read_tool._allowed_dir == tmp_path / "workspace"
+    assert loop._mcp_runtime.workspace == tmp_path / "workspace"

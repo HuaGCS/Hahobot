@@ -1,7 +1,7 @@
-from email.message import EmailMessage
-from datetime import date
-from pathlib import Path
 import imaplib
+from datetime import date
+from email.message import EmailMessage
+from pathlib import Path
 
 import pytest
 
@@ -604,8 +604,8 @@ def test_email_content_tagged_with_email_context(monkeypatch) -> None:
 
 def test_check_authentication_results_method() -> None:
     """Unit test for the _check_authentication_results static method."""
-    from email.parser import BytesParser
     from email import policy
+    from email.parser import BytesParser
 
     # No Authentication-Results header
     msg_no_auth = EmailMessage()

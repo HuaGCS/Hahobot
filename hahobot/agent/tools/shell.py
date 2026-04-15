@@ -97,6 +97,10 @@ class ExecTool(Tool):
         if guard_error:
             return guard_error
 
+        from hahobot.security.network import contains_internal_url
+        if await contains_internal_url(command.strip()):
+            return "Error: Command blocked by safety guard (internal/private URL detected)"
+
         if self.sandbox:
             if _IS_WINDOWS:
                 logger.warning(
@@ -259,10 +263,6 @@ class ExecTool(Tool):
         if self.allow_patterns:
             if not any(re.search(p, lower) for p in self.allow_patterns):
                 return "Error: Command blocked by safety guard (not in allowlist)"
-
-        from hahobot.security.network import contains_internal_url
-        if contains_internal_url(cmd):
-            return "Error: Command blocked by safety guard (internal/private URL detected)"
 
         if self.restrict_to_workspace:
             if "..\\" in cmd or "../" in cmd:

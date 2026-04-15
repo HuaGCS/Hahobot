@@ -5,12 +5,18 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 discord = pytest.importorskip("discord")
 
-from hahobot.bus.events import OutboundMessage
-from hahobot.bus.queue import MessageBus
-from hahobot.channels.discord import MAX_MESSAGE_LEN, DiscordBotClient, DiscordChannel, DiscordConfig
-from hahobot.command.builtin import build_help_text
+from hahobot.bus.events import OutboundMessage  # noqa: E402
+from hahobot.bus.queue import MessageBus  # noqa: E402
+from hahobot.channels.discord import (  # noqa: E402
+    MAX_MESSAGE_LEN,
+    DiscordBotClient,
+    DiscordChannel,
+    DiscordConfig,
+)
+from hahobot.command.builtin import build_help_text  # noqa: E402
 
 
 # Minimal Discord client test double used to control startup/readiness behavior.

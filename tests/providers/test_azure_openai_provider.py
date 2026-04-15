@@ -7,7 +7,6 @@ import pytest
 from hahobot.providers.azure_openai_provider import AzureOpenAIProvider
 from hahobot.providers.base import LLMResponse
 
-
 # ---------------------------------------------------------------------------
 # Init & validation
 # ---------------------------------------------------------------------------

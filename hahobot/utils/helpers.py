@@ -13,6 +13,10 @@ from typing import Any
 import tiktoken
 from loguru import logger
 
+# Module-level encoder instance — tiktoken has its own internal cache but
+# avoiding repeated get_encoding() calls removes the per-call lookup overhead.
+_TIKTOKEN_ENC = tiktoken.get_encoding("cl100k_base")
+
 
 def strip_think(text: str) -> str:
     """Remove <think>…</think> blocks and any unclosed trailing <think> tag."""
@@ -292,7 +296,6 @@ def estimate_prompt_tokens(
     reasoning_content, tool_call_id, name, plus per-message framing overhead.
     """
     try:
-        enc = tiktoken.get_encoding("cl100k_base")
         parts: list[str] = []
         for msg in messages:
             content = msg.get("content")
@@ -322,7 +325,7 @@ def estimate_prompt_tokens(
             parts.append(json.dumps(tools, ensure_ascii=False))
 
         per_message_overhead = len(messages) * 4
-        return len(enc.encode("\n".join(parts))) + per_message_overhead
+        return len(_TIKTOKEN_ENC.encode("\n".join(parts))) + per_message_overhead
     except Exception:
         return 0
 
@@ -359,8 +362,7 @@ def estimate_message_tokens(message: dict[str, Any]) -> int:
     if not payload:
         return 4
     try:
-        enc = tiktoken.get_encoding("cl100k_base")
-        return max(4, len(enc.encode(payload)) + 4)
+        return max(4, len(_TIKTOKEN_ENC.encode(payload)) + 4)
     except Exception:
         return max(4, len(payload) // 4 + 4)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
 import socket
@@ -47,7 +48,16 @@ def _is_private(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return any(addr in net for net in _BLOCKED_NETWORKS)
 
 
-def validate_url_target(url: str) -> tuple[bool, str]:
+async def _resolve_hostname(hostname: str) -> list:
+    """Resolve hostname to address infos without blocking the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM),
+    )
+
+
+async def validate_url_target(url: str) -> tuple[bool, str]:
     """Validate a URL is safe to fetch: scheme, hostname, and resolved IPs.
 
     Returns (ok, error_message).  When ok is True, error_message is empty.
@@ -67,7 +77,7 @@ def validate_url_target(url: str) -> tuple[bool, str]:
         return False, "Missing hostname"
 
     try:
-        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        infos = await _resolve_hostname(hostname)
     except socket.gaierror:
         return False, f"Cannot resolve hostname: {hostname}"
 
@@ -82,7 +92,7 @@ def validate_url_target(url: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_resolved_url(url: str) -> tuple[bool, str]:
+async def validate_resolved_url(url: str) -> tuple[bool, str]:
     """Validate an already-fetched URL (e.g. after redirect). Only checks the IP, skips DNS."""
     try:
         p = urlparse(url)
@@ -100,7 +110,7 @@ def validate_resolved_url(url: str) -> tuple[bool, str]:
     except ValueError:
         # hostname is a domain name, resolve it
         try:
-            infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            infos = await _resolve_hostname(hostname)
         except socket.gaierror:
             return True, ""
         for info in infos:
@@ -114,11 +124,11 @@ def validate_resolved_url(url: str) -> tuple[bool, str]:
     return True, ""
 
 
-def contains_internal_url(command: str) -> bool:
+async def contains_internal_url(command: str) -> bool:
     """Return True if the command string contains a URL targeting an internal/private address."""
     for m in _URL_RE.finditer(command):
         url = m.group(0)
-        ok, _ = validate_url_target(url)
+        ok, _ = await validate_url_target(url)
         if not ok:
             return True
     return False

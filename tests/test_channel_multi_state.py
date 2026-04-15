@@ -4,7 +4,12 @@ import pytest
 
 from hahobot.bus.queue import MessageBus
 from hahobot.channels.mochat import MochatChannel
-from hahobot.config.schema import MatrixConfig, MatrixInstanceConfig, MochatConfig, MochatInstanceConfig
+from hahobot.config.schema import (
+    MatrixConfig,
+    MatrixInstanceConfig,
+    MochatConfig,
+    MochatInstanceConfig,
+)
 
 try:
     from hahobot.channels.matrix import MatrixChannel

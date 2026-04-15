@@ -299,6 +299,46 @@ async def test_large_tool_results_are_compacted_before_next_llm_call(tmp_path, m
     assert estimated <= loop._prompt_budget_tokens()
 
 
+def test_prepare_request_messages_compacts_older_tool_results_before_newest(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    loop = _make_loop(tmp_path, estimated_tokens=0, context_window_tokens=1_100)
+    monkeypatch.setattr(loop, "_CONTEXT_TOOL_RESULT_CHAR_STEPS", (100,))
+
+    estimate_calls = {"n": 0}
+
+    def fake_estimate(_provider, _model, messages, _tool_defs):
+        estimate_calls["n"] += 1
+        total = sum(
+            len(message["content"])
+            for message in messages
+            if message.get("role") == "tool" and isinstance(message.get("content"), str)
+        )
+        return total, "fake-counter"
+
+    monkeypatch.setattr("hahobot.agent.loop.estimate_prompt_tokens_chain", fake_estimate)
+
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "assistant", "content": "tool a"},
+        {"role": "tool", "content": "a" * 900},
+        {"role": "assistant", "content": "tool b"},
+        {"role": "tool", "content": "b" * 900},
+        {"role": "assistant", "content": "tool c"},
+        {"role": "tool", "content": "c" * 900},
+    ]
+
+    prepared = loop._prepare_request_messages(messages, [])
+    tool_messages = [message for message in prepared if message.get("role") == "tool"]
+
+    assert len(tool_messages) == 3
+    assert len(tool_messages[0]["content"]) <= 100
+    assert len(tool_messages[1]["content"]) <= 100
+    assert tool_messages[2]["content"] == "c" * 900
+    assert estimate_calls["n"] == 2
+
+
 @pytest.mark.asyncio
 async def test_multi_step_tool_turn_keeps_memory_and_recent_context(tmp_path, monkeypatch) -> None:
     from hahobot.providers.base import GenerationSettings, ToolCallRequest

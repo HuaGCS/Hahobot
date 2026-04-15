@@ -9,8 +9,6 @@ pytest.importorskip("nh3")
 pytest.importorskip("mistune")
 from nio import RoomSendResponse
 
-from hahobot.channels.matrix import _build_matrix_text_content
-
 import hahobot.channels.matrix as matrix_module
 from hahobot.bus.events import OutboundMessage
 from hahobot.bus.queue import MessageBus
@@ -18,6 +16,7 @@ from hahobot.channels.matrix import (
     MATRIX_HTML_FORMAT,
     TYPING_NOTICE_TIMEOUT_MS,
     MatrixChannel,
+    _build_matrix_text_content,
 )
 from hahobot.config.schema import MatrixConfig
 
@@ -1607,7 +1606,7 @@ async def test_send_delta_on_error_stops_typing(monkeypatch) -> None:
     assert "!room:matrix.org" in channel._stream_bufs
     assert channel._stream_bufs["!room:matrix.org"].text == "Hello"
     assert len(client.room_send_calls) == 1
-    
+
     assert len(client.typing_calls) == 1
 
 

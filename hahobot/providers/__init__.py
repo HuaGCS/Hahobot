@@ -31,8 +31,8 @@ if TYPE_CHECKING:
     from hahobot.providers.anthropic_provider import AnthropicProvider
     from hahobot.providers.azure_openai_provider import AzureOpenAIProvider
     from hahobot.providers.github_copilot_provider import GitHubCopilotProvider
-    from hahobot.providers.openai_compat_provider import OpenAICompatProvider
     from hahobot.providers.openai_codex_provider import OpenAICodexProvider
+    from hahobot.providers.openai_compat_provider import OpenAICompatProvider
     from hahobot.providers.pool_provider import ProviderPoolProvider
 
 

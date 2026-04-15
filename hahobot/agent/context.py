@@ -40,6 +40,7 @@ class ContextBuilder:
         self.timezone = timezone
         self._disabled_skills = list(disabled_skills or [])
         self.skills = SkillsLoader(workspace, disabled_skills=set(self._disabled_skills))
+        self._memory_stores: dict[str, MemoryStore] = {}
 
     def rebind_runtime(
         self,
@@ -53,6 +54,8 @@ class ContextBuilder:
         self.timezone = timezone
         self._disabled_skills = list(disabled_skills or [])
         self.skills = SkillsLoader(workspace, disabled_skills=set(self._disabled_skills))
+        # Clear store cache when workspace changes so stale paths are not reused.
+        self._memory_stores.clear()
 
     @property
     def memory(self) -> MemoryStore:
@@ -225,8 +228,10 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
         return _to_blocks(left) + _to_blocks(right)
 
     def _memory_store(self, persona: str) -> MemoryStore:
-        """Return the memory store for the active persona."""
-        return MemoryStore(persona_workspace(self.workspace, persona))
+        """Return the memory store for the active persona (cached per persona)."""
+        if persona not in self._memory_stores:
+            self._memory_stores[persona] = MemoryStore(persona_workspace(self.workspace, persona))
+        return self._memory_stores[persona]
 
     def _read_persona_overlay_file(self, persona: str, filename: str) -> str:
         """Read a workspace file, preferring persona-local overrides when present."""

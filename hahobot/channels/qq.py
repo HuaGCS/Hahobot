@@ -387,7 +387,7 @@ class QQChannel(BaseChannel):
                         )
                         continue
                 else:
-                    ok, error = validate_url_target(media_path)
+                    ok, error = await validate_url_target(media_path)
                     if not ok:
                         logger.warning("QQ outbound media blocked by URL validation: {}", error)
                         fallback_lines.append(self._failed_media_notice(media_path, error))

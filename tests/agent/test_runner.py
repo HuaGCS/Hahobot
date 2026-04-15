@@ -9,9 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from hahobot.config.schema import AgentDefaults
 from hahobot.agent.tools.base import Tool
 from hahobot.agent.tools.registry import ToolRegistry
+from hahobot.config.schema import AgentDefaults
 from hahobot.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
@@ -27,15 +27,15 @@ def _make_loop(tmp_path):
 
     with patch("hahobot.agent.loop.ContextBuilder"), \
          patch("hahobot.agent.loop.SessionManager"), \
-         patch("hahobot.agent.loop.SubagentManager") as MockSubMgr:
-        MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
+         patch("hahobot.agent.loop.SubagentManager") as mock_sub_mgr:
+        mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
     return loop
 
 
 @pytest.mark.asyncio
 async def test_runner_preserves_reasoning_fields_and_tool_results():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -93,7 +93,7 @@ async def test_runner_preserves_reasoning_fields_and_tool_results():
 @pytest.mark.asyncio
 async def test_runner_calls_hooks_in_order():
     from hahobot.agent.hook import AgentHook, AgentHookContext
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     call_count = {"n": 0}
@@ -169,7 +169,7 @@ async def test_runner_calls_hooks_in_order():
 @pytest.mark.asyncio
 async def test_runner_streaming_hook_receives_deltas_and_end_signal():
     from hahobot.agent.hook import AgentHook, AgentHookContext
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     streamed: list[str] = []
@@ -213,7 +213,7 @@ async def test_runner_streaming_hook_receives_deltas_and_end_signal():
 
 @pytest.mark.asyncio
 async def test_runner_returns_max_iterations_fallback():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
@@ -243,7 +243,7 @@ async def test_runner_returns_max_iterations_fallback():
 
 @pytest.mark.asyncio
 async def test_runner_returns_structured_tool_error():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
@@ -274,7 +274,7 @@ async def test_runner_returns_structured_tool_error():
 
 @pytest.mark.asyncio
 async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -387,7 +387,7 @@ def test_persist_tool_result_logs_cleanup_failures(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_runner_replaces_empty_tool_result_with_marker():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -425,7 +425,7 @@ async def test_runner_replaces_empty_tool_result_with_marker():
 
 @pytest.mark.asyncio
 async def test_runner_uses_raw_messages_when_context_governance_fails():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_messages: list[dict] = []
@@ -459,7 +459,7 @@ async def test_runner_uses_raw_messages_when_context_governance_fails():
 @pytest.mark.asyncio
 async def test_runner_retries_empty_final_response_with_summary_prompt():
     """Empty responses get 2 silent retries before finalization kicks in."""
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     calls: list[dict] = []
@@ -504,7 +504,7 @@ async def test_runner_retries_empty_final_response_with_summary_prompt():
 @pytest.mark.asyncio
 async def test_runner_uses_specific_message_after_empty_finalization_retry():
     """After silent retries + finalization all return empty, stop_reason is empty_final_response."""
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
     from hahobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
     provider = MagicMock()
@@ -536,7 +536,7 @@ async def test_runner_empty_response_does_not_break_tool_chain():
     Sequence: tool_call → empty → tool_call → final text.
     The runner should recover via silent retry and complete normally.
     """
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     call_count = 0
@@ -590,7 +590,7 @@ async def test_runner_empty_response_does_not_break_tool_chain():
 
 
 def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch):
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     tools = MagicMock()
@@ -640,7 +640,7 @@ def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch
 
 @pytest.mark.asyncio
 async def test_runner_keeps_going_when_tool_result_persistence_fails():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -709,7 +709,7 @@ class _DelayTool(Tool):
 
 @pytest.mark.asyncio
 async def test_runner_batches_read_only_tools_before_exclusive_work():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     tools = ToolRegistry()
     shared_events: list[str] = []
@@ -747,7 +747,7 @@ async def test_runner_batches_read_only_tools_before_exclusive_work():
 
 @pytest.mark.asyncio
 async def test_runner_blocks_repeated_external_fetches():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_final_call: list[dict] = []
@@ -857,7 +857,7 @@ async def test_loop_retries_think_only_final_response(tmp_path):
 
 @pytest.mark.asyncio
 async def test_llm_error_not_appended_to_session_messages():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
@@ -918,7 +918,7 @@ async def test_streamed_flag_not_set_on_llm_error(tmp_path):
 
 @pytest.mark.asyncio
 async def test_runner_tool_error_sets_final_content():
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
 
@@ -985,7 +985,7 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
 async def test_runner_accumulates_usage_and_preserves_cached_tokens():
     """Runner should accumulate prompt/completion tokens across iterations
     and preserve cached_tokens from provider responses."""
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     call_count = {"n": 0}
@@ -1028,7 +1028,7 @@ async def test_runner_accumulates_usage_and_preserves_cached_tokens():
 async def test_runner_passes_cached_tokens_to_hook_context():
     """Hook context.usage should contain cached_tokens."""
     from hahobot.agent.hook import AgentHook, AgentHookContext
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_usage: list[dict] = []
@@ -1071,7 +1071,7 @@ async def test_runner_passes_cached_tokens_to_hook_context():
 async def test_length_recovery_continues_from_truncated_output():
     """When finish_reason is 'length', runner should insert a continuation
     prompt and retry, stitching partial outputs into the final result."""
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     call_count = {"n": 0}
@@ -1111,7 +1111,7 @@ async def test_length_recovery_streaming_calls_on_stream_end_with_resuming():
     """During length recovery with streaming, on_stream_end should be called
     with resuming=True so the hook knows the conversation is continuing."""
     from hahobot.agent.hook import AgentHook, AgentHookContext
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     call_count = {"n": 0}
@@ -1155,7 +1155,7 @@ async def test_length_recovery_streaming_calls_on_stream_end_with_resuming():
 @pytest.mark.asyncio
 async def test_length_recovery_gives_up_after_max_retries():
     """After _MAX_LENGTH_RECOVERIES attempts the runner should stop retrying."""
-    from hahobot.agent.runner import AgentRunSpec, AgentRunner, _MAX_LENGTH_RECOVERIES
+    from hahobot.agent.runner import _MAX_LENGTH_RECOVERIES, AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     call_count = {"n": 0}
@@ -1193,7 +1193,7 @@ async def test_length_recovery_gives_up_after_max_retries():
 @pytest.mark.asyncio
 async def test_backfill_missing_tool_results_inserts_error():
     """Orphaned tool_use (no matching tool_result) should get a synthetic error."""
-    from hahobot.agent.runner import AgentRunner, _BACKFILL_CONTENT
+    from hahobot.agent.runner import _BACKFILL_CONTENT, AgentRunner
 
     messages = [
         {"role": "user", "content": "hi"},
@@ -1245,7 +1245,7 @@ async def test_backfill_noop_when_complete():
 @pytest.mark.asyncio
 async def test_microcompact_replaces_old_tool_results():
     """Tool results beyond _MICROCOMPACT_KEEP_RECENT should be summarized."""
-    from hahobot.agent.runner import AgentRunner, _MICROCOMPACT_KEEP_RECENT
+    from hahobot.agent.runner import _MICROCOMPACT_KEEP_RECENT, AgentRunner
 
     total = _MICROCOMPACT_KEEP_RECENT + 5
     long_content = "x" * 600
@@ -1273,7 +1273,7 @@ async def test_microcompact_replaces_old_tool_results():
 @pytest.mark.asyncio
 async def test_microcompact_preserves_short_results():
     """Short tool results (< _MICROCOMPACT_MIN_CHARS) should not be replaced."""
-    from hahobot.agent.runner import AgentRunner, _MICROCOMPACT_KEEP_RECENT
+    from hahobot.agent.runner import _MICROCOMPACT_KEEP_RECENT, AgentRunner
 
     total = _MICROCOMPACT_KEEP_RECENT + 5
     messages: list[dict] = []
@@ -1295,7 +1295,7 @@ async def test_microcompact_preserves_short_results():
 @pytest.mark.asyncio
 async def test_microcompact_skips_non_compactable_tools():
     """Non-compactable tools (e.g. 'message') should never be replaced."""
-    from hahobot.agent.runner import AgentRunner, _MICROCOMPACT_KEEP_RECENT
+    from hahobot.agent.runner import _MICROCOMPACT_KEEP_RECENT, AgentRunner
 
     total = _MICROCOMPACT_KEEP_RECENT + 5
     long_content = "y" * 1000

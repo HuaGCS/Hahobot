@@ -1,7 +1,7 @@
 """Tests for tool hint formatting (hahobot.utils.tool_hints)."""
 
-from hahobot.utils.tool_hints import format_tool_hints
 from hahobot.providers.base import ToolCallRequest
+from hahobot.utils.tool_hints import format_tool_hints
 
 
 def _tc(name: str, args) -> ToolCallRequest:
