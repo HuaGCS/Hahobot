@@ -80,6 +80,11 @@ already productized locally and which ones are still only partially reflected in
 | User-visible "current step / next step" runtime visibility | `synced` | Browser `/status` recent-task card, admin session list, and `hahobot sessions show` output | GenericAgent keeps this mostly inside loop state; hahobot surfaces it to local ops pages as well. |
 | Skill accumulation from successful executions | `synced` | `/skill derive <name> [brief] [--force]` writes reviewable drafts under `<workspace>/skills/<slug>/SKILL.md` | The flow is deterministic and local-first; it does not auto-publish or auto-enable skills without operator review. |
 | Layered memory semantics | `synced` | `SOUL.md`, `USER.md`, `PROFILE.md`, `INSIGHTS.md`, `memory/MEMORY.md`, history archive, Dream, optional Mem0 | Local implementation is richer than GenericAgent's framing and intentionally not collapsed back down. |
+| Memory-layer terminology ownership | `synced` | `README.md`, `README_ZH.md`, `AGENTS.md`, Dream templates, admin persona page, and `/status` all use the same split: `PROFILE.md` for stable user facts/preferences, `INSIGHTS.md` for proven collaboration guidance | This keeps operator-facing docs and runtime surfaces aligned instead of letting each page invent its own labels. |
+| Dream prompt sees current memory layers plus metadata summaries | `synced` | Dream prompt injects current `PROFILE.md` / `INSIGHTS.md` contents and their metadata summaries before reflection/edit phases | Reflective maintenance therefore works from the same layered-memory framing shown to operators elsewhere. |
+| Admin persona page surfaces memory-layer metadata | `synced` | Persona detail page shows `PROFILE.md` / `INSIGHTS.md` metadata cards, confidence/verification counts, and example `hahobot-meta` usage | The admin surface stays read-only for metadata summary; it does not introduce a second metadata schema. |
+| `/status` surfaces memory-layer summary without breaking machine JSON | `synced` | Chat `/status` now includes the active session persona's memory-layer summary; browser `/status` shows the recent persona's `PROFILE.md` / `INSIGHTS.md` summary card while JSON `/status` remains unchanged | Status is intentionally summary-only and operational; it does not dump full persona memory files into the status endpoint. |
+| Structured write rules for profile/insight bullets | `synced` | Dream phase docs, admin/help text, and `/status` guidance all converge on `<!-- hahobot-meta: confidence=... last_verified=YYYY-MM-DD -->` with legacy `(verify)` markers kept compatibility-only | The rule is to touch one canonical bullet per fact/pattern rather than accumulating duplicate variants. |
 | Memory-maintenance SOP as background hygiene | `synced` | Dream phase 1/2 reflection, idle compact, archive sidecars, metadata hygiene for profile/insight bullets | The local maintenance path is heavier-weight than GenericAgent's simpler autonomous memory loop. |
 | Narrow autonomous background workflow loop | `local_extension` | Heartbeat, cron scheduler, Dream system job, gateway runtime status, and Star-Office push | Hahobot splits these responsibilities across cron / Dream / heartbeat rather than copying one GenericAgent autonomous scheduler abstraction. |
 | Minimal single-surface local architecture | `intentional_divergence` | Hahobot keeps CLI, gateway, admin, status pages, channel adapters, and OpenAI-compatible API together | Richer operational surfaces are treated as part of the product, not as accidental complexity to remove for parity. |
@@ -95,6 +100,11 @@ already productized locally and which ones are still only partially reflected in
   - subagent modes for bounded role separation
   - `working_checkpoint` for in-flight task state
   - `/skill derive` for operator-reviewed skill accumulation
+- Memory-layer visibility is now also aligned end-to-end:
+  - Dream prompt sees current `PROFILE.md` / `INSIGHTS.md` plus metadata summaries
+  - admin persona page shows the same layers' metadata cards
+  - chat and browser `/status` expose summary-only operational views of those layers
+  - docs/runtime guidance all converge on the same `hahobot-meta` write contract
 - Areas still left on the watchlist are not "missing parity bugs"; they are explicit product
   choices to avoid introducing unattended self-modification or an extra autonomous loop before the
   operational need is proven.
