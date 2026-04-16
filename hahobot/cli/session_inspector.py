@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from hahobot.agent.working_checkpoint import normalize_working_checkpoint
 from hahobot.session.manager import SessionManager
 from hahobot.utils.helpers import ensure_dir, safe_filename
 
@@ -72,6 +73,7 @@ class SessionDetail:
     message_count: int
     persona: str | None
     metadata: dict[str, Any]
+    working_checkpoint: dict[str, Any] | None
     internal: bool
     shown_limit: int
     messages: tuple[SessionMessageSummary, ...]
@@ -85,6 +87,7 @@ class SessionDetail:
             "message_count": self.message_count,
             "persona": self.persona,
             "metadata": self.metadata,
+            "working_checkpoint": self.working_checkpoint,
             "internal": self.internal,
             "shown_limit": self.shown_limit,
             "messages": [message.to_dict() for message in self.messages],
@@ -264,6 +267,9 @@ def load_session_detail(
         message_count=len(session.messages),
         persona=session.metadata.get("persona"),
         metadata=dict(session.metadata),
+        working_checkpoint=normalize_working_checkpoint(
+            session.metadata.get("working_checkpoint")
+        ),
         internal=is_internal_session_key(key),
         shown_limit=max(limit, 0),
         messages=detail_messages,
@@ -352,6 +358,22 @@ def render_session_detail_text(detail: SessionDetail) -> str:
     ]
     if detail.metadata:
         lines.append(f"Metadata: {detail.metadata}")
+    if detail.working_checkpoint:
+        checkpoint = detail.working_checkpoint
+        lines.extend(
+            [
+                "Working checkpoint:",
+                f"  status: {checkpoint.get('status', '-')}",
+                f"  goal: {checkpoint.get('goal', '-')}",
+                f"  current: {checkpoint.get('current_step', '-')}",
+            ]
+        )
+        next_step = checkpoint.get("next_step")
+        if next_step:
+            lines.append(f"  next: {next_step}")
+        updated = checkpoint.get("updated_at")
+        if updated:
+            lines.append(f"  updated: {updated}")
     lines.append("")
     if detail.messages:
         shown = min(detail.shown_limit, detail.message_count)

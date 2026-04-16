@@ -87,6 +87,16 @@ def test_sessions_show_json_returns_recent_messages_and_metadata(tmp_path: Path)
         ("assistant", "final answer"),
         persona="Aria",
     )
+    manager = SessionManager(workspace)
+    session = manager.get_or_create("cli:alpha")
+    session.metadata["working_checkpoint"] = {
+        "status": "running",
+        "goal": "hello",
+        "current_step": "Inspect the latest files",
+        "next_step": "Prepare the final response",
+        "updated_at": "2026-04-16T00:00:00Z",
+    }
+    manager.save(session)
 
     result = runner.invoke(
         app,
@@ -98,6 +108,8 @@ def test_sessions_show_json_returns_recent_messages_and_metadata(tmp_path: Path)
     assert payload["key"] == "cli:alpha"
     assert payload["persona"] == "Aria"
     assert payload["message_count"] == 3
+    assert payload["working_checkpoint"]["status"] == "running"
+    assert payload["working_checkpoint"]["current_step"] == "Inspect the latest files"
     assert [message["content"] for message in payload["messages"]] == [
         "working on it",
         "final answer",
@@ -368,6 +380,15 @@ def test_local_session_command_use_and_show(tmp_path: Path) -> None:
     workspace.mkdir()
     _save_session(workspace, "cli:alpha", ("user", "first"), ("assistant", "second"), persona="Aria")
     manager = SessionManager(workspace)
+    session = manager.get_or_create("cli:alpha")
+    session.metadata["working_checkpoint"] = {
+        "status": "running",
+        "goal": "first",
+        "current_step": "Inspect the workspace",
+        "next_step": "Reply with the result",
+        "updated_at": "2026-04-16T00:00:00Z",
+    }
+    manager.save(session)
 
     switched = commands._handle_local_session_command(
         "/session use alpha",
@@ -384,6 +405,8 @@ def test_local_session_command_use_and_show(tmp_path: Path) -> None:
     assert switched.text == "Switched to session: cli:alpha"
     assert "hahobot sessions show cli:alpha" in detail.text
     assert "Persona: Aria" in detail.text
+    assert "Working checkpoint:" in detail.text
+    assert "current: Inspect the workspace" in detail.text
     assert "second" in detail.text
 
 

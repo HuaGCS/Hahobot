@@ -5,6 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from hahobot.agent.hook import AgentHookContext
+from hahobot.agent.working_checkpoint import (
+    build_checkpoint_from_context,
+    build_checkpoint_from_runner_payload,
+    build_interrupted_checkpoint,
+    build_pending_checkpoint,
+)
+
 if TYPE_CHECKING:
     from hahobot.agent.loop import AgentLoop
     from hahobot.session.manager import Session
@@ -19,11 +27,17 @@ class CheckpointRuntimeManager:
     def set_runtime_checkpoint(self, session: Session, payload: dict[str, Any]) -> None:
         """Persist the latest in-flight turn state into session metadata."""
         session.metadata[self.loop._RUNTIME_CHECKPOINT_KEY] = payload
+        working = build_checkpoint_from_runner_payload(session.messages, payload)
+        if working is not None:
+            session.metadata[self.loop._WORKING_CHECKPOINT_KEY] = working
         self.loop.sessions.save(session)
 
     def mark_pending_user_turn(self, session: Session) -> None:
         """Mark that the current session has only the triggering user turn persisted."""
         session.metadata[self.loop._PENDING_USER_TURN_KEY] = True
+        working = build_pending_checkpoint(session.messages)
+        if working is not None:
+            session.metadata[self.loop._WORKING_CHECKPOINT_KEY] = working
 
     def clear_pending_user_turn(self, session: Session) -> None:
         """Remove the pending-user-turn marker from session metadata."""
@@ -32,6 +46,18 @@ class CheckpointRuntimeManager:
     def clear_runtime_checkpoint(self, session: Session) -> None:
         """Remove the in-flight runtime checkpoint from session metadata."""
         session.metadata.pop(self.loop._RUNTIME_CHECKPOINT_KEY, None)
+
+    def clear_working_checkpoint(self, session: Session) -> None:
+        """Remove the current working checkpoint from session metadata."""
+        session.metadata.pop(self.loop._WORKING_CHECKPOINT_KEY, None)
+
+    def update_working_checkpoint(self, session: Session, context: AgentHookContext) -> None:
+        """Persist the current working checkpoint from the latest hook context."""
+        payload = build_checkpoint_from_context(context)
+        if payload is None:
+            return
+        session.metadata[self.loop._WORKING_CHECKPOINT_KEY] = payload
+        self.loop.sessions.save(session)
 
     @staticmethod
     def checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:
@@ -98,6 +124,9 @@ class CheckpointRuntimeManager:
                 overlap = size
                 break
         session.messages.extend(restored_messages[overlap:])
+        interrupted = build_interrupted_checkpoint(session.messages)
+        if interrupted is not None:
+            session.metadata[self.loop._WORKING_CHECKPOINT_KEY] = interrupted
 
         self.clear_pending_user_turn(session)
         self.clear_runtime_checkpoint(session)
@@ -115,6 +144,9 @@ class CheckpointRuntimeManager:
                 "timestamp": datetime.now().isoformat(),
             })
             session.updated_at = datetime.now()
+            interrupted = build_interrupted_checkpoint(session.messages)
+            if interrupted is not None:
+                session.metadata[self.loop._WORKING_CHECKPOINT_KEY] = interrupted
 
         self.clear_pending_user_turn(session)
         return True

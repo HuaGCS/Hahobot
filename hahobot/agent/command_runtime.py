@@ -52,6 +52,27 @@ class CommandRuntimeManager:
         return value or None
 
     @staticmethod
+    def _skill_derive_args(content: str) -> tuple[str | None, str, bool]:
+        parts = content.strip().split()
+        payload = parts[2:] if len(parts) > 2 else []
+        if not payload:
+            return None, "", False
+
+        force = False
+        cleaned: list[str] = []
+        for token in payload:
+            if token in {"--force", "-f"}:
+                force = True
+                continue
+            cleaned.append(token)
+
+        if not cleaned:
+            return None, "", force
+        raw_name = cleaned[0].strip() or None
+        brief = " ".join(cleaned[1:]).strip()
+        return raw_name, brief, force
+
+    @staticmethod
     def _persona_usage(language: str) -> str:
         return "\n".join([
             text(language, "cmd_persona_current"),
@@ -154,6 +175,19 @@ class CommandRuntimeManager:
             if not slug:
                 return self._response(msg, text(language, "skill_uninstall_missing_slug"))
             return await self.loop._skill_commands.uninstall(msg, language, slug)
+
+        if subcommand == "derive":
+            raw_name, brief, force = self._skill_derive_args(msg.content)
+            if not raw_name:
+                return self._response(msg, text(language, "skill_derive_missing_name"))
+            return await self.loop._skill_commands.derive(
+                msg,
+                session,
+                language,
+                raw_name,
+                brief,
+                force=force,
+            )
 
         if subcommand == "list":
             return await self.loop._skill_commands.list(msg, language)

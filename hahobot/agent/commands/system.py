@@ -44,6 +44,7 @@ class SystemCommandHandler:
     def new_session(self, msg: InboundMessage, session: Session, language: str) -> OutboundMessage:
         snapshot = session.messages[session.last_consolidated:]
         session.clear()
+        self.loop._clear_working_checkpoint(session)
         self.loop.sessions.save(session)
         self.loop.sessions.invalidate(session.key)
 

@@ -15,7 +15,31 @@ from loguru import logger
 
 # Module-level encoder instance — tiktoken has its own internal cache but
 # avoiding repeated get_encoding() calls removes the per-call lookup overhead.
-_TIKTOKEN_ENC = tiktoken.get_encoding("cl100k_base")
+
+
+class _ApproxTokenEncoding:
+    """Offline fallback used when tiktoken cannot load the OpenAI merge table."""
+
+    @staticmethod
+    def encode(text: str) -> list[int]:
+        if not text:
+            return []
+        approx_tokens = max(1, (len(text.encode("utf-8")) + 3) // 4)
+        return [0] * approx_tokens
+
+
+def _load_token_encoding():
+    try:
+        return tiktoken.get_encoding("cl100k_base")
+    except Exception as exc:
+        logger.warning(
+            "tiktoken cl100k_base unavailable; using approximate token counting fallback: {}",
+            exc,
+        )
+        return _ApproxTokenEncoding()
+
+
+_TIKTOKEN_ENC = _load_token_encoding()
 
 
 def strip_think(text: str) -> str:

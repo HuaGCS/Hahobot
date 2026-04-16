@@ -96,6 +96,7 @@ class RunRuntimeManager:
                 on_progress=on_progress,
                 on_stream=on_stream,
                 on_stream_end=on_stream_end,
+                session=session,
                 channel=channel,
                 chat_id=chat_id,
                 message_id=message_id,
@@ -122,6 +123,7 @@ class RunRuntimeManager:
         on_progress: Callable[..., Awaitable[None]] | None,
         on_stream: Callable[[str], Awaitable[None]] | None,
         on_stream_end: Callable[..., Awaitable[None]] | None,
+        session: Session | None,
         channel: str,
         chat_id: str,
         message_id: str | None,
@@ -135,6 +137,7 @@ class RunRuntimeManager:
             tool_hint=self.loop._tool_hint,
             set_tool_context=self.loop._set_tool_context,
             filter_persona_response=self.loop._filter_persona_response,
+            update_working_checkpoint=self._working_checkpoint_callback(session),
             on_progress=on_progress,
             on_stream=on_stream,
             on_stream_end=on_stream_end,
@@ -156,6 +159,16 @@ class RunRuntimeManager:
             self.loop._set_runtime_checkpoint(session, payload)
 
         return _checkpoint
+
+    def _working_checkpoint_callback(self, session: Session | None):
+        """Build the post-iteration working-checkpoint updater."""
+
+        def _update(context) -> None:
+            if session is None:
+                return
+            self.loop._update_working_checkpoint(session, context)
+
+        return _update
 
     def _record_usage_and_logs(self, result) -> None:
         """Persist last usage counters and emit stable stop-reason logs."""

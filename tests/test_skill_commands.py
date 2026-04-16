@@ -282,7 +282,107 @@ async def test_skill_help_includes_skill_command(tmp_path: Path) -> None:
     )
 
     assert response is not None
-    assert "/skill <search|install|uninstall|list|update>" in response.content
+    assert "/skill <search|install|uninstall|list|update|derive>" in response.content
+
+
+@pytest.mark.asyncio
+async def test_skill_derive_creates_workspace_skill_draft_from_session_context(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    session = loop.sessions.get_or_create("cli:direct")
+    session.add_message("user", "Trace the browser status page regression")
+    session.add_message("assistant", "The recent fix came from narrowing the task and verifying the status page.")
+    session.metadata["working_checkpoint"] = {
+        "status": "completed",
+        "goal": "Trace the browser status page regression",
+        "current_step": "Final response delivered",
+        "next_step": "",
+        "recent_tools": ["grep", "read_file", "exec"],
+        "response_preview": "Status page now shows current and next step correctly.",
+        "updated_at": "2026-04-16T00:00:00Z",
+    }
+    loop.sessions.save(session)
+
+    response = await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="/skill derive status-page-fix browser status workflow",
+        )
+    )
+
+    assert response is not None
+    assert "Created workspace skill draft status-page-fix" in response.content
+    assert "Derived from session: cli:direct" in response.content
+
+    skill_path = tmp_path / "skills" / "status-page-fix" / "SKILL.md"
+    assert skill_path.exists()
+    content = skill_path.read_text(encoding="utf-8")
+    assert "name: status-page-fix" in content
+    assert "Use when you need to browser status workflow." in content
+    assert "Repeat this workspace-local workflow for: Trace the browser status page regression" in content
+    assert "Start with these tools or command families when relevant: grep, read_file, exec." in content
+    assert "Derived from session: cli:direct" in content
+    assert "Recent completion summary: Status page now shows current and next step correctly." in content
+
+
+@pytest.mark.asyncio
+async def test_skill_derive_refuses_to_overwrite_existing_draft_without_force(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    skill_path = tmp_path / "skills" / "status-page-fix" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text("original draft\n", encoding="utf-8")
+
+    response = await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="/skill derive status-page-fix browser status workflow",
+        )
+    )
+
+    assert response is not None
+    assert "already exists" in response.content
+    assert "--force" in response.content
+    assert skill_path.read_text(encoding="utf-8") == "original draft\n"
+
+
+@pytest.mark.asyncio
+async def test_skill_derive_force_overwrites_existing_draft(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    session = loop.sessions.get_or_create("cli:direct")
+    session.add_message("user", "Trace the browser status page regression")
+    session.add_message("assistant", "The recent fix came from narrowing the task and verifying the status page.")
+    session.metadata["working_checkpoint"] = {
+        "status": "completed",
+        "goal": "Trace the browser status page regression",
+        "current_step": "Final response delivered",
+        "next_step": "",
+        "recent_tools": ["grep", "read_file", "exec"],
+        "response_preview": "Status page now shows current and next step correctly.",
+        "updated_at": "2026-04-16T00:00:00Z",
+    }
+    loop.sessions.save(session)
+    skill_path = tmp_path / "skills" / "status-page-fix" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text("original draft\n", encoding="utf-8")
+
+    response = await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="/skill derive --force status-page-fix browser status workflow",
+        )
+    )
+
+    assert response is not None
+    assert "Overwrote workspace skill draft status-page-fix" in response.content
+    content = skill_path.read_text(encoding="utf-8")
+    assert content != "original draft\n"
+    assert "name: status-page-fix" in content
+    assert "Use when you need to browser status workflow." in content
 
 
 @pytest.mark.asyncio
@@ -311,10 +411,16 @@ async def test_skill_usage_errors_are_user_facing(tmp_path: Path) -> None:
     missing_uninstall_slug = await loop._process_message(
         InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill uninstall")
     )
+    missing_derive_name = await loop._process_message(
+        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill derive")
+    )
 
     assert usage is not None
     assert "/skill search <query>" in usage.content
+    assert "/skill derive <name> [brief] [--force]" in usage.content
     assert missing_slug is not None
     assert "Missing skill slug" in missing_slug.content
     assert missing_uninstall_slug is not None
     assert "/skill uninstall <slug>" in missing_uninstall_slug.content
+    assert missing_derive_name is not None
+    assert "/skill derive <name> [brief] [--force]" in missing_derive_name.content

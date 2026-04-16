@@ -122,6 +122,8 @@ def _render_status_page(
             f'<div class="meta-row"><span class="{_status_badge_class(task.status)}">{escape(_task_status_text(task.status))}</span>'
             f'<span>开始于 <code>{escape(task.started_at or "-")}</code></span></div>'
             f'<div class="meta-row"><span>结束于 <code>{escape(task.finished_at or "仍在处理中")}</code></span></div>'
+            f'<div class="muted">当前步骤: {escape(task.current_step or "暂无")}</div>'
+            f'<div class="muted">下一步: {escape(task.next_step or "暂无")}</div>'
             f'<div class="muted">{escape(task.response_preview or "暂无响应摘要")}</div>'
             f"</div>"
         )

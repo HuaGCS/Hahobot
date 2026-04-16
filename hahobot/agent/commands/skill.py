@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,15 +15,24 @@ import httpx
 from loguru import logger
 
 from hahobot.agent.i18n import text
+from hahobot.agent.working_checkpoint import (
+    latest_user_goal,
+    normalize_working_checkpoint,
+    tool_names,
+)
 from hahobot.bus.events import InboundMessage, OutboundMessage
 from hahobot.utils.helpers import ensure_dir
 
 if TYPE_CHECKING:
     from hahobot.agent.loop import AgentLoop
+    from hahobot.session.manager import Session
 
 
 class SkillCommandHandler:
     """Encapsulates `/skill` subcommand behavior for AgentLoop."""
+
+    _SKILL_NAME_LIMIT = 64
+    _SUMMARY_LIMIT = 240
 
     def __init__(self, loop: AgentLoop) -> None:
         self.loop = loop
@@ -332,6 +343,140 @@ class SkillCommandHandler:
             notes.append(text(language, "skill_applied_to_workspace", workspace=self.loop.workspace))
         return "\n\n".join(notes) if notes else text(language, "skill_command_completed", command=subcommand)
 
+    @classmethod
+    def _normalize_skill_slug(cls, raw: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
+        normalized = re.sub(r"-{2,}", "-", normalized).strip("-")
+        return normalized[: cls._SKILL_NAME_LIMIT].strip("-")
+
+    @staticmethod
+    def _skill_title(slug: str) -> str:
+        return " ".join(part.capitalize() for part in slug.split("-") if part)
+
+    @classmethod
+    def _trim_preview(cls, value: str | None) -> str:
+        normalized = " ".join((value or "").split())
+        if len(normalized) <= cls._SUMMARY_LIMIT:
+            return normalized
+        return normalized[: cls._SUMMARY_LIMIT - 3].rstrip() + "..."
+
+    def _latest_role_preview(self, session: Session, role: str) -> str:
+        for message in reversed(session.messages):
+            if message.get("role") != role:
+                continue
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return self._trim_preview(content)
+        return ""
+
+    def _recent_tool_names(self, session: Session) -> list[str]:
+        collected: list[str] = []
+        seen: set[str] = set()
+        for message in reversed(session.messages[-20:]):
+            content_name = str(message.get("name") or "").strip()
+            if message.get("role") == "tool" and content_name and content_name not in seen:
+                seen.add(content_name)
+                collected.append(content_name)
+            tool_calls = message.get("tool_calls")
+            if isinstance(tool_calls, list):
+                for name in tool_names(tool_calls):
+                    if name and name not in seen:
+                        seen.add(name)
+                        collected.append(name)
+            if len(collected) >= 6:
+                break
+        collected.reverse()
+        return collected[:6]
+
+    def _derive_skill_description(
+        self,
+        *,
+        goal: str,
+        brief: str,
+    ) -> str:
+        subject = self._trim_preview(brief or goal or "repeat the recent workspace workflow")
+        return (
+            f"Use when you need to {subject}. Gather current workspace evidence first, "
+            "follow the saved workflow, and validate before finishing."
+        )
+
+    def _derive_skill_markdown(
+        self,
+        *,
+        slug: str,
+        session: Session,
+        brief: str,
+    ) -> str:
+        checkpoint = normalize_working_checkpoint(session.metadata.get("working_checkpoint")) or {}
+        goal = str(checkpoint.get("goal") or "") or latest_user_goal(session.messages)
+        goal = self._trim_preview(goal or brief or "repeat the recent workspace workflow")
+        current_step = self._trim_preview(str(checkpoint.get("current_step") or "")) or (
+            "Inspect the current workspace state before making changes."
+        )
+        next_step = self._trim_preview(str(checkpoint.get("next_step") or "")) or (
+            "Run the narrowest verification available and confirm the user-visible result."
+        )
+        response_preview = self._trim_preview(str(checkpoint.get("response_preview") or ""))
+        assistant_preview = self._latest_role_preview(session, "assistant")
+        tool_list = list(checkpoint.get("recent_tools") or []) or self._recent_tool_names(session)
+        tool_line = ", ".join(tool_list) if tool_list else "TODO: capture the key tools or commands for this flow"
+        title = self._skill_title(slug) or slug
+        today = datetime.now(tz=UTC).date().isoformat()
+        description = self._derive_skill_description(goal=goal, brief=brief)
+        summary_line = response_preview or assistant_preview or (
+            "TODO: replace this with a tighter summary after one more successful run."
+        )
+        focus_line = self._trim_preview(brief)
+        lines = [
+            "---",
+            f"name: {slug}",
+            f"description: {json.dumps(description, ensure_ascii=False)}",
+            "---",
+            "",
+            f"# {title}",
+            "",
+            "## When to Use This Skill",
+            f"- Repeat this workspace-local workflow for: {goal}",
+            "- Use it when the current task matches this pattern and you want a concrete checklist.",
+            "- Do not use it blindly if the repo structure, tooling, or runtime assumptions have changed.",
+        ]
+        if focus_line:
+            lines.append(f"- Requested draft focus: {focus_line}")
+        lines.extend(
+            [
+                "",
+                "## First Checks",
+                "- Restate the goal in current repo terms before touching files.",
+                "- Inspect the decisive files, config, logs, routes, or diffs first instead of relying on stale chat context.",
+                "- Confirm the current workspace still matches the assumptions captured below.",
+                "",
+                "## Workflow",
+                "1. Gather the narrowest current evidence for the task before changing anything.",
+                f"2. Start with these tools or command families when relevant: {tool_line}.",
+                f"3. Keep the active step explicit: {current_step}",
+                "4. After each meaningful change, re-read the touched files or outputs instead of assuming the edit landed correctly.",
+                f"5. Finish by validating the likely next step: {next_step}",
+                "",
+                "## Validation",
+                "- Run the narrowest available verification for the touched scope.",
+                "- Confirm the final result against the original goal, not just command success.",
+                "- If evidence diverges from the saved pattern, stop and update this skill instead of forcing the old flow.",
+                "",
+                "## Known Pitfalls",
+                "- Stale chat context can be wrong; trust current workspace state first.",
+                "- Avoid broad edits before the decisive file, route, config, or log source is proven.",
+                "- Keep this skill narrow; split unrelated variations into separate skills.",
+                "",
+                "## Draft Notes",
+                f"- Derived from session: {session.key}",
+                f"- Source goal: {goal}",
+                f"- Recent tool pattern: {tool_line}",
+                f"- Recent completion summary: {summary_line}",
+                f"- Last review date: {today}",
+            ]
+        )
+        return "\n".join(lines) + "\n"
+
     async def _run_skill_clawhub_command(
         self,
         msg: InboundMessage,
@@ -418,6 +563,61 @@ class SkillCommandHandler:
             )
 
         return self._response(msg, "\n\n".join(notes))
+
+    async def derive(
+        self,
+        msg: InboundMessage,
+        session: Session,
+        language: str,
+        raw_name: str,
+        brief: str = "",
+        *,
+        force: bool = False,
+    ) -> OutboundMessage:
+        slug = self._normalize_skill_slug(raw_name)
+        if not slug:
+            return self._response(msg, text(language, "skill_derive_invalid_name", name=raw_name))
+
+        skill_dir = self.loop.workspace / "skills" / slug
+        skill_path = skill_dir / "SKILL.md"
+        existed_before = skill_path.exists()
+        if existed_before:
+            if not force:
+                return self._response(
+                    msg,
+                    text(language, "skill_derive_exists", slug=slug, path=skill_path),
+                )
+
+        markdown = self._derive_skill_markdown(
+            slug=slug,
+            session=session,
+            brief=brief,
+        )
+        try:
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            skill_path.write_text(markdown, encoding="utf-8")
+        except OSError:
+            logger.exception("Failed to write derived skill draft {}", skill_path)
+            return self._response(
+                msg,
+                text(language, "skill_derive_failed", slug=slug, path=skill_path),
+            )
+
+        return self._response(
+            msg,
+            "\n\n".join(
+                [
+                    text(
+                        language,
+                        "skill_derive_overwritten" if force and existed_before else "skill_derive_created",
+                        slug=slug,
+                        path=skill_path,
+                    ),
+                    text(language, "skill_derive_session_note", session=session.key),
+                    text(language, "skill_derive_review_hint"),
+                ]
+            ),
+        )
 
     async def list(self, msg: InboundMessage, language: str) -> OutboundMessage:
         return await self._run_skill_clawhub_command(msg, language, "list", "list")

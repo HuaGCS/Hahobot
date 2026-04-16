@@ -269,7 +269,13 @@ class TestSubagentCancellation:
 
         monkeypatch.setattr("hahobot.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
-        await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"})
+        await mgr._run_subagent(
+            "sub-1",
+            "do task",
+            "label",
+            "implement",
+            {"channel": "test", "chat_id": "c1"},
+        )
 
         assistant_messages = [
             msg for msg in captured_second_call
@@ -308,10 +314,49 @@ class TestSubagentCancellation:
 
         mgr.runner.run = AsyncMock(side_effect=fake_run)
 
-        await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"})
+        await mgr._run_subagent(
+            "sub-1",
+            "do task",
+            "label",
+            "implement",
+            {"channel": "test", "chat_id": "c1"},
+        )
 
         mgr.runner.run.assert_awaited_once()
         mgr._announce_result.assert_awaited_once()
+
+    def test_subagent_mode_builds_mode_specific_tool_registry(self, tmp_path):
+        from hahobot.agent.subagent import SubagentManager
+        from hahobot.bus.queue import MessageBus
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        mgr = SubagentManager(
+            provider=provider,
+            workspace=tmp_path,
+            bus=bus,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+
+        explore_tools = mgr._build_tools_for_mode("explore")
+        verify_tools = mgr._build_tools_for_mode("verify")
+        implement_tools = mgr._build_tools_for_mode("implement")
+
+        assert explore_tools.get("read_file") is not None
+        assert explore_tools.get("write_file") is None
+        assert explore_tools.get("edit_file") is None
+        assert explore_tools.get("exec") is None
+
+        assert verify_tools.get("read_file") is not None
+        assert verify_tools.get("write_file") is None
+        assert verify_tools.get("edit_file") is None
+        assert verify_tools.get("exec") is not None
+
+        assert implement_tools.get("read_file") is not None
+        assert implement_tools.get("write_file") is not None
+        assert implement_tools.get("edit_file") is not None
+        assert implement_tools.get("exec") is not None
 
     @pytest.mark.asyncio
     async def test_subagent_announces_error_when_tool_execution_fails(self, monkeypatch, tmp_path):
@@ -344,7 +389,13 @@ class TestSubagentCancellation:
 
         monkeypatch.setattr("hahobot.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
-        await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"})
+        await mgr._run_subagent(
+            "sub-1",
+            "do task",
+            "label",
+            "implement",
+            {"channel": "test", "chat_id": "c1"},
+        )
 
         mgr._announce_result.assert_awaited_once()
         args = mgr._announce_result.await_args.args
@@ -389,7 +440,13 @@ class TestSubagentCancellation:
         monkeypatch.setattr("hahobot.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
         task = asyncio.create_task(
-            mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"})
+            mgr._run_subagent(
+                "sub-1",
+                "do task",
+                "label",
+                "implement",
+                {"channel": "test", "chat_id": "c1"},
+            )
         )
         mgr._running_tasks["sub-1"] = task
         mgr._session_tasks["test:c1"] = {"sub-1"}

@@ -110,6 +110,7 @@ class SubagentManager:
         self,
         task: str,
         label: str | None = None,
+        mode: str = "implement",
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
@@ -118,9 +119,10 @@ class SubagentManager:
         task_id = str(uuid.uuid4())[:8]
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
+        normalized_mode = self._normalize_mode(mode)
 
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin)
+            self._run_subagent(task_id, task, display_label, normalized_mode, origin)
         )
         self._running_tasks[task_id] = bg_task
         if session_key:
@@ -135,72 +137,26 @@ class SubagentManager:
 
         bg_task.add_done_callback(_cleanup)
 
-        logger.info("Spawned subagent [{}]: {}", task_id, display_label)
-        return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
+        logger.info("Spawned subagent [{}] [{}]: {}", task_id, normalized_mode, display_label)
+        return (
+            f"Subagent [{display_label}] started in {normalized_mode} mode (id: {task_id}). "
+            "I'll notify you when it completes."
+        )
 
     async def _run_subagent(
         self,
         task_id: str,
         task: str,
         label: str,
+        mode: str,
         origin: dict[str, str],
     ) -> None:
         """Execute the subagent task and announce the result."""
-        logger.info("Subagent [{}] starting task: {}", task_id, label)
+        logger.info("Subagent [{}] starting task [{}]: {}", task_id, mode, label)
 
         try:
-            # Build subagent tools (no message tool, no spawn tool)
-            tools = ToolRegistry()
-            from hahobot.config.schema import ImageGenConfig, WebSearchConfig, WebToolsConfig
-
-            policy = RuntimeToolPolicy(
-                workspace=self.workspace,
-                restrict_to_workspace=self.restrict_to_workspace,
-                web_config=WebToolsConfig(
-                    enable=self.web_enabled,
-                    proxy=self.web_proxy,
-                    search=WebSearchConfig(
-                        provider=self.web_search_provider,
-                        api_key=self.brave_api_key or "",
-                        base_url=self.web_search_base_url or "",
-                        max_results=self.web_search_max_results,
-                    ),
-                ),
-                exec_config=self.exec_config,
-                image_gen_config=ImageGenConfig(),
-                builtin_read_dirs=(BUILTIN_SKILLS_DIR,),
-            )
-            scope = policy.workspace_scope()
-            allowed_dir = scope.allowed_dir
-            extra_read = list(scope.extra_read_dirs) if scope.extra_read_dirs else None
-            tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
-            tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(GlobTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(GrepTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            if policy.exec().enabled:
-                tools.register(ExecTool(
-                    working_dir=str(self.workspace),
-                    timeout=self.exec_config.timeout,
-                    restrict_to_workspace=self.restrict_to_workspace,
-                    sandbox=self.exec_config.sandbox,
-                    path_append=self.exec_config.path_append,
-                    allowed_env_keys=self.exec_config.allowed_env_keys,
-                ))
-            if policy.web().enabled:
-                tools.register(
-                    WebSearchTool(
-                        provider=self.web_search_provider,
-                        api_key=self.brave_api_key,
-                        base_url=self.web_search_base_url,
-                        max_results=self.web_search_max_results,
-                        proxy=self.web_proxy,
-                    )
-                )
-                tools.register(WebFetchTool(proxy=self.web_proxy))
-
-            system_prompt = self._build_subagent_prompt()
+            tools = self._build_tools_for_mode(mode)
+            system_prompt = self._build_subagent_prompt(mode)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task},
@@ -299,7 +255,79 @@ class SubagentManager:
             lines.append(f"- {result.error}")
         return "\n".join(lines) or (result.error or "Error: subagent execution failed.")
 
-    def _build_subagent_prompt(self) -> str:
+    @staticmethod
+    def _normalize_mode(mode: str | None) -> str:
+        normalized = (mode or "implement").strip().lower()
+        if normalized in {"explore", "verify"}:
+            return normalized
+        return "implement"
+
+    def _build_tools_for_mode(self, mode: str) -> ToolRegistry:
+        """Build one subagent tool registry for the selected mode."""
+        tools = ToolRegistry()
+        from hahobot.config.schema import ImageGenConfig, WebSearchConfig, WebToolsConfig
+
+        policy = RuntimeToolPolicy(
+            workspace=self.workspace,
+            restrict_to_workspace=self.restrict_to_workspace,
+            web_config=WebToolsConfig(
+                enable=self.web_enabled,
+                proxy=self.web_proxy,
+                search=WebSearchConfig(
+                    provider=self.web_search_provider,
+                    api_key=self.brave_api_key or "",
+                    base_url=self.web_search_base_url or "",
+                    max_results=self.web_search_max_results,
+                ),
+            ),
+            exec_config=self.exec_config,
+            image_gen_config=ImageGenConfig(),
+            builtin_read_dirs=(BUILTIN_SKILLS_DIR,),
+        )
+        scope = policy.workspace_scope()
+        allowed_dir = scope.allowed_dir
+        extra_read = list(scope.extra_read_dirs) if scope.extra_read_dirs else None
+
+        tools.register(
+            ReadFileTool(
+                workspace=self.workspace,
+                allowed_dir=allowed_dir,
+                extra_allowed_dirs=extra_read,
+            )
+        )
+        tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        tools.register(GlobTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        tools.register(GrepTool(workspace=self.workspace, allowed_dir=allowed_dir))
+
+        if mode == "implement":
+            tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+            tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+
+        if mode in {"implement", "verify"} and policy.exec().enabled:
+            tools.register(ExecTool(
+                working_dir=str(self.workspace),
+                timeout=self.exec_config.timeout,
+                restrict_to_workspace=self.restrict_to_workspace,
+                sandbox=self.exec_config.sandbox,
+                path_append=self.exec_config.path_append,
+                allowed_env_keys=self.exec_config.allowed_env_keys,
+            ))
+
+        if policy.web().enabled:
+            tools.register(
+                WebSearchTool(
+                    provider=self.web_search_provider,
+                    api_key=self.brave_api_key,
+                    base_url=self.web_search_base_url,
+                    max_results=self.web_search_max_results,
+                    proxy=self.web_proxy,
+                )
+            )
+            tools.register(WebFetchTool(proxy=self.web_proxy))
+
+        return tools
+
+    def _build_subagent_prompt(self, mode: str) -> str:
         """Build a focused system prompt for the subagent."""
         from hahobot.agent.context import ContextBuilder
         from hahobot.agent.skills import SkillsLoader
@@ -312,6 +340,7 @@ class SubagentManager:
         return render_template(
             "agent/subagent_system.md",
             time_ctx=time_ctx,
+            mode=mode,
             workspace=str(self.workspace),
             skills_summary=skills_summary or "",
         )

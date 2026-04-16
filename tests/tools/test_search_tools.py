@@ -319,7 +319,13 @@ async def test_subagent_registers_grep_and_glob(tmp_path: Path) -> None:
     mgr.runner.run = fake_run
     mgr._announce_result = AsyncMock()
 
-    await mgr._run_subagent("sub-1", "search task", "label", {"channel": "cli", "chat_id": "direct"})
+    await mgr._run_subagent(
+        "sub-1",
+        "search task",
+        "label",
+        "implement",
+        {"channel": "cli", "chat_id": "direct"},
+    )
 
     assert "grep" in captured["tool_names"]
     assert "glob" in captured["tool_names"]
@@ -343,7 +349,7 @@ def test_subagent_prompt_respects_disabled_skills(tmp_path: Path) -> None:
         disabled_skills=["alpha"],
     )
 
-    prompt = mgr._build_subagent_prompt()
+    prompt = mgr._build_subagent_prompt("implement")
 
     assert "alpha" not in prompt
     assert "beta" in prompt

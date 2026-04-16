@@ -13,6 +13,10 @@ if TYPE_CHECKING:
     tool_parameters_schema(
         task=StringSchema("The task for the subagent to complete"),
         label=StringSchema("Optional short label for the task (for display)"),
+        mode=StringSchema(
+            "Subagent mode: explore for read-only investigation, implement for bounded changes, verify for independent validation.",
+            enum=("explore", "implement", "verify"),
+        ),
         required=["task"],
     )
 )
@@ -41,15 +45,24 @@ class SpawnTool(Tool):
             "Spawn a subagent to handle a task in the background. "
             "Use this for complex or time-consuming tasks that can run independently. "
             "The subagent will complete the task and report back when done. "
+            "Use mode='explore' for investigation, mode='implement' for bounded edits, "
+            "and mode='verify' for independent validation. "
             "For deliverables or existing projects, inspect the workspace first "
             "and use a dedicated subdirectory when helpful."
         )
 
-    async def execute(self, task: str, label: str | None = None, **kwargs: Any) -> str:
+    async def execute(
+        self,
+        task: str,
+        label: str | None = None,
+        mode: str | None = None,
+        **kwargs: Any,
+    ) -> str:
         """Spawn a subagent to execute the given task."""
         return await self._manager.spawn(
             task=task,
             label=label,
+            mode=mode or "implement",
             origin_channel=self._origin_channel,
             origin_chat_id=self._origin_chat_id,
             session_key=self._session_key,

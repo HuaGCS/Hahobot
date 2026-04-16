@@ -75,6 +75,7 @@ class LoopRunHook(AgentHook):
         "_stream_buf",
         "_strip_think",
         "_tool_hint",
+        "_update_working_checkpoint",
         "_visible_response_text",
     )
 
@@ -90,6 +91,7 @@ class LoopRunHook(AgentHook):
         tool_hint: Callable[[list], str],
         set_tool_context: Callable[[str, str, str | None, str | None], None],
         filter_persona_response: Callable[[str | None, str | None], str | None],
+        update_working_checkpoint: Callable[[AgentHookContext], None] | None = None,
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
@@ -105,6 +107,7 @@ class LoopRunHook(AgentHook):
         self._tool_hint = tool_hint
         self._set_tool_context = set_tool_context
         self._filter_persona_response = filter_persona_response
+        self._update_working_checkpoint = update_working_checkpoint
         self._on_progress = on_progress
         self._on_stream = on_stream
         self._on_stream_end = on_stream_end
@@ -159,3 +162,7 @@ class LoopRunHook(AgentHook):
     def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
         visible = self._filter_persona_response(content, self._persona)
         return visible or content
+
+    async def after_iteration(self, context: AgentHookContext) -> None:
+        if self._update_working_checkpoint is not None:
+            self._update_working_checkpoint(context)

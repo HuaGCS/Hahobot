@@ -218,6 +218,8 @@ async def test_gateway_status_route_renders_html_status_page_for_browser_request
     runtime_tracker.note_task_finished(
         7,
         status="ok",
+        current_step="Final response delivered",
+        next_step="",
         response_preview="已经整理出最新任务清单。",
     )
     heartbeat = HeartbeatService(
@@ -253,6 +255,8 @@ async def test_gateway_status_route_renders_html_status_page_for_browser_request
     assert 'id="status-uptime-kpi"' in response.text
     assert 'data-started-at-ms="' in response.text
     assert "整理最近的待办任务" in response.text
+    assert "当前步骤: Final response delivered" in response.text
+    assert "下一步: 暂无" in response.text
     assert "openrouter/sonnet" in response.text
     assert "最近一次成功" in response.text
 
@@ -384,6 +388,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert "命令总览" in commands_page.text
     assert "命令列表" in commands_page.text
     assert "/language" in commands_page.text
+    assert "/skill derive" in commands_page.text
     assert "/skill update" in commands_page.text
     assert "/restart" in commands_page.text
     assert "/update" in commands_page.text

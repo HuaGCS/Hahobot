@@ -1067,6 +1067,26 @@ HTTP 示例：
 - 把内置 `memorix` skill 注入系统提示
 - 在每个 runtime MCP 连接 / chat session 首次使用时调用一次 `memorix_session_start`
 
+### 内置 Workflow Skills
+
+hahobot 现在额外内置了一组偏工作流的 skills：
+
+- `workflow-core`：默认 always-on，用来约束先看上下文、再拆步、再验证的基本协作节奏
+- `plan`：需要显式规划时按当前代码库上下文整理步骤
+- `verify`：独立做回归检查、风险复核和验证收口
+- `skill-derive`：把重复工作流沉淀成 workspace skill 的模板化指引
+
+同时，subagent 现在支持显式模式：
+
+- `explore`：只读调查，不给写文件或执行 shell
+- `implement`：正常实现模式，可读写文件并按配置使用 shell
+- `verify`：独立验证模式，可读文件和执行检查命令，但不允许写文件
+
+另外，`/skill derive <name> [brief] [--force]` 可以把当前会话最近一次成功流程和
+`working_checkpoint` 提炼成当前 workspace 下的本地 skill 草稿
+`workspace/skills/<name>/SKILL.md`，方便后续再人工收紧和复用。默认不会覆盖已有草稿，
+只有显式传 `--force` 时才会重写。
+
 ### 隐藏内置或工作区 Skill
 
 如果你不希望某些 skill 暴露给主 agent 或 subagent，可以设置
@@ -1252,7 +1272,7 @@ hahobot 可以额外暴露一个很小的 HTTP 状态接口，方便接入
 - `gateway.status.enabled=false` 时，`/status` 返回 `404`
 - 如果 `gateway.status.authKey` 非空，请在请求头里带上 `Authorization: Bearer <authKey>`
 - 脚本/API 请求会继续返回 JSON，包含 `state`、`detail`、`updatedAt`、`activeRuns` 等稳定字段
-- 浏览器访问时会渲染内置状态页，展示 hahobot 是否正常运行、连续运行时间、最近一次处理的任务，以及当前 heartbeat / 模型检测状态
+- 浏览器访问时会渲染内置状态页，展示 hahobot 是否正常运行、连续运行时间、最近一次处理任务的当前步骤 / 下一步 / 响应摘要，以及当前 heartbeat / 模型检测状态
 - hahobot 会根据 agent 生命周期自动刷新状态，当前会使用 `idle`、`researching`、`executing`、`syncing`、`writing`、`error` 这些状态值
 - `gateway.status.push.mode=guest` 会作为访客 Agent 调用 `join-agent` / `agent-push`，此时必须填写 `joinKey`
 - `gateway.status.push.mode=main` 会驱动内置主 Agent 的 `set_state`，此时不需要 `joinKey`
@@ -1362,7 +1382,7 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 | `hahobot model [--json]` | 查看当前默认模型、provider 解析结果与 provider pool 路由 |
 | `hahobot tools [--json]` | 查看 web / exec / imageGen / MCP 当前配置与准备情况 |
 | `hahobot sessions list [--json]` | 列出当前 workspace 最近保存的会话，可配合 `hahobot agent --continue` 使用 |
-| `hahobot sessions show <key> [--json]` | 查看指定会话的元数据和最近消息 |
+| `hahobot sessions show <key> [--json]` | 查看指定会话的元数据、working checkpoint 和最近消息 |
 | `hahobot sessions export <key> [--format md|json] [--output <path>]` | 导出一个已保存会话，默认写到 `workspace/out/sessions/` |
 | `hahobot sessions compact <key> [--json]` | 手动对一个已保存会话执行现有的 token consolidation，并持久化更新后的游标 |
 | `hahobot repo status [--json]` | 只读查看当前 workspace 对应 Git 仓库的分支、跟踪状态和改动计数 |
@@ -1530,6 +1550,7 @@ manifest 中可声明：
 | `/skill uninstall <slug>` | 卸载 workspace 技能 |
 | `/skill list` | 查看技能 |
 | `/skill update` | 更新技能 |
+| `/skill derive <name> [brief] [--force]` | 从当前会话生成或显式覆盖本地 skill 草稿 |
 | `/mcp [list]` | 查看 MCP 服务和工具 |
 | `/stop` | 停止当前任务 |
 | `/restart` | 重启进程 |

@@ -8,9 +8,10 @@ burying that state across commit messages and chat logs.
 
 ## Scope
 
-Primary upstream tracked here:
+Primary upstreams tracked here:
 
 - `HKUDS/nanobot`
+- `lsdefine/GenericAgent`
 
 Related inspiration that is intentionally **not** treated as a parity target:
 
@@ -18,8 +19,19 @@ Related inspiration that is intentionally **not** treated as a parity target:
 - Hermes Agent docs
 - `soongenwong/claudecode`
 
-Those projects influence local direction, but this file is mainly for deciding whether a change
-from upstream `nanobot` still needs to be ported, re-audited, or deliberately ignored.
+These upstreams are not tracked in the same way:
+
+- `nanobot` remains the main behavior-parity target for runtime, channel, provider, and config
+  sync decisions.
+- `GenericAgent` is tracked as an architectural/workflow upstream: planning SOPs, layered memory
+  semantics, skill accumulation, and lightweight autonomous loops are worth auditing, but local
+  implementation is not expected to mirror file layout or minimal-tool philosophy one-to-one.
+
+This file therefore records both:
+
+- direct upstream parity work for `nanobot`
+- explicit adoption / divergence decisions for `GenericAgent` where the ideas are relevant to
+  hahobot's local runtime
 
 ## Status Legend
 
@@ -44,6 +56,9 @@ from upstream `nanobot` still needs to be ported, re-audited, or deliberately ig
 | Legacy rename compatibility | `synced` | `nanobot` CLI/module/import compatibility stays live, and default config fallback is preserved. |
 | Config fallback behavior | `intentional_divergence` | When no config path is passed, hahobot checks `~/.hahobot/config.json` first, then copies `~/.nanobot/config.json` into the hahobot location instead of migrating in place. |
 | Web search backend mix | `synced` | Built-in web search now supports Brave, SearXNG, and DuckDuckGo; DuckDuckGo runs as an exclusive tool so concurrent tool batches do not group multiple searches together. |
+| GenericAgent-style SOP workflow | `watchlist` | GenericAgent's explicit planning / verification / memory-management SOPs are a good fit for hahobot's existing skills + context system, but they have not yet been formalized as first-class built-in workflow skills. |
+| GenericAgent-style skill accumulation | `watchlist` | hahobot already has workspace/builtin skills plus `/skill search|install|list|update`, but it still lacks a local "derive successful execution into a reusable skill" loop. |
+| GenericAgent layered memory semantics | `synced` | hahobot already separates conversation archive, `MEMORY.md`, `PROFILE.md`, and `INSIGHTS.md`, with Dream + archive sidecars providing a stronger implementation than GenericAgent's simpler layered-memory framing. |
 | Hermes-inspired workspace wiki skill | `local_extension` | Built-in `llm-wiki` treats the repo itself as a local concept/config/architecture wiki, using docs + code + tests as the evidence chain without adding another runtime service. |
 | Persona / companion workflow | `local_extension` | `PROFILE.md`, `INSIGHTS.md`, `STYLE.md`, `LORE.md`, companion commands, SillyTavern imports, voice overrides, and scene generation are local-first features. |
 | Memory architecture | `local_extension` | Dream maintenance, archive sidecars, Mem0 backend/shadow-write, and structured profile/insight hygiene go beyond upstream nanobot. |
@@ -94,6 +109,10 @@ These are local choices. When upstream behaves differently, that is not automati
   moved, and existing legacy default workspaces are preserved.
 - The local project keeps `PROFILE.md` and `INSIGHTS.md` as separate memory layers rather than
   treating all long-term user/context data as one flat store.
+- `GenericAgent` is treated as an ideas upstream, not a strict structural upstream: hahobot keeps
+  richer runtime surfaces such as multi-channel delivery, admin/status pages, review/doctor
+  commands, MCP wiring, and hot-reloadable tool/runtime policy instead of converging on a
+  deliberately minimal single-loop architecture.
 - Admin, gateway status, Star-Office integration, companion doctor, and local session inspection
   are first-class local ops features even when upstream does not have equivalents.
 - Hermes-style dashboard/webui is intentionally not mirrored as a second UI stack; equivalent local
@@ -117,10 +136,15 @@ These are local choices. When upstream behaves differently, that is not automati
   churn.
 - Re-check docs/admin/AGENTS together whenever an upstream config toggle becomes user-visible in the
   local runtime.
+- Re-check `lsdefine/GenericAgent` when its planning SOPs, memory-management SOPs, skill
+  accumulation flow, or autonomous scheduler meaningfully change, and decide whether hahobot should
+  adopt the idea through local skills / Dream / heartbeat / admin surfaces rather than copying the
+  implementation verbatim.
 
 ## Update Checklist
 
-When syncing from upstream `nanobot`, update this file in the same patch:
+When syncing from upstream `nanobot`, or when recording a meaningful `GenericAgent`
+adoption/divergence decision, update this file in the same patch:
 
 1. Identify whether the upstream change is `synced`, `local_extension`, `intentional_divergence`,
    or `watchlist`.

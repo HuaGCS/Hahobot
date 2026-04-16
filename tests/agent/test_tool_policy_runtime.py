@@ -262,6 +262,12 @@ async def test_subagent_manager_respects_disabled_web_tools(tmp_path) -> None:
 
     mgr.runner.run = AsyncMock(side_effect=fake_run)
 
-    await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"})
+    await mgr._run_subagent(
+        "sub-1",
+        "do task",
+        "label",
+        "implement",
+        {"channel": "test", "chat_id": "c1"},
+    )
 
     mgr.runner.run.assert_awaited_once()
