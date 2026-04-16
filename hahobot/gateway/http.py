@@ -11,6 +11,8 @@ from aiohttp import web
 from loguru import logger
 from markupsafe import Markup
 
+from hahobot.agent.memory_metadata import load_persona_memory_layer_status
+from hahobot.agent.personas import DEFAULT_PERSONA
 from hahobot.config.loader import load_config
 from hahobot.gateway.admin import register_admin_routes, update_admin_runtime_workspace
 from hahobot.gateway.runtime_status import GatewayRuntimeStatusTracker
@@ -111,6 +113,7 @@ def _heartbeat_status_text(status: str) -> str:
 
 def _render_status_page(
     *,
+    workspace: Path | None,
     runtime_snapshot,
     heartbeat_snapshot: HeartbeatStatusSnapshot,
 ) -> str:
@@ -122,6 +125,7 @@ def _render_status_page(
             f'<div class="meta-row"><span class="{_status_badge_class(task.status)}">{escape(_task_status_text(task.status))}</span>'
             f'<span>开始于 <code>{escape(task.started_at or "-")}</code></span></div>'
             f'<div class="meta-row"><span>结束于 <code>{escape(task.finished_at or "仍在处理中")}</code></span></div>'
+            f'<div class="meta-row"><span>Persona <code>{escape(task.persona)}</code></span></div>'
             f'<div class="muted">当前步骤: {escape(task.current_step or "暂无")}</div>'
             f'<div class="muted">下一步: {escape(task.next_step or "暂无")}</div>'
             f'<div class="muted">{escape(task.response_preview or "暂无响应摘要")}</div>'
@@ -136,6 +140,40 @@ def _render_status_page(
         if heartbeat_snapshot.interval_s > 0
         else "未配置"
     )
+    if workspace is None:
+        memory_layers_html = Markup(
+            '<div class="muted">当前实例未绑定 runtime workspace，无法读取 memory layer 摘要。</div>'
+        )
+    else:
+        memory_persona = task.persona if task is not None else DEFAULT_PERSONA
+        memory_status = load_persona_memory_layer_status(workspace, memory_persona)
+        profile = memory_status.profile
+        insights = memory_status.insights
+        profile_meta = profile.metadata
+        insights_meta = insights.metadata
+        memory_layers_html = Markup(
+            f'<div class="meta">'
+            f'<div class="meta-row"><span>当前 persona <code>{escape(memory_status.persona)}</code></span>'
+            f'<span>层目录 <code>{escape(str(memory_status.root))}</code></span></div>'
+            f'<div class="stack">'
+            f'<div><strong>PROFILE.md</strong> <span class="muted">稳定用户事实 / 偏好</span></div>'
+            f'<div class="meta-row"><span>{profile.bullet_count} 条 bullet</span>'
+            f'<span>{profile_meta.tagged_bullets} 条带 metadata</span>'
+            f'<span>{profile_meta.with_last_verified} 条带 last_verified</span>'
+            f'<span>{profile_meta.legacy_verify_markers} 个 legacy verify</span></div>'
+            f'</div>'
+            f'<div class="stack">'
+            f'<div><strong>INSIGHTS.md</strong> <span class="muted">已验证协作规律 / 坑点</span></div>'
+            f'<div class="meta-row"><span>{insights.bullet_count} 条 bullet</span>'
+            f'<span>{insights_meta.tagged_bullets} 条带 metadata</span>'
+            f'<span>{insights_meta.with_last_verified} 条带 last_verified</span>'
+            f'<span>{insights_meta.legacy_verify_markers} 个 legacy verify</span></div>'
+            f'</div>'
+            f'<div class="muted">写入规则：<code>PROFILE.md</code> 放稳定用户事实与偏好，'
+            f'<code>INSIGHTS.md</code> 放已验证协作规律；推荐 metadata 形如 '
+            f'<code>&lt;!-- hahobot-meta: confidence=high last_verified=YYYY-MM-DD --&gt;</code>。</div>'
+            f'</div>'
+        )
     return render_html_template(
         "gateway/status.html",
         runtime_health_text=_runtime_health_text(runtime_snapshot.health),
@@ -155,6 +193,7 @@ def _render_status_page(
         heartbeat_interval=heartbeat_interval,
         heartbeat_checked_at=heartbeat_snapshot.last_checked_at or "-",
         heartbeat_detail=heartbeat_snapshot.last_detail or "暂无 heartbeat 检测记录",
+        memory_layers_html=memory_layers_html,
     )
 
 
@@ -212,6 +251,7 @@ def create_http_app(
                 else _default_heartbeat_snapshot()
             )
             html = _render_status_page(
+                workspace=workspace,
                 runtime_snapshot=runtime_tracker.snapshot(star_snapshot),
                 heartbeat_snapshot=heartbeat_snapshot,
             )

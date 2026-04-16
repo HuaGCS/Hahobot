@@ -25,6 +25,7 @@ async def test_gateway_status_hook_tracks_latest_completed_task() -> None:
     context = AgentHookContext(
         iteration=0,
         messages=[{"role": "user", "content": "Review the latest incident report"}],
+        persona="coder",
     )
 
     await hook.before_iteration(context)
@@ -39,6 +40,7 @@ async def test_gateway_status_hook_tracks_latest_completed_task() -> None:
     assert snapshot.model == "openrouter/sonnet"
     assert snapshot.recent_task is not None
     assert snapshot.recent_task.summary == "Review the latest incident report"
+    assert snapshot.recent_task.persona == "coder"
     assert snapshot.recent_task.status == "ok"
     assert snapshot.recent_task.current_step == "Final response delivered"
     assert snapshot.recent_task.next_step == ""

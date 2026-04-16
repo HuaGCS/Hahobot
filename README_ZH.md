@@ -1272,7 +1272,7 @@ hahobot 可以额外暴露一个很小的 HTTP 状态接口，方便接入
 - `gateway.status.enabled=false` 时，`/status` 返回 `404`
 - 如果 `gateway.status.authKey` 非空，请在请求头里带上 `Authorization: Bearer <authKey>`
 - 脚本/API 请求会继续返回 JSON，包含 `state`、`detail`、`updatedAt`、`activeRuns` 等稳定字段
-- 浏览器访问时会渲染内置状态页，展示 hahobot 是否正常运行、连续运行时间、最近一次处理任务的当前步骤 / 下一步 / 响应摘要，以及当前 heartbeat / 模型检测状态
+- 浏览器访问时会渲染内置状态页，展示 hahobot 是否正常运行、连续运行时间、最近一次处理任务的当前步骤 / 下一步 / 响应摘要、最近活跃 persona 的 `PROFILE.md` / `INSIGHTS.md` memory layer 摘要，以及当前 heartbeat / 模型检测状态
 - hahobot 会根据 agent 生命周期自动刷新状态，当前会使用 `idle`、`researching`、`executing`、`syncing`、`writing`、`error` 这些状态值
 - `gateway.status.push.mode=guest` 会作为访客 Agent 调用 `join-agent` / `agent-push`，此时必须填写 `joinKey`
 - `gateway.status.push.mode=main` 会驱动内置主 Agent 的 `set_state`，此时不需要 `joinKey`
@@ -1521,7 +1521,7 @@ manifest 中可声明：
 放被验证有效的协作规律。若某条记忆还不完全确定，优先保留一条带结构化 metadata 的规范条目，
 例如 `<!-- hahobot-meta: confidence=low -->`；若当前批次明确重新确认了某条事实或规律，则补
 上 `last_verified=YYYY-MM-DD`。旧的 `(verify)` 标记仍然兼容，但新写入或被修改的条目应优先
-使用结构化 metadata，而不是自由文本后缀。这两个可选文件默认不会在新 workspace 中预置，需要时再创建即可。
+使用结构化 metadata，而不是自由文本后缀。这两个可选文件默认不会在新 workspace 中预置，需要时再创建即可。聊天 `/status` 和浏览器访问的 `/status` 页面会沿用同一套术语，显示当前或最近活跃 persona 的 `PROFILE.md` / `INSIGHTS.md` 摘要。
 
 ### 聊天内斜杠命令
 

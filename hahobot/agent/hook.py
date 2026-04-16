@@ -20,6 +20,7 @@ class AgentHookContext:
     workspace: Path | None = None
     session_key: str | None = None
     model: str | None = None
+    persona: str | None = None
     request_messages: list[dict[str, Any]] = field(default_factory=list)
     response: LLMResponse | None = None
     usage: dict[str, int] = field(default_factory=dict)

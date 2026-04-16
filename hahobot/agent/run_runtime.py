@@ -110,6 +110,7 @@ class RunRuntimeManager:
             concurrent_tools=True,
             workspace=self.loop.workspace,
             session_key=session.key if session else None,
+            persona=persona,
             context_window_tokens=self.loop.context_window_tokens,
             context_block_limit=self.loop.context_block_limit,
             provider_retry_mode=self.loop.provider_retry_mode,

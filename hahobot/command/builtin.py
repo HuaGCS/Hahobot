@@ -7,6 +7,10 @@ import os
 import sys
 
 from hahobot import __version__
+from hahobot.agent.memory_metadata import (
+    format_status_memory_layers,
+    load_persona_memory_layer_status,
+)
 from hahobot.bus.events import OutboundMessage
 from hahobot.command.router import CommandContext, CommandRouter
 from hahobot.utils.helpers import build_status_content
@@ -164,6 +168,15 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
     if ctx_est <= 0:
         ctx_est = loop._last_usage.get("prompt_tokens", 0)
 
+    memory_layers_text: str | None = None
+    try:
+        persona = loop._get_session_persona(session)
+        memory_layers_text = format_status_memory_layers(
+            load_persona_memory_layer_status(loop.workspace, persona)
+        )
+    except Exception:
+        pass
+
     # Fetch web search provider usage (best-effort, never blocks the response)
     search_usage_text: str | None = None
     try:
@@ -186,6 +199,7 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
             context_window_tokens=loop.context_window_tokens,
             session_msg_count=len(session.get_history(max_messages=0)),
             context_tokens_estimate=ctx_est,
+            memory_layers_text=memory_layers_text,
             search_usage_text=search_usage_text,
         ),
         metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},

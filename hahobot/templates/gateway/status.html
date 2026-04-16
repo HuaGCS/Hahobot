@@ -184,7 +184,7 @@
           <section class="hero">
             <div class="eyebrow">hahobot gateway status</div>
             <h1>运行状态页</h1>
-            <p class="sub">当前实例继续对脚本访问保持 <code>/status</code> JSON 兼容；浏览器访问时显示这个页面，汇总运行健康度、最近任务和 heartbeat 检测状态。</p>
+            <p class="sub">当前实例继续对脚本访问保持 <code>/status</code> JSON 兼容；浏览器访问时显示这个页面，汇总运行健康度、最近任务、当前 memory layer 摘要和 heartbeat 检测状态。</p>
           </section>
           <section class="grid">
             <article class="card">
@@ -210,6 +210,10 @@
             <article class="card">
               <h2>最近一次处理的任务</h2>
               {{ task_html }}
+            </article>
+            <article class="card">
+              <h2>当前 Memory Layer</h2>
+              {{ memory_layers_html }}
             </article>
             <article class="card">
               <h2>模型心跳测试状态</h2>

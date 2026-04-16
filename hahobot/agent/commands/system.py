@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING
 
 from hahobot import __version__
 from hahobot.agent.i18n import help_lines, text
+from hahobot.agent.memory_metadata import (
+    format_status_memory_layers,
+    load_persona_memory_layer_status,
+)
 from hahobot.bus.events import InboundMessage, OutboundMessage
 from hahobot.utils.helpers import build_status_content
 
@@ -67,6 +71,14 @@ class SystemCommandHandler:
             pass
         if ctx_est <= 0:
             ctx_est = self.loop._last_usage.get("prompt_tokens", 0)
+        memory_layers_text: str | None = None
+        try:
+            persona = self.loop._get_session_persona(session)
+            memory_layers_text = format_status_memory_layers(
+                load_persona_memory_layer_status(self.loop.workspace, persona)
+            )
+        except Exception:
+            pass
         return self._response(
             msg,
             build_status_content(
@@ -77,6 +89,7 @@ class SystemCommandHandler:
                 context_window_tokens=self.loop.context_window_tokens,
                 session_msg_count=len(session.get_history(max_messages=0)),
                 context_tokens_estimate=ctx_est,
+                memory_layers_text=memory_layers_text,
             ),
             metadata={"render_as": "text"},
         )

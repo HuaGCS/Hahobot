@@ -444,6 +444,11 @@ For `PROFILE.md` and `INSIGHTS.md`, hahobot supports structured metadata comment
 - Prefers short review loops. <!-- hahobot-meta: confidence=high last_verified=2026-04-08 -->
 ```
 
+The chat `/status` command and browser `/status` page now surface the active or recent persona's
+memory-layer summary using the same terminology: `PROFILE.md` for stable user facts/preferences,
+`INSIGHTS.md` for proven collaboration guidance, and structured `hahobot-meta` comments for
+confidence / verification tracking.
+
 ## Channels, Gateway, and API
 
 ### Built-in channel surfaces
@@ -492,7 +497,8 @@ Recent upstream nanobot syncs already included here:
 Notable gateway features:
 
 - `/status` endpoint for machine-readable or browser-readable runtime state; the browser view also
-  shows the latest task's current step, next step, and response preview
+  shows the latest task's current step, next step, response preview, and the recent persona's
+  `PROFILE.md` / `INSIGHTS.md` memory-layer summary
 - optional status push integration for Star-Office-UI style dashboards
 - optional built-in admin UI at `/admin`
 - Hermes-inspired dashboard styling for `/admin` and browser `/status`, without introducing a

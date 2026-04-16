@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -418,6 +419,43 @@ class TestRestartCommand:
         assert response is not None
         assert "Tokens: 1200 in / 34 out" in response.content
         assert "Context: 1k/65k (1%)" in response.content
+
+    @pytest.mark.asyncio
+    async def test_status_includes_memory_layer_summary(self, tmp_path: Path):
+        loop, _bus = _make_loop()
+        loop.workspace = tmp_path
+        loop.context.workspace = tmp_path
+
+        persona_dir = tmp_path / "personas" / "coder"
+        persona_dir.mkdir(parents=True)
+        (persona_dir / "PROFILE.md").write_text(
+            "- Likes concise replies <!-- hahobot-meta: confidence=high last_verified=2026-04-01 -->\n",
+            encoding="utf-8",
+        )
+        (persona_dir / "INSIGHTS.md").write_text(
+            "- Prefers short review loops <!-- hahobot-meta: confidence=medium -->\n",
+            encoding="utf-8",
+        )
+
+        session = MagicMock()
+        session.metadata = {"persona": "coder"}
+        session.get_history.return_value = [{"role": "user"}] * 2
+        loop.sessions.get_or_create.return_value = session
+        loop._get_session_persona = MagicMock(return_value="coder")
+        loop._last_usage = {"prompt_tokens": 10, "completion_tokens": 5}
+        loop.consolidator.estimate_session_prompt_tokens = MagicMock(
+            return_value=(1200, "tiktoken")
+        )
+
+        response = await loop._process_message(
+            InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/status")
+        )
+
+        assert response is not None
+        assert "Memory Layers: coder" in response.content
+        assert "PROFILE.md: 1 bullets, 1 tagged, 1 verified, 0 legacy verify" in response.content
+        assert "INSIGHTS.md: 1 bullets, 1 tagged, 0 verified, 0 legacy verify" in response.content
+        assert "PROFILE.md = stable user facts/preferences" in response.content
 
     @pytest.mark.asyncio
     async def test_process_direct_preserves_render_metadata(self):
