@@ -60,6 +60,26 @@
         </div>
       </div>
       <div class="muted">{{ path_label }}: <code>{{ session.path }}</code></div>
+      {% if session.working_checkpoint %}
+      <div class="stack">
+        <strong>{{ checkpoint_label }}</strong>
+        <div class="meta-grid">
+          <div class="meta-card">
+            <span>{{ checkpoint_status_label }}</span>
+            <strong><span class="{{ session.working_checkpoint.status_class }}">{{ session.working_checkpoint.status }}</span></strong>
+          </div>
+          <div class="meta-card">
+            <span>{{ checkpoint_updated_label }}</span>
+            <strong>{{ session.working_checkpoint.updated_at }}</strong>
+          </div>
+        </div>
+        <div class="muted">{{ checkpoint_goal_label }}: <code>{{ session.working_checkpoint.goal }}</code></div>
+        <div class="muted">{{ checkpoint_current_label }}: {{ session.working_checkpoint.current_step }}</div>
+        {% if session.working_checkpoint.next_step %}
+        <div class="muted">{{ checkpoint_next_label }}: {{ session.working_checkpoint.next_step }}</div>
+        {% endif %}
+      </div>
+      {% endif %}
       {% if session.messages %}
       <div class="stack">
         <strong>{{ messages_label }}</strong>

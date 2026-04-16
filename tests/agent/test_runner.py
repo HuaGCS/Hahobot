@@ -973,7 +973,13 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
 
     monkeypatch.setattr("hahobot.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
-    await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"})
+    await mgr._run_subagent(
+        "sub-1",
+        "do task",
+        "label",
+        "implement",
+        {"channel": "test", "chat_id": "c1"},
+    )
 
     mgr._announce_result.assert_awaited_once()
     args = mgr._announce_result.await_args.args

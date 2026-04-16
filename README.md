@@ -325,7 +325,8 @@ hahobot companion doctor --persona Aria --json
 - `hahobot tools`: show tool-family readiness for web, exec, image generation, and MCP
 - `hahobot sessions list`: inspect recent saved sessions before resuming them with
   `hahobot agent --continue` or `hahobot agent --session <key>`
-- `hahobot sessions show <key>`: inspect one saved session's metadata and recent messages
+- `hahobot sessions show <key>`: inspect one saved session's metadata, working checkpoint, and
+  recent messages
 - `hahobot sessions export <key> --format md|json`: write one saved session to a local export
   artifact under `workspace/out/sessions/` by default
 - `hahobot sessions compact <key>`: manually run the existing session token compaction flow for one
@@ -490,7 +491,8 @@ Recent upstream nanobot syncs already included here:
 
 Notable gateway features:
 
-- `/status` endpoint for machine-readable or browser-readable runtime state
+- `/status` endpoint for machine-readable or browser-readable runtime state; the browser view also
+  shows the latest task's current step, next step, and response preview
 - optional status push integration for Star-Office-UI style dashboards
 - optional built-in admin UI at `/admin`
 - Hermes-inspired dashboard styling for `/admin` and browser `/status`, without introducing a
@@ -540,7 +542,7 @@ The runtime can expose:
 - cron scheduling
 - outbound messaging
 - history search and expansion
-- subagent spawning
+- subagent spawning with `explore` / `implement` / `verify` execution modes
 
 Workspace restrictions for shell/file tools can be enforced through config.
 The shell tool can also forward a narrow allowlist of environment variables through
@@ -557,6 +559,10 @@ Built-in skills currently include:
 - `emotional-companion`
 - `translate`
 - `llm-wiki`
+- `workflow-core`
+- `plan`
+- `verify`
+- `skill-derive`
 - `memory`
 - `memorix`
 - `summarize`
@@ -566,6 +572,15 @@ Built-in skills currently include:
 - `tmux`
 - `clawhub`
 - `skill-creator`
+
+`workflow-core` is now an always-on workflow guide. `plan`, `verify`, and `skill-derive` stay
+available as opt-in built-ins for planning, validation, and turning repeatable workflows into
+workspace skills. Subagents can also be spawned in explicit `explore`, `implement`, or `verify`
+mode so their available tools match the job.
+
+`/skill derive <name> [brief] [--force]` can turn the current session's recent workflow and
+`working_checkpoint` into a local draft skill under `workspace/skills/<name>/SKILL.md`. Existing
+drafts are left untouched unless you pass `--force`.
 
 Workspace-local skills live under `workspace/skills/` and override built-ins with the same name.
 If you want to hide specific bundled or workspace skills from the main agent and subagents, set

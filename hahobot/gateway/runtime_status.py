@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from hahobot.agent.hook import AgentHook, AgentHookContext
+from hahobot.agent.working_checkpoint import tool_names
 from hahobot.star_office import StarOfficeSnapshot
 
 _DEFAULT_TASK_SUMMARY = "Processing request"
@@ -39,6 +40,26 @@ def _extract_latest_user_text(messages: list[dict]) -> str:
     return ""
 
 
+def _tool_call_label(calls: list[object]) -> str:
+    names = tool_names(calls)
+    if not names:
+        return ""
+    label = ", ".join(names[:3])
+    if len(names) > 3:
+        label += ", ..."
+    return label
+
+
+def _tool_event_label(events: list[dict[str, str]]) -> str:
+    names = [str(event.get("name") or "").strip() for event in events if str(event.get("name") or "").strip()]
+    if not names:
+        return ""
+    label = ", ".join(names[:3])
+    if len(names) > 3:
+        label += ", ..."
+    return label
+
+
 def _format_uptime(total_seconds: int) -> str:
     days, rem = divmod(max(total_seconds, 0), 86_400)
     hours, rem = divmod(rem, 3_600)
@@ -64,6 +85,8 @@ class GatewayTaskSnapshot:
     started_at_ms: int | None
     finished_at: str | None
     finished_at_ms: int | None
+    current_step: str
+    next_step: str
     response_preview: str
 
 
@@ -89,6 +112,8 @@ class _TrackedTask:
     status: str
     started_at_ms: int
     finished_at_ms: int | None = None
+    current_step: str = ""
+    next_step: str = ""
     response_preview: str = ""
 
     def to_snapshot(self) -> GatewayTaskSnapshot:
@@ -99,6 +124,8 @@ class _TrackedTask:
             started_at_ms=self.started_at_ms,
             finished_at=_isoformat_utc(self.finished_at_ms),
             finished_at_ms=self.finished_at_ms,
+            current_step=self.current_step,
+            next_step=self.next_step,
             response_preview=self.response_preview,
         )
 
@@ -120,13 +147,41 @@ class GatewayRuntimeStatusTracker:
             summary=_trim_text(summary) or _DEFAULT_TASK_SUMMARY,
             status="running",
             started_at_ms=_now_ms(),
+            current_step="Reviewing the request",
+            next_step="Plan the next steps",
         )
+
+    def note_task_progress(
+        self,
+        run_id: int,
+        *,
+        current_step: str = "",
+        next_step: str = "",
+        response_preview: str | None = None,
+    ) -> None:
+        task = self._active_tasks.get(run_id)
+        if task is None:
+            task = _TrackedTask(
+                summary=_DEFAULT_TASK_SUMMARY,
+                status="running",
+                started_at_ms=_now_ms(),
+            )
+            self._active_tasks[run_id] = task
+        task.status = "running"
+        if current_step:
+            task.current_step = _trim_text(current_step)
+        if next_step or next_step == "":
+            task.next_step = _trim_text(next_step)
+        if response_preview is not None:
+            task.response_preview = _trim_text(response_preview)
 
     def note_task_finished(
         self,
         run_id: int,
         *,
         status: str,
+        current_step: str = "",
+        next_step: str = "",
         response_preview: str = "",
     ) -> None:
         task = self._active_tasks.pop(run_id, None)
@@ -138,6 +193,8 @@ class GatewayRuntimeStatusTracker:
             )
         task.status = status
         task.finished_at_ms = _now_ms()
+        task.current_step = _trim_text(current_step)
+        task.next_step = _trim_text(next_step)
         task.response_preview = _trim_text(response_preview)
         if self._last_task is None or (task.finished_at_ms or 0) >= (self._last_task.finished_at_ms or 0):
             self._last_task = task
@@ -185,13 +242,48 @@ class GatewayStatusHook(AgentHook):
         summary = _extract_latest_user_text(context.messages) or _DEFAULT_TASK_SUMMARY
         self._tracker.note_task_started(self._run_id(), summary)
 
-    async def after_iteration(self, context: AgentHookContext) -> None:
-        if context.stop_reason is None and context.final_content is None and context.error is None:
-            return
-        status = "error" if context.error else "ok"
-        preview = context.error or context.final_content or ""
-        self._tracker.note_task_finished(
+    async def before_execute_tools(self, context: AgentHookContext) -> None:
+        label = _tool_call_label(context.tool_calls)
+        current_step = f"Running tools: {label}" if label else "Preparing tool execution"
+        self._tracker.note_task_progress(
             self._run_id(),
-            status=status,
-            response_preview=preview,
+            current_step=current_step,
+            next_step="Wait for tool results",
         )
+
+    async def after_iteration(self, context: AgentHookContext) -> None:
+        if context.error or context.stop_reason in {"error", "tool_error", "empty_final_response"}:
+            self._tracker.note_task_finished(
+                self._run_id(),
+                status="error",
+                current_step="Run ended with an error",
+                next_step="Review the failure and retry with a narrower step",
+                response_preview=context.error or context.final_content or "",
+            )
+            return
+        if context.stop_reason == "max_iterations":
+            self._tracker.note_task_finished(
+                self._run_id(),
+                status="error",
+                current_step="Reached the max iteration limit",
+                next_step="Break the task into smaller steps",
+                response_preview=context.final_content or "",
+            )
+            return
+        if context.final_content is not None:
+            self._tracker.note_task_finished(
+                self._run_id(),
+                status="ok",
+                current_step="Final response delivered",
+                next_step="",
+                response_preview=context.final_content,
+            )
+            return
+        if context.tool_events:
+            label = _tool_event_label(context.tool_events)
+            current_step = f"Completed tools: {label}" if label else "Completed tool execution"
+            self._tracker.note_task_progress(
+                self._run_id(),
+                current_step=current_step,
+                next_step="Prepare the final response",
+            )

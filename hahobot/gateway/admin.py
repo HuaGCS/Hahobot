@@ -47,6 +47,7 @@ from hahobot.agent.personas import (
 )
 from hahobot.agent.skills import SkillsLoader
 from hahobot.agent.tools.image_gen import ImageGenTool
+from hahobot.agent.working_checkpoint import normalize_working_checkpoint
 from hahobot.cli.session_inspector import (
     is_cli_session_key,
     list_session_summaries,
@@ -2412,6 +2413,29 @@ def _session_source_label(source: str) -> str:
     return labels.get(source, source or "local")
 
 
+def _working_checkpoint_view(checkpoint: dict[str, Any] | None) -> dict[str, str] | None:
+    normalized = normalize_working_checkpoint(checkpoint)
+    if normalized is None:
+        return None
+    status = normalized.get("status") or "pending"
+    status_class = {
+        "pending": "pill hot",
+        "running": "pill hot",
+        "completed": "pill",
+        "blocked": "pill restart",
+        "error": "pill restart",
+        "interrupted": "pill restart",
+    }.get(status, "pill")
+    return {
+        "status": status,
+        "status_class": status_class,
+        "goal": str(normalized.get("goal") or ""),
+        "current_step": str(normalized.get("current_step") or ""),
+        "next_step": str(normalized.get("next_step") or ""),
+        "updated_at": _format_iso_datetime(normalized.get("updated_at")),
+    }
+
+
 def _collect_admin_sessions(
     request: web.Request,
     *,
@@ -2447,6 +2471,9 @@ def _collect_admin_sessions(
                 "created_at": _format_iso_datetime(summary.created_at),
                 "updated_at": _format_iso_datetime(summary.updated_at),
                 "messages": messages,
+                "working_checkpoint": _working_checkpoint_view(
+                    detail.working_checkpoint if detail is not None else None
+                ),
             }
         )
 
@@ -4259,6 +4286,12 @@ async def _admin_sessions_page(request: web.Request) -> web.Response:
         path_label=_t(request, "admin_sessions_path_label"),
         source_label=_t(request, "admin_sessions_source_label"),
         messages_label=_t(request, "admin_sessions_messages_label"),
+        checkpoint_label=_t(request, "admin_sessions_checkpoint_label"),
+        checkpoint_status_label=_t(request, "admin_sessions_checkpoint_status_label"),
+        checkpoint_goal_label=_t(request, "admin_sessions_checkpoint_goal_label"),
+        checkpoint_current_label=_t(request, "admin_sessions_checkpoint_current_label"),
+        checkpoint_next_label=_t(request, "admin_sessions_checkpoint_next_label"),
+        checkpoint_updated_label=_t(request, "admin_sessions_checkpoint_updated_label"),
         sessions=session_data["rows"],
     )
 

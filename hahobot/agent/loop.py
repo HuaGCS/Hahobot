@@ -181,6 +181,7 @@ class AgentLoop:
     _CONTEXT_TOOL_RESULT_SUFFIX = "\n... (truncated to stay within context window)"
     _RUNTIME_CHECKPOINT_KEY = "runtime_checkpoint"
     _PENDING_USER_TURN_KEY = "pending_user_turn"
+    _WORKING_CHECKPOINT_KEY = "working_checkpoint"
 
     def __init__(
         self,
@@ -1071,6 +1072,12 @@ class AgentLoop:
 
     def _clear_runtime_checkpoint(self, session: Session) -> None:
         self._checkpoint_runtime_manager().clear_runtime_checkpoint(session)
+
+    def _clear_working_checkpoint(self, session: Session) -> None:
+        self._checkpoint_runtime_manager().clear_working_checkpoint(session)
+
+    def _update_working_checkpoint(self, session: Session, context: Any) -> None:
+        self._checkpoint_runtime_manager().update_working_checkpoint(session, context)
 
     @staticmethod
     def _checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:
