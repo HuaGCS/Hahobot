@@ -422,11 +422,13 @@ def build_status_content(
     context_window_tokens: int,
     session_msg_count: int,
     context_tokens_estimate: int,
+    memory_layers_text: str | None = None,
     search_usage_text: str | None = None,
 ) -> str:
     """Build a human-readable runtime status snapshot.
 
     Args:
+        memory_layers_text: Optional pre-formatted persona memory-layer summary.
         search_usage_text: Optional pre-formatted web search usage string
                            (produced by SearchUsageInfo.format()). When provided
                            it is appended as an extra section.
@@ -455,6 +457,8 @@ def build_status_content(
         f"\U0001f4ac Session: {session_msg_count} messages",
         f"\u23f1 Uptime: {uptime}",
     ]
+    if memory_layers_text:
+        lines.append(memory_layers_text)
     if search_usage_text:
         lines.append(search_usage_text)
     return "\n".join(lines)

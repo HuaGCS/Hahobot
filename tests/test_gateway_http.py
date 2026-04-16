@@ -208,13 +208,23 @@ async def test_gateway_status_route_renders_html_status_page_for_browser_request
 
     config_path = tmp_path / "config.json"
     workspace = tmp_path / "workspace"
+    persona_dir = workspace / "personas" / "coder"
+    persona_dir.mkdir(parents=True)
+    (persona_dir / "PROFILE.md").write_text(
+        "- Likes concise replies <!-- hahobot-meta: confidence=high last_verified=2026-04-01 -->\n",
+        encoding="utf-8",
+    )
+    (persona_dir / "INSIGHTS.md").write_text(
+        "- Respond best with short review loops <!-- hahobot-meta: confidence=medium -->\n",
+        encoding="utf-8",
+    )
     config = Config()
     config.gateway.status.enabled = True
     save_config(config, config_path)
 
     star_tracker = StarOfficeStatusTracker()
     runtime_tracker = GatewayRuntimeStatusTracker(model="openrouter/sonnet")
-    runtime_tracker.note_task_started(7, "整理最近的待办任务")
+    runtime_tracker.note_task_started(7, "整理最近的待办任务", persona="coder")
     runtime_tracker.note_task_finished(
         7,
         status="ok",
@@ -255,8 +265,16 @@ async def test_gateway_status_route_renders_html_status_page_for_browser_request
     assert 'id="status-uptime-kpi"' in response.text
     assert 'data-started-at-ms="' in response.text
     assert "整理最近的待办任务" in response.text
+    assert "Persona <code>coder</code>" in response.text
     assert "当前步骤: Final response delivered" in response.text
     assert "下一步: 暂无" in response.text
+    assert "当前 Memory Layer" in response.text
+    assert "当前 persona <code>coder</code>" in response.text
+    assert "PROFILE.md" in response.text
+    assert "INSIGHTS.md" in response.text
+    assert "1 条带 metadata" in response.text
+    assert "1 条带 last_verified" in response.text
+    assert "hahobot-meta: confidence=high last_verified=YYYY-MM-DD" in response.text
     assert "openrouter/sonnet" in response.text
     assert "最近一次成功" in response.text
 

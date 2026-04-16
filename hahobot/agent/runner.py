@@ -62,6 +62,7 @@ class AgentRunSpec:
     fail_on_tool_error: bool = False
     workspace: Path | None = None
     session_key: str | None = None
+    persona: str | None = None
     context_window_tokens: int | None = None
     context_block_limit: int | None = None
     provider_retry_mode: str = "standard"
@@ -121,6 +122,7 @@ class AgentRunner:
                 workspace=spec.workspace,
                 session_key=spec.session_key,
                 model=spec.model,
+                persona=spec.persona,
             )
             await hook.before_iteration(context)
             tool_definitions = spec.tools.get_definitions()
@@ -330,6 +332,7 @@ class AgentRunner:
                 workspace=spec.workspace,
                 session_key=spec.session_key,
                 model=spec.model,
+                persona=spec.persona,
             )
             context.final_content = final_content
             context.stop_reason = stop_reason

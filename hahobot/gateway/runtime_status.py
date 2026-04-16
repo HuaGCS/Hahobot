@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from hahobot.agent.hook import AgentHook, AgentHookContext
+from hahobot.agent.personas import DEFAULT_PERSONA
 from hahobot.agent.working_checkpoint import tool_names
 from hahobot.star_office import StarOfficeSnapshot
 
@@ -80,6 +81,7 @@ class GatewayTaskSnapshot:
     """Latest visible task summary for the status page."""
 
     summary: str
+    persona: str
     status: str
     started_at: str | None
     started_at_ms: int | None
@@ -109,6 +111,7 @@ class GatewayRuntimeSnapshot:
 @dataclass(slots=True)
 class _TrackedTask:
     summary: str
+    persona: str
     status: str
     started_at_ms: int
     finished_at_ms: int | None = None
@@ -119,6 +122,7 @@ class _TrackedTask:
     def to_snapshot(self) -> GatewayTaskSnapshot:
         return GatewayTaskSnapshot(
             summary=self.summary,
+            persona=self.persona,
             status=self.status,
             started_at=_isoformat_utc(self.started_at_ms),
             started_at_ms=self.started_at_ms,
@@ -142,9 +146,10 @@ class GatewayRuntimeStatusTracker:
     def set_model(self, model: str) -> None:
         self._model = (model or "").strip()
 
-    def note_task_started(self, run_id: int, summary: str) -> None:
+    def note_task_started(self, run_id: int, summary: str, *, persona: str | None = None) -> None:
         self._active_tasks[run_id] = _TrackedTask(
             summary=_trim_text(summary) or _DEFAULT_TASK_SUMMARY,
+            persona=(persona or DEFAULT_PERSONA).strip() or DEFAULT_PERSONA,
             status="running",
             started_at_ms=_now_ms(),
             current_step="Reviewing the request",
@@ -163,6 +168,7 @@ class GatewayRuntimeStatusTracker:
         if task is None:
             task = _TrackedTask(
                 summary=_DEFAULT_TASK_SUMMARY,
+                persona=DEFAULT_PERSONA,
                 status="running",
                 started_at_ms=_now_ms(),
             )
@@ -188,6 +194,7 @@ class GatewayRuntimeStatusTracker:
         if task is None:
             task = _TrackedTask(
                 summary=_DEFAULT_TASK_SUMMARY,
+                persona=DEFAULT_PERSONA,
                 status=status,
                 started_at_ms=_now_ms(),
             )
@@ -240,7 +247,7 @@ class GatewayStatusHook(AgentHook):
         if context.iteration != 0:
             return
         summary = _extract_latest_user_text(context.messages) or _DEFAULT_TASK_SUMMARY
-        self._tracker.note_task_started(self._run_id(), summary)
+        self._tracker.note_task_started(self._run_id(), summary, persona=context.persona)
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         label = _tool_call_label(context.tool_calls)

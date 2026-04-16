@@ -57,3 +57,18 @@ def test_status_100_percent_cached():
         context_tokens_estimate=3000,
     )
     assert "100% cached" in content
+
+
+def test_status_appends_memory_layers_block():
+    content = build_status_content(
+        version="0.1.0",
+        model="glm-4-plus",
+        start_time=1000000.0,
+        last_usage={"prompt_tokens": 1000, "completion_tokens": 100},
+        context_window_tokens=128000,
+        session_msg_count=5,
+        context_tokens_estimate=3000,
+        memory_layers_text="🗂 Memory Layers: default\n- PROFILE.md: 0 bullets, 0 tagged, 0 verified, 0 legacy verify",
+    )
+    assert "Memory Layers: default" in content
+    assert "PROFILE.md: 0 bullets" in content

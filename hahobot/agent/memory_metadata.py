@@ -6,6 +6,9 @@ import re
 import shlex
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
+
+from hahobot.agent.personas import DEFAULT_PERSONA, persona_workspace, resolve_persona_name
 
 _BULLET_RE = re.compile(r"^\s*[-*]\s+")
 _LEGACY_VERIFY_RE = re.compile(r"\(verify(?: [^)]+)?\)", re.IGNORECASE)
@@ -36,6 +39,25 @@ class MemoryMetadataSummary:
     low_confidence: int = 0
     with_last_verified: int = 0
     legacy_verify_markers: int = 0
+
+
+@dataclass(slots=True, frozen=True)
+class MemoryLayerStatus:
+    """Summary of one persona memory layer."""
+
+    name: str
+    bullet_count: int
+    metadata: MemoryMetadataSummary
+
+
+@dataclass(slots=True, frozen=True)
+class PersonaMemoryLayerStatus:
+    """Status snapshot for PROFILE.md and INSIGHTS.md under one persona."""
+
+    persona: str
+    root: Path
+    profile: MemoryLayerStatus
+    insights: MemoryLayerStatus
 
 
 def parse_memory_fact_metadata(line: str) -> MemoryFactMetadata | None:
@@ -117,6 +139,43 @@ def summarize_memory_metadata(markdown: str) -> MemoryMetadataSummary:
     )
 
 
+def _count_markdown_bullets(markdown: str) -> int:
+    return sum(1 for line in markdown.splitlines() if _BULLET_RE.match(line))
+
+
+def summarize_memory_layer(name: str, markdown: str) -> MemoryLayerStatus:
+    """Summarize one PROFILE/INSIGHTS markdown layer for status surfaces."""
+    return MemoryLayerStatus(
+        name=name,
+        bullet_count=_count_markdown_bullets(markdown),
+        metadata=summarize_memory_metadata(markdown),
+    )
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def load_persona_memory_layer_status(
+    workspace: Path,
+    persona: str | None,
+) -> PersonaMemoryLayerStatus:
+    """Load concise PROFILE/INSIGHTS status for one persona."""
+    resolved = resolve_persona_name(workspace, persona) or DEFAULT_PERSONA
+    root = persona_workspace(workspace, resolved)
+    profile = summarize_memory_layer("PROFILE.md", _read_text(root / "PROFILE.md"))
+    insights = summarize_memory_layer("INSIGHTS.md", _read_text(root / "INSIGHTS.md"))
+    return PersonaMemoryLayerStatus(
+        persona=resolved,
+        root=root,
+        profile=profile,
+        insights=insights,
+    )
+
+
 def format_memory_metadata_summary(markdown: str) -> str:
     """Render a stable plain-text summary for Dream prompt context."""
     summary = summarize_memory_metadata(markdown)
@@ -131,5 +190,31 @@ def format_memory_metadata_summary(markdown: str) -> str:
             ),
             f"- Bullets with last_verified: {summary.with_last_verified}",
             f"- Legacy (verify) markers: {summary.legacy_verify_markers}",
+        ]
+    )
+
+
+def _format_status_layer_line(layer: MemoryLayerStatus) -> str:
+    summary = layer.metadata
+    return (
+        f"- {layer.name}: {layer.bullet_count} bullets, "
+        f"{summary.tagged_bullets} tagged, "
+        f"{summary.with_last_verified} verified, "
+        f"{summary.legacy_verify_markers} legacy verify"
+    )
+
+
+def format_status_memory_layers(status: PersonaMemoryLayerStatus) -> str:
+    """Render a compact plain-text memory-layer block for `/status`."""
+    return "\n".join(
+        [
+            f"🗂 Memory Layers: {status.persona}",
+            _format_status_layer_line(status.profile),
+            _format_status_layer_line(status.insights),
+            (
+                "- Rule: PROFILE.md = stable user facts/preferences; "
+                "INSIGHTS.md = proven collaboration guidance; "
+                "metadata = <!-- hahobot-meta: confidence=high last_verified=YYYY-MM-DD -->"
+            ),
         ]
     )
