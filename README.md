@@ -532,7 +532,13 @@ This API is intentionally narrow:
 - local bind by default
 - fixed session key `api:default`
 - exactly one `user` message per request
+- accepts either `application/json` or `multipart/form-data`
+- content arrays may include inline base64/data-URL file blocks, and multipart uploads are also accepted
+- text-like attachments are extracted into the prompt; binary/image attachments fall back to stable placeholders on the direct API path
 - `stream=true` is not supported unless the API contract is deliberately expanded later
+
+For `multipart/form-data`, send the usual `messages` payload as a JSON string field and attach one
+or more uploaded files alongside it.
 
 ## Tools, Skills, and MCP
 

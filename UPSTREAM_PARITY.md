@@ -40,6 +40,13 @@ This file therefore records both:
 - `intentional_divergence`: local behavior deliberately differs from upstream
 - `watchlist`: area should be re-checked during the next upstream sync
 
+## Latest Audit
+
+- `nanobot`: reviewed against the upstream `v0.1.5.post1` release notes published on
+  `2026-04-14`.
+- `GenericAgent`: re-checked against the current upstream repo state after the `2026-04-11`
+  layered-memory update that added explicit L4 session-archive framing.
+
 ## Current Snapshot
 
 | Area | Status | Local State |
@@ -48,14 +55,19 @@ This file therefore records both:
 | Turn recovery / idle compact safety | `synced` | Session recovery now restores runtime checkpoints before the next request, persists plain-text user turns early so crashes do not lose the prompt, closes orphaned pending user turns, and skips proactive auto-compact while a session still has an in-flight agent task. |
 | Hook lifecycle semantics | `synced` | Hook fan-out supports `reraise` semantics and keeps compatibility behavior for legacy hooks. |
 | OpenAI direct reasoning routing | `synced` | Direct OpenAI GPT-5/o-series requests prefer Responses API and fall back to Chat Completions only for compatibility errors. |
+| Anthropic adaptive reasoning | `synced` | `reasoningEffort=adaptive` already maps to Anthropic `thinking={"type":"adaptive"}` locally, with token/temperature safeguards and focused provider tests. |
 | Tool hint formatting | `synced` | Exec hints handle quoted paths, path abbreviation, and duplicate collapse in one formatter. |
 | Provider request sanitization | `synced` | Role alternation repair now recovers a trailing assistant message as `user` when otherwise only `system` content would remain, preventing empty/invalid provider requests after assistant-scoped injections. |
 | Skill filtering / idle compact / MCP tool filtering | `synced` | `agents.defaults.disabledSkills`, `agents.defaults.idleCompactAfterMinutes` (plus `sessionTtlMinutes` alias), and `tools.mcpServers.<name>.enabledTools` are wired through local runtime, tests, and docs. |
+| MCP resources / prompts as tool surfaces | `synced` | MCP connections already wrap remote tools, resources, and prompts into native hahobot tool entries, keeping non-mutating resource/prompt calls read-only while preserving local timeout/error handling and `enabledTools` filtering. |
 | Cron state / scheduler behavior | `synced` | Cron preserves last-run status plus merged run history on disk, and the workspace scheduler periodically wakes to reload external `cron/jobs.json` edits via `gateway.cron.maxSleepMs`. |
 | Telegram / Discord streaming | `synced` | Telegram uses configurable `channels.telegram.streamEditInterval`; Discord keeps edit-based streaming enabled by default, and the related runtime knobs are exposed in local schema/docs/admin surfaces. |
 | Legacy rename compatibility | `synced` | `nanobot` CLI/module/import compatibility stays live, and default config fallback is preserved. |
 | Config fallback behavior | `intentional_divergence` | When no config path is passed, hahobot checks `~/.hahobot/config.json` first, then copies `~/.nanobot/config.json` into the hahobot location instead of migrating in place. |
 | Web search backend mix | `synced` | Built-in web search now supports Brave, SearXNG, and DuckDuckGo; DuckDuckGo runs as an exclusive tool so concurrent tool batches do not group multiple searches together. |
+| Search provider breadth | `watchlist` | Upstream now also carries Kagi search support; local runtime still intentionally limits `tools.web.search.provider` to Brave, SearXNG, and DuckDuckGo until there is real demand for another paid backend plus matching config/admin/docs wiring. |
+| OpenAI-compatible API file inputs | `synced` | `hahobot serve` now accepts both JSON and `multipart/form-data`, extracts text-like uploaded or inline base64 file payloads into the prompt, and emits stable placeholders for binary/image attachments while keeping the direct API path single-message and non-streaming. |
+| Mid-turn follow-up injection | `watchlist` | Local dispatch stays per-session serialized and crash-safe, but it does not splice new user turns into an already running session; upstream-style active-turn injection would touch locks, checkpoints, streaming, `/stop`, and compaction semantics together. |
 | GenericAgent-style SOP workflow | `synced` | Hahobot now ships built-in workflow skills (`workflow-core`, `plan`, `verify`), subagent execution modes (`explore` / `implement` / `verify`), and persisted `working_checkpoint` state across session/admin/status surfaces. |
 | GenericAgent-style skill accumulation | `synced` | Hahobot now supports local skill derivation through `/skill derive <name> [brief] [--force]`, turning recent successful session workflow into a reusable workspace skill draft. |
 | GenericAgent layered memory semantics | `synced` | hahobot already separates conversation archive, `MEMORY.md`, `PROFILE.md`, and `INSIGHTS.md`, with Dream + archive sidecars providing a stronger implementation than GenericAgent's simpler layered-memory framing. |
@@ -131,13 +143,20 @@ as "do not re-port unless upstream changes again":
   turns are not archived out from under themselves.
 - Provider request sanitation recovers a trailing assistant message as a user message when that is
   the only non-system content left after alternation repair.
+- Anthropic requests already support `reasoningEffort=adaptive`, mapping it to Anthropic adaptive
+  thinking without inflating token budgets or leaving incompatible temperature handling behind.
 - Web search supports Brave, SearXNG, and DuckDuckGo, and DuckDuckGo searches are serialized at the
   tool-runner layer when concurrent tool execution is enabled.
+- The built-in OpenAI-compatible API accepts JSON or multipart requests with inline/uploaded file
+  payloads; text-like attachments are extracted into prompt context, while binary/image inputs are
+  kept as stable placeholders on the direct path.
 - `agents.defaults.disabledSkills` excludes selected skills from main-agent and subagent summaries.
 - Idle session auto compact is available through `agents.defaults.idleCompactAfterMinutes`, with
   the legacy `sessionTtlMinutes` alias still accepted on load.
 - MCP server configs support `enabledTools` so one server can register all, none, or only a named
   subset of wrapped/raw MCP tools.
+- MCP server connections already expose tools, resources, and prompts through the same local tool
+  registry, with resource/prompt wrappers kept read-only.
 - Version resolution prefers `importlib.metadata` and falls back to `pyproject.toml` in source trees.
 - Workspace/runtime behavior keeps the rename compatibility layer alive for `nanobot` entrypoints and
   imports.
@@ -171,14 +190,21 @@ These are local choices. When upstream behaves differently, that is not automati
 - Re-check upstream `channels/*` when new transport defaults, streaming semantics, or multi-instance
   behavior changes land.
 - Re-check upstream `providers/*` when request routing, retry behavior, or error surfaces change.
+- Re-check upstream search-provider additions (for example Kagi) against local config/admin/docs
+  before expanding `tools.web.search.provider`.
 - Re-check upstream `cron/service.py` and `cron/types.py` whenever run-state persistence or wake-up
   semantics change.
 - Re-check upstream `agent/hook.py`, `agent/runner.py`, and related tests whenever lifecycle
   contracts move.
+- Re-check any upstream active-turn follow-up injection carefully before porting it locally; the
+  interaction surface spans session locks, checkpoint recovery, streamed deltas, `/stop`, and
+  idle-compaction safety.
 - Re-check upstream `config/schema.py` only when behavior changes; avoid meaningless field-order
   churn.
 - Re-check docs/admin/AGENTS together whenever an upstream config toggle becomes user-visible in the
   local runtime.
+- Re-check upstream Dream/skill-discovery automation only if it becomes an operator-reviewable flow;
+  local default should stay explicit `/skill derive`, not unattended skill promotion.
 - Re-check `lsdefine/GenericAgent` when its planning SOPs, memory-management SOPs, skill
   accumulation flow, or autonomous scheduler meaningfully change, and decide whether hahobot should
   adopt the idea through local skills / Dream / heartbeat / admin surfaces rather than copying the
