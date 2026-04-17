@@ -1609,7 +1609,12 @@ hahobot serve
 - 固定会话：所有请求共享同一个 hahobot 会话 `api:default`
 - 单消息输入：每次请求必须只包含一条 `user` 消息
 - 固定模型：可以省略 `model`，或者传入 `/v1/models` 返回的同一个模型名
+- 支持 `application/json` 和 `multipart/form-data`
+- content array 里可以带内嵌 base64 / data URL 文件块，也可以直接走 multipart 上传文件
+- 文本型附件会提取进提示词；二进制 / 图片附件在 direct API 路径上会降级成稳定占位说明
 - 不支持流式：`stream=true` 当前不支持
+
+如果走 `multipart/form-data`，请继续用 `messages` 字段传 JSON 字符串，再把一个或多个文件和它一起上传。
 
 ### 接口
 

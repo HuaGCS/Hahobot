@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json
 from unittest.mock import AsyncMock, MagicMock
 
@@ -19,7 +21,10 @@ from hahobot.api.server import (
 )
 
 try:
+    from aiohttp import FormData
     from aiohttp.test_utils import TestClient, TestServer
+    from aiohttp.web_request import FileField
+    from multidict import CIMultiDict, CIMultiDictProxy, MultiDict
 
     HAS_AIOHTTP = True
 except ImportError:
@@ -179,6 +184,134 @@ async def test_single_user_message_must_have_user_role() -> None:
     assert "single user message" in body["error"]["message"].lower()
 
 
+@pytest.mark.asyncio
+async def test_direct_inline_file_block_request_is_extracted() -> None:
+    agent = _make_mock_agent()
+    encoded = base64.b64encode(b"title: demo\nvalue: 1\n").decode("ascii")
+    request = MagicMock()
+    request.content_type = "application/json"
+    request.json = AsyncMock(
+        return_value={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Inspect this file"},
+                        {
+                            "type": "input_file",
+                            "filename": "demo.yaml",
+                            "mime_type": "application/yaml",
+                            "file_data": encoded,
+                        },
+                    ],
+                }
+            ]
+        }
+    )
+    request.app = {
+        "agent_loop": agent,
+        "model_name": "test-model",
+        "request_timeout": 10.0,
+        "session_locks": {},
+    }
+
+    resp = await handle_chat_completions(request)
+    assert resp.status == 200
+    content = agent.process_direct.await_args.kwargs["content"]
+    assert "Inspect this file" in content
+    assert "demo.yaml" in content
+    assert "title: demo" in content
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_direct_multipart_request_is_extracted() -> None:
+    agent = _make_mock_agent()
+    request = MagicMock()
+    request.content_type = "multipart/form-data"
+
+    file_headers = CIMultiDictProxy(CIMultiDict())
+    form = MultiDict()
+    form.add("messages", json.dumps([{"role": "user", "content": "Review the upload"}]))
+    form.add(
+        "file",
+        FileField(
+            name="file",
+            filename="report.txt",
+            file=io.BytesIO(b"line one\nline two\n"),
+            content_type="text/plain",
+            headers=file_headers,
+        ),
+    )
+    request.post = AsyncMock(return_value=form)
+    request.app = {
+        "agent_loop": agent,
+        "model_name": "test-model",
+        "request_timeout": 10.0,
+        "session_locks": {},
+    }
+
+    resp = await handle_chat_completions(request)
+    assert resp.status == 200
+    content = agent.process_direct.await_args.kwargs["content"]
+    assert "Review the upload" in content
+    assert "report.txt" in content
+    assert "line one" in content
+
+
+@pytest.mark.asyncio
+async def test_direct_invalid_inline_file_block_returns_400() -> None:
+    request = MagicMock()
+    request.content_type = "application/json"
+    request.json = AsyncMock(
+        return_value={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Inspect"},
+                        {
+                            "type": "input_file",
+                            "filename": "bad.txt",
+                            "file_data": "%%%bad%%%",
+                        },
+                    ],
+                }
+            ]
+        }
+    )
+    request.app = {
+        "agent_loop": _make_mock_agent(),
+        "model_name": "test-model",
+        "request_timeout": 10.0,
+        "session_locks": {},
+    }
+
+    resp = await handle_chat_completions(request)
+    assert resp.status == 400
+    body = json.loads(resp.body)
+    assert "base64" in body["error"]["message"].lower()
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_direct_invalid_multipart_messages_returns_400() -> None:
+    request = MagicMock()
+    request.content_type = "multipart/form-data"
+    request.post = AsyncMock(return_value=MultiDict([("messages", "{bad-json")]))
+    request.app = {
+        "agent_loop": _make_mock_agent(),
+        "model_name": "test-model",
+        "request_timeout": 10.0,
+        "session_locks": {},
+    }
+
+    resp = await handle_chat_completions(request)
+    assert resp.status == 400
+    body = json.loads(resp.body)
+    assert "multipart field 'messages'" in body["error"]["message"]
+
+
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_successful_request_uses_fixed_api_session(aiohttp_client, mock_agent) -> None:
@@ -307,12 +440,113 @@ async def test_multimodal_content_extracts_text(aiohttp_client, mock_agent) -> N
         },
     )
     assert resp.status == 200
-    mock_agent.process_direct.assert_called_once_with(
-        content="describe this",
-        session_key=API_SESSION_KEY,
-        channel="api",
-        chat_id=API_CHAT_ID,
+    content = mock_agent.process_direct.await_args.kwargs["content"]
+    assert "describe this" in content
+    assert "Attached image omitted" in content
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_inline_file_block_is_extracted_into_prompt(aiohttp_client, mock_agent) -> None:
+    app = create_app(mock_agent, model_name="m")
+    client = await aiohttp_client(app)
+    encoded = base64.b64encode(b"# Notes\n- fix the bug").decode("ascii")
+    resp = await client.post(
+        "/v1/chat/completions",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Summarize the attachment"},
+                        {
+                            "type": "input_file",
+                            "filename": "notes.md",
+                            "mime_type": "text/markdown",
+                            "file_data": encoded,
+                        },
+                    ],
+                }
+            ]
+        },
     )
+    assert resp.status == 200
+    content = mock_agent.process_direct.await_args.kwargs["content"]
+    assert "Summarize the attachment" in content
+    assert "notes.md" in content
+    assert "# Notes" in content
+    assert "- fix the bug" in content
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_multipart_upload_is_extracted_into_prompt(aiohttp_client, mock_agent) -> None:
+    app = create_app(mock_agent, model_name="m")
+    client = await aiohttp_client(app)
+    data = FormData()
+    data.add_field(
+        "messages",
+        json.dumps([{"role": "user", "content": "Summarize the uploaded file"}]),
+    )
+    data.add_field(
+        "file",
+        b"alpha,beta\n1,2\n",
+        filename="table.csv",
+        content_type="text/csv",
+    )
+    resp = await client.post("/v1/chat/completions", data=data)
+    assert resp.status == 200
+    content = mock_agent.process_direct.await_args.kwargs["content"]
+    assert "Summarize the uploaded file" in content
+    assert "table.csv" in content
+    assert "alpha,beta" in content
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_invalid_inline_file_block_returns_400(aiohttp_client, mock_agent) -> None:
+    app = create_app(mock_agent, model_name="m")
+    client = await aiohttp_client(app)
+    resp = await client.post(
+        "/v1/chat/completions",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "inspect"},
+                        {
+                            "type": "input_file",
+                            "filename": "bad.txt",
+                            "file_data": "%%%not-base64%%%",
+                        },
+                    ],
+                }
+            ]
+        },
+    )
+    assert resp.status == 400
+    body = await resp.json()
+    assert "base64" in body["error"]["message"].lower()
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_invalid_multipart_messages_returns_400(aiohttp_client, mock_agent) -> None:
+    app = create_app(mock_agent, model_name="m")
+    client = await aiohttp_client(app)
+    data = FormData()
+    data.add_field("messages", "{not-json")
+    data.add_field(
+        "file",
+        b"hello",
+        filename="note.txt",
+        content_type="text/plain",
+    )
+    resp = await client.post("/v1/chat/completions", data=data)
+    assert resp.status == 400
+    body = await resp.json()
+    assert "multipart field 'messages'" in body["error"]["message"]
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
