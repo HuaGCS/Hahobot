@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 # Default builtin skills directory (relative to this file)
 BUILTIN_SKILLS_DIR = Path(__file__).parent.parent / "skills"
@@ -28,6 +29,9 @@ class SkillsLoader:
     specific tools or perform certain tasks.
     """
 
+    _SUMMARY_SKILL_LIMIT = 8
+    _TOKEN_RE = re.compile(r"[a-z0-9]{2,}")
+
     def __init__(
         self,
         workspace: Path,
@@ -38,6 +42,68 @@ class SkillsLoader:
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
         self.disabled_skills = disabled_skills or set()
+
+    @staticmethod
+    def _normalize_string_list(value: Any) -> list[str]:
+        if not value:
+            return []
+        if isinstance(value, str):
+            values = [part.strip() for part in re.split(r"[,\n]", value)]
+        elif isinstance(value, list):
+            values = [str(part).strip() for part in value]
+        else:
+            return []
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in values:
+            if not item:
+                continue
+            lowered = item.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            normalized.append(item)
+        return normalized
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int = 0) -> int:
+        if isinstance(value, bool):
+            return default
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value.strip())
+            except ValueError:
+                return default
+        return default
+
+    @classmethod
+    def _tokenize(cls, *parts: str) -> set[str]:
+        tokens: set[str] = set()
+        for part in parts:
+            tokens.update(cls._TOKEN_RE.findall((part or "").lower()))
+        return tokens
+
+    def _normalize_project_metadata(self, payload: dict[str, Any]) -> dict[str, Any]:
+        requires = payload.get("requires")
+        if not isinstance(requires, dict):
+            requires = {}
+        return {
+            "always": bool(payload.get("always")),
+            "requires": requires,
+            "triggers": self._normalize_string_list(payload.get("triggers") or payload.get("keywords")),
+            "tool_tags": self._normalize_string_list(
+                payload.get("tool_tags") or payload.get("toolTags") or payload.get("tools")
+            ),
+            "supersedes": self._normalize_string_list(payload.get("supersedes")),
+            "last_used": str(payload.get("last_used") or payload.get("lastUsed") or "").strip(),
+            "success_count": self._coerce_int(
+                payload.get("success_count", payload.get("successCount")),
+                default=0,
+            ),
+        }
 
     def _skill_entries_from_dir(self, base: Path, source: str, *, skip_names: set[str] | None = None) -> list[dict[str, str]]:
         if not base.exists():
@@ -115,7 +181,12 @@ class SkillsLoader:
         ]
         return "\n\n---\n\n".join(parts)
 
-    def build_skills_summary(self) -> str:
+    def build_skills_summary(
+        self,
+        query: str | None = None,
+        *,
+        limit: int | None = None,
+    ) -> str:
         """
         Build a summary of all skills (name, description, path, availability).
 
@@ -125,25 +196,34 @@ class SkillsLoader:
         Returns:
             XML-formatted skills summary.
         """
-        all_skills = self.list_skills(filter_unavailable=False)
+        all_skills = self.list_skill_records(filter_unavailable=False)
         if not all_skills:
             return ""
 
+        selected = self._select_summary_records(all_skills, query=query, limit=limit)
+        if not selected:
+            return ""
+
         lines: list[str] = ["<skills>"]
-        for entry in all_skills:
+        for entry in selected:
             skill_name = entry["name"]
-            meta = self._get_skill_meta(skill_name)
-            available = self._check_requirements(meta)
+            available = bool(entry["available"])
             lines.extend(
                 [
                     f'  <skill available="{str(available).lower()}">',
                     f"    <name>{_escape_xml(skill_name)}</name>",
-                    f"    <description>{_escape_xml(self._get_skill_description(skill_name))}</description>",
+                    f"    <description>{_escape_xml(entry['description'])}</description>",
                     f"    <location>{entry['path']}</location>",
                 ]
             )
+            triggers = entry["project_meta"].get("triggers") or []
+            if triggers:
+                lines.append(f"    <triggers>{_escape_xml(', '.join(triggers[:6]))}</triggers>")
+            tool_tags = entry["project_meta"].get("tool_tags") or []
+            if tool_tags:
+                lines.append(f"    <tool_tags>{_escape_xml(', '.join(tool_tags[:6]))}</tool_tags>")
             if not available:
-                missing = self._get_missing_requirements(meta)
+                missing = self._get_missing_requirements(entry["project_meta"])
                 if missing:
                     lines.append(f"    <requires>{_escape_xml(missing)}</requires>")
             lines.append("  </skill>")
@@ -189,7 +269,7 @@ class SkillsLoader:
             payload = data.get("nanobot")
         if not isinstance(payload, dict):
             payload = data.get("openclaw", {})
-        return payload if isinstance(payload, dict) else {}
+        return self._normalize_project_metadata(payload if isinstance(payload, dict) else {})
 
     def _check_requirements(self, skill_meta: dict) -> bool:
         """Check if skill requirements are met (bins, env vars)."""
@@ -205,16 +285,142 @@ class SkillsLoader:
         meta = self.get_skill_metadata(name) or {}
         return self._parse_project_metadata(meta.get("metadata", ""))
 
+    def list_skill_records(self, filter_unavailable: bool = True) -> list[dict[str, Any]]:
+        """Return richer skill records used for selection, linting, and summaries."""
+        records: list[dict[str, Any]] = []
+        for entry in self.list_skills(filter_unavailable=filter_unavailable):
+            project_meta = self._get_skill_meta(entry["name"])
+            available = self._check_requirements(project_meta)
+            records.append({
+                **entry,
+                "description": self._get_skill_description(entry["name"]),
+                "available": available,
+                "project_meta": project_meta,
+            })
+        return records
+
+    def _superseded_names(self, records: list[dict[str, Any]]) -> set[str]:
+        available_names = {record["name"] for record in records if record.get("available")}
+        superseded: set[str] = set()
+        for record in records:
+            if not record.get("available"):
+                continue
+            for target in record["project_meta"].get("supersedes") or []:
+                if target in available_names and target != record["name"]:
+                    superseded.add(target)
+        return superseded
+
+    def _score_skill_record(self, record: dict[str, Any], query: str | None) -> int:
+        if not query:
+            return 0
+        query_tokens = self._tokenize(query)
+        if not query_tokens:
+            return 0
+
+        name_tokens = self._tokenize(record["name"])
+        desc_tokens = self._tokenize(record["description"])
+        trigger_tokens = self._tokenize(*record["project_meta"].get("triggers", []))
+        tool_tokens = self._tokenize(*record["project_meta"].get("tool_tags", []))
+
+        score = 0
+        score += 10 * len(query_tokens & name_tokens)
+        score += 6 * len(query_tokens & trigger_tokens)
+        score += 4 * len(query_tokens & tool_tokens)
+        score += 2 * len(query_tokens & desc_tokens)
+        if score > 0:
+            score += min(int(record["project_meta"].get("success_count") or 0), 20)
+            if record.get("source") == "workspace":
+                score += 1
+        return score
+
+    def _select_summary_records(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        query: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Select the small skill subset worth exposing in the current prompt summary."""
+        if limit is None:
+            limit = self._SUMMARY_SKILL_LIMIT
+        if limit <= 0:
+            return []
+
+        visible = [
+            record for record in records if record["name"] not in self._superseded_names(records)
+        ]
+        scored: list[tuple[int, dict[str, Any]]] = [
+            (self._score_skill_record(record, query), record) for record in visible
+        ]
+        scored.sort(key=lambda item: (-item[0], item[1]["name"]))
+
+        if query and any(score > 0 for score, _ in scored):
+            selected = [record for score, record in scored if score > 0][:limit]
+            if selected:
+                return selected
+        return [record for _, record in scored[:limit]]
+
+    def lint_skills(self) -> dict[str, Any]:
+        """Inspect local skills for supersedes issues and likely overlap drift."""
+        records = self.list_skill_records(filter_unavailable=False)
+        by_name = {record["name"]: record for record in records}
+        superseded = self._superseded_names(records)
+
+        superseded_entries: list[dict[str, Any]] = []
+        missing_targets: list[dict[str, Any]] = []
+        for record in sorted(records, key=lambda item: item["name"]):
+            targets = record["project_meta"].get("supersedes") or []
+            if not targets:
+                continue
+            existing = [target for target in targets if target in by_name and target != record["name"]]
+            missing = [target for target in targets if target not in by_name]
+            if existing:
+                superseded_entries.append({"name": record["name"], "targets": existing})
+            if missing:
+                missing_targets.append({"name": record["name"], "targets": missing})
+
+        overlaps: list[dict[str, Any]] = []
+        visible = sorted(
+            (record for record in records if record["name"] not in superseded),
+            key=lambda item: item["name"],
+        )
+        for index, left in enumerate(visible):
+            left_triggers = {item.lower() for item in left["project_meta"].get("triggers") or []}
+            left_tools = {item.lower() for item in left["project_meta"].get("tool_tags") or []}
+            left_tokens = self._tokenize(left["name"], left["description"], *left_triggers)
+            for right in visible[index + 1:]:
+                right_triggers = {item.lower() for item in right["project_meta"].get("triggers") or []}
+                right_tools = {item.lower() for item in right["project_meta"].get("tool_tags") or []}
+                right_tokens = self._tokenize(right["name"], right["description"], *right_triggers)
+                shared_triggers = sorted(left_triggers & right_triggers)
+                shared_tools = sorted(left_tools & right_tools)
+                shared_tokens = sorted(left_tokens & right_tokens)
+                if len(shared_triggers) >= 2 or (
+                    shared_triggers and shared_tools and len(shared_tokens) >= 3
+                ):
+                    overlaps.append({
+                        "left": left["name"],
+                        "right": right["name"],
+                        "shared_triggers": shared_triggers,
+                        "shared_tools": shared_tools,
+                    })
+
+        return {
+            "total": len(records),
+            "visible": len(visible),
+            "superseded": sorted(superseded),
+            "superseded_by": superseded_entries,
+            "missing_supersedes_targets": missing_targets,
+            "overlaps": overlaps,
+        }
+
     def get_always_skills(self) -> list[str]:
         """Get skills marked as always=true that meet requirements."""
         return [
             entry["name"]
             for entry in self.list_skills(filter_unavailable=True)
             if (meta := self.get_skill_metadata(entry["name"]) or {})
-            and (
-                self._parse_project_metadata(meta.get("metadata", "")).get("always")
-                or meta.get("always")
-            )
+            and (self._parse_project_metadata(meta.get("metadata", "")).get("always") or meta.get("always"))
         ]
 
     def get_skill_metadata(self, name: str) -> dict | None:

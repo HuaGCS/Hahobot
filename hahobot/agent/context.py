@@ -80,6 +80,7 @@ class ContextBuilder:
         persona: str | None = None,
         language: str | None = None,
         memory_context: str | None = None,
+        query: str | None = None,
     ) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
         active_persona = self.resolve_persona(persona)
@@ -116,7 +117,7 @@ class ContextBuilder:
             if active_content:
                 parts.append(f"# Active Skills\n\n{active_content}")
 
-        skills_summary = self.skills.build_skills_summary()
+        skills_summary = self.skills.build_skills_summary(query=query)
         if skills_summary:
             parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
 
@@ -265,6 +266,7 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
         current_role: str = "user",
         session_summary: str | None = None,
         memory_context: str | None = None,
+        query: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         runtime_ctx = self._build_runtime_context(
@@ -290,6 +292,7 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
                     persona=persona,
                     language=language,
                     memory_context=memory_context,
+                    query=query or current_message,
                 ),
             },
             *history,

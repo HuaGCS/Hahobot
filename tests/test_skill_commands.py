@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -282,7 +283,7 @@ async def test_skill_help_includes_skill_command(tmp_path: Path) -> None:
     )
 
     assert response is not None
-    assert "/skill <search|install|uninstall|list|update|derive>" in response.content
+    assert "/skill <search|install|uninstall|list|update|derive|lint>" in response.content
 
 
 @pytest.mark.asyncio
@@ -320,8 +321,11 @@ async def test_skill_derive_creates_workspace_skill_draft_from_session_context(t
     content = skill_path.read_text(encoding="utf-8")
     assert "name: status-page-fix" in content
     assert "Use when you need to browser status workflow." in content
+    assert 'metadata: {"hahobot":{"triggers":[' in content
+    assert '"tool_tags":["grep","read_file","exec"]' in content
     assert "Repeat this workspace-local workflow for: Trace the browser status page regression" in content
     assert "Start with these tools or command families when relevant: grep, read_file, exec." in content
+    assert "Trigger hints: browser, trace, page, regression, fix" in content
     assert "Derived from session: cli:direct" in content
     assert "Recent completion summary: Status page now shows current and next step correctly." in content
 
@@ -418,9 +422,51 @@ async def test_skill_usage_errors_are_user_facing(tmp_path: Path) -> None:
     assert usage is not None
     assert "/skill search <query>" in usage.content
     assert "/skill derive <name> [brief] [--force]" in usage.content
+    assert "/skill lint" in usage.content
     assert missing_slug is not None
     assert "Missing skill slug" in missing_slug.content
     assert missing_uninstall_slug is not None
     assert "/skill uninstall <slug>" in missing_uninstall_slug.content
     assert missing_derive_name is not None
     assert "/skill derive <name> [brief] [--force]" in missing_derive_name.content
+
+
+@pytest.mark.asyncio
+async def test_skill_lint_reports_supersedes_and_overlap(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir(parents=True)
+    for name, payload in (
+        (
+            "status-alpha",
+            {"triggers": ["browser", "status"], "tool_tags": ["grep", "read_file"]},
+        ),
+        (
+            "status-beta",
+            {"triggers": ["browser", "status"], "tool_tags": ["grep", "read_file"]},
+        ),
+        (
+            "cleanup-v2",
+            {"supersedes": ["cleanup-v1", "ghost-skill"]},
+        ),
+    ):
+        skill_dir = skills_root / name
+        skill_dir.mkdir()
+        payload_json = json.dumps({"hahobot": payload}, separators=(",", ":"))
+        (skill_dir / "SKILL.md").write_text(
+            "\n".join(["---", f"metadata: {payload_json}", "---", "", f"# {name}"]),
+            encoding="utf-8",
+        )
+    cleanup_v1 = skills_root / "cleanup-v1"
+    cleanup_v1.mkdir()
+    (cleanup_v1 / "SKILL.md").write_text("# cleanup-v1\n", encoding="utf-8")
+
+    response = await loop._process_message(
+        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill lint")
+    )
+
+    assert response is not None
+    assert "Skill lint summary" in response.content
+    assert "cleanup-v1" in response.content
+    assert "ghost-skill" in response.content
+    assert "status-alpha <-> status-beta" in response.content

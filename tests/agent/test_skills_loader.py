@@ -326,3 +326,90 @@ def test_disabled_skills_excluded_from_get_always_skills(tmp_path: Path) -> None
 
     assert "alpha" not in always
     assert "beta" in always
+
+
+def test_build_skills_summary_prefers_query_matches_and_hides_superseded(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    ws_skills = workspace / "skills"
+    ws_skills.mkdir(parents=True)
+    _write_skill(
+        ws_skills,
+        "status-fix-v1",
+        metadata_json={
+            "triggers": ["browser", "status", "page"],
+            "tool_tags": ["grep", "read_file"],
+        },
+        body="# Status Fix V1",
+    )
+    _write_skill(
+        ws_skills,
+        "status-fix-v2",
+        metadata_json={
+            "triggers": ["browser", "status", "page", "regression"],
+            "tool_tags": ["grep", "read_file", "exec"],
+            "supersedes": ["status-fix-v1"],
+            "success_count": 3,
+        },
+        body="# Status Fix V2",
+    )
+    _write_skill(
+        ws_skills,
+        "garden-notes",
+        metadata_json={"triggers": ["plants", "watering"]},
+        body="# Garden Notes",
+    )
+    builtin = tmp_path / "builtin"
+    builtin.mkdir()
+
+    loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
+    summary = loader.build_skills_summary(query="browser status page regression", limit=4)
+
+    assert "status-fix-v2" in summary
+    assert "browser, status, page, regression" in summary
+    assert "grep, read_file, exec" in summary
+    assert "status-fix-v1" not in summary
+    assert "garden-notes" not in summary
+
+
+def test_lint_skills_reports_missing_targets_and_overlap(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    ws_skills = workspace / "skills"
+    ws_skills.mkdir(parents=True)
+    _write_skill(
+        ws_skills,
+        "status-alpha",
+        metadata_json={
+            "triggers": ["browser", "status"],
+            "tool_tags": ["grep", "read_file"],
+        },
+        body="# Status Alpha",
+    )
+    _write_skill(
+        ws_skills,
+        "status-beta",
+        metadata_json={
+            "triggers": ["browser", "status"],
+            "tool_tags": ["grep", "read_file"],
+        },
+        body="# Status Beta",
+    )
+    _write_skill(
+        ws_skills,
+        "cleanup-v2",
+        metadata_json={"supersedes": ["cleanup-v1", "ghost-skill"]},
+        body="# Cleanup V2",
+    )
+    _write_skill(ws_skills, "cleanup-v1", body="# Cleanup V1")
+    builtin = tmp_path / "builtin"
+    builtin.mkdir()
+
+    loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
+    report = loader.lint_skills()
+
+    assert "cleanup-v1" in report["superseded"]
+    assert {"name": "cleanup-v2", "targets": ["cleanup-v1"]} in report["superseded_by"]
+    assert {"name": "cleanup-v2", "targets": ["ghost-skill"]} in report["missing_supersedes_targets"]
+    assert any(
+        item["left"] == "status-alpha" and item["right"] == "status-beta"
+        for item in report["overlaps"]
+    )

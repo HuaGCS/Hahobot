@@ -83,6 +83,7 @@ class TurnDataRuntimeManager:
                         persona=turn.state.persona,
                         language=turn.state.language,
                         memory_context=turn.memory_context,
+                        query=msg.content,
                     ),
                 },
                 *turn.history,
@@ -100,6 +101,7 @@ class TurnDataRuntimeManager:
                 current_role=current_role,
                 session_summary=turn.state.pending_summary,
                 memory_context=turn.memory_context,
+                query=msg.content,
             )
         self.loop._append_untrusted_system_section(
             messages,
