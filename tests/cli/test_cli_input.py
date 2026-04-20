@@ -151,6 +151,17 @@ def test_interactive_slash_completer_matches_skill_subcommands():
     assert [completion.text for completion in completions] == ["derive"]
 
 
+def test_interactive_slash_completer_matches_skill_lint_subcommand():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/skill l", cursor_position=len("/skill l")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["list", "lint"]
+
+
 def test_interactive_slash_completer_matches_repo_subcommands():
     completions = list(
         commands._INTERACTIVE_SLASH_COMPLETER.get_completions(

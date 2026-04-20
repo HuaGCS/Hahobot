@@ -1098,7 +1098,13 @@ hahobot 现在额外内置了一组偏工作流的 skills：
 另外，`/skill derive <name> [brief] [--force]` 可以把当前会话最近一次成功流程和
 `working_checkpoint` 提炼成当前 workspace 下的本地 skill 草稿
 `workspace/skills/<name>/SKILL.md`，方便后续再人工收紧和复用。默认不会覆盖已有草稿，
-只有显式传 `--force` 时才会重写。
+只有显式传 `--force` 时才会重写。新生成的草稿会顺带写入一段 hahobot 自己用的
+`metadata`，用于描述 `triggers`、`tool_tags`、`supersedes`、`last_used`、
+`success_count` 这些生命周期提示。
+
+`/skill lint` 是只读的本地 skill 体检命令，用来检查当前 workspace 里是否存在明显的
+skill 重叠、缺失的 `supersedes` 目标，以及哪些旧 skill 已经因为被新 skill 取代而不会再进入
+运行时 summary。
 
 ### 隐藏内置或工作区 Skill
 
@@ -1114,6 +1120,10 @@ hahobot 现在额外内置了一组偏工作流的 skills：
   }
 }
 ```
+
+另外，运行时注入给模型的 skill summary 不再是“把所有 skill 全塞进去”，而是会结合当前
+query 做 top-k 选择；如果新 skill 通过 `supersedes` 明确声明替代旧 skill，只要新 skill
+当前可用，旧 skill 就会默认从共享 summary 里隐藏，减少 prompt 和 skill 选择混乱。
 
 ### 空闲会话自动 Compact
 
@@ -1564,6 +1574,7 @@ manifest 中可声明：
 | `/skill list` | 查看技能 |
 | `/skill update` | 更新技能 |
 | `/skill derive <name> [brief] [--force]` | 从当前会话生成或显式覆盖本地 skill 草稿 |
+| `/skill lint` | 检查本地 skill 的 supersedes 和重叠问题 |
 | `/mcp [list]` | 查看 MCP 服务和工具 |
 | `/stop` | 停止当前任务 |
 | `/restart` | 重启进程 |

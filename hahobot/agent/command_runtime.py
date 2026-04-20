@@ -189,6 +189,9 @@ class CommandRuntimeManager:
                 force=force,
             )
 
+        if subcommand == "lint":
+            return await self.loop._skill_commands.lint(msg, language)
+
         if subcommand == "list":
             return await self.loop._skill_commands.list(msg, language)
 

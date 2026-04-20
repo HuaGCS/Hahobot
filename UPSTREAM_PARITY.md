@@ -80,6 +80,7 @@ This file therefore records both:
 | Dream skill discovery automation | `intentional_divergence` | Upstream lets Dream discover/write reusable skills automatically; local skill accumulation stays operator-visible and reviewable through `/skill derive` instead of unattended Dream promotion. |
 | GenericAgent-style SOP workflow | `synced` | Hahobot now ships built-in workflow skills (`workflow-core`, `plan`, `verify`), subagent execution modes (`explore` / `implement` / `verify`), and persisted `working_checkpoint` state across session/admin/status surfaces. |
 | GenericAgent-style skill accumulation | `synced` | Hahobot now supports local skill derivation through `/skill derive <name> [brief] [--force]`, turning recent successful session workflow into a reusable workspace skill draft. |
+| Skill lifecycle hygiene / prompt budget control | `local_extension` | Runtime skill summaries are now query-aware top-k views, `supersedes` can hide replaced skills from the shared summary, and `/skill lint` reports overlap or missing supersedes targets before local skill growth turns chaotic. |
 | GenericAgent layered memory semantics | `synced` | hahobot already separates conversation archive, `MEMORY.md`, `PROFILE.md`, and `INSIGHTS.md`, with Dream + archive sidecars providing a stronger implementation than GenericAgent's simpler layered-memory framing. |
 | Hermes-inspired workspace wiki skill | `local_extension` | Built-in `llm-wiki` treats the repo itself as a local concept/config/architecture wiki, using docs + code + tests as the evidence chain without adding another runtime service. |
 | Persona / companion workflow | `local_extension` | `PROFILE.md`, `INSIGHTS.md`, `STYLE.md`, `LORE.md`, companion commands, SillyTavern imports, voice overrides, and scene generation are local-first features. |
@@ -102,6 +103,7 @@ already productized locally and which ones are still only partially reflected in
 | Working-state checkpoint during long turns | `synced` | `working_checkpoint` metadata persisted by runner/checkpoint runtime and rendered in CLI sessions, admin sessions, and browser `/status` | The checkpoint is intentionally lightweight runtime metadata, not a second long-term memory store. |
 | User-visible "current step / next step" runtime visibility | `synced` | Browser `/status` recent-task card, admin session list, and `hahobot sessions show` output | GenericAgent keeps this mostly inside loop state; hahobot surfaces it to local ops pages as well. |
 | Skill accumulation from successful executions | `synced` | `/skill derive <name> [brief] [--force]` writes reviewable drafts under `<workspace>/skills/<slug>/SKILL.md` | The flow is deterministic and local-first; it does not auto-publish or auto-enable skills without operator review. |
+| Skill lifecycle hygiene after derivation | `local_extension` | Derived drafts now seed local lifecycle metadata, runtime summaries use query-aware top-k selection plus `supersedes` hiding, and `/skill lint` reports overlap / missing supersedes targets | This is explicitly aimed at avoiding skill explosion and ambiguous skill choice without copying Hermes-style unattended self-learning loops. |
 | Layered memory semantics | `synced` | `SOUL.md`, `USER.md`, `PROFILE.md`, `INSIGHTS.md`, `memory/MEMORY.md`, history archive, Dream, optional Mem0 | Local implementation is richer than GenericAgent's framing and intentionally not collapsed back down. |
 | Memory-layer terminology ownership | `synced` | `README.md`, `README_ZH.md`, `AGENTS.md`, Dream templates, admin persona page, and `/status` all use the same split: `PROFILE.md` for stable user facts/preferences, `INSIGHTS.md` for proven collaboration guidance | This keeps operator-facing docs and runtime surfaces aligned instead of letting each page invent its own labels. |
 | Dream prompt sees current memory layers plus metadata summaries | `synced` | Dream prompt injects current `PROFILE.md` / `INSIGHTS.md` contents and their metadata summaries before reflection/edit phases | Reflective maintenance therefore works from the same layered-memory framing shown to operators elsewhere. |
@@ -118,6 +120,12 @@ already productized locally and which ones are still only partially reflected in
 
 - Hahobot now covers the two previously open GenericAgent gaps that motivated adding it as an
   upstream here: first-class workflow SOP skills and local skill derivation from successful runs.
+- Local follow-up work on skill accumulation now intentionally adds lifecycle guardrails instead of
+  pushing further toward Hermes-style unattended self-growth:
+  - derived skills seed explicit lifecycle metadata
+  - runtime skill exposure is query-scoped and top-k bounded
+  - `supersedes` can hide replaced skills from the shared summary
+  - `/skill lint` stays read-only and operator-visible
 - The adopted parts were intentionally mapped onto existing hahobot surfaces:
   - skills for SOP distribution
   - subagent modes for bounded role separation
@@ -206,6 +214,9 @@ These are local choices. When upstream behaves differently, that is not automati
   browser chat SPA.
 - Dream-driven skill accumulation stays operator-reviewed through `/skill derive`; local default is
   not to let Dream auto-write or auto-promote new skills in the background.
+- Skill hygiene also stays operator-reviewed: local runtime may hide superseded skills from prompt
+  summaries, but it does not auto-delete, auto-merge, or silently rewrite skills in the
+  background.
 - The local OpenAI-compatible API intentionally remains non-streaming even though upstream added SSE
   support for `stream=true`; keeping the contract stable matters more than feature parity there.
 - Gateway chat surfaces intentionally expose local `/session`, `/repo`, `/review`, and `/compact`

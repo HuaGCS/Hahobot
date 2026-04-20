@@ -601,11 +601,20 @@ mode so their available tools match the job.
 
 `/skill derive <name> [brief] [--force]` can turn the current session's recent workflow and
 `working_checkpoint` into a local draft skill under `workspace/skills/<name>/SKILL.md`. Existing
-drafts are left untouched unless you pass `--force`.
+drafts are left untouched unless you pass `--force`. Derived drafts now seed a `metadata` block
+for hahobot-local lifecycle hints such as `triggers`, `tool_tags`, `supersedes`, `last_used`, and
+`success_count`.
+
+`/skill lint` is the read-only hygiene command for local skill growth. It reports visible
+overlap, missing `supersedes` targets, and which older skills are currently hidden from the runtime
+summary because a newer skill supersedes them.
 
 Workspace-local skills live under `workspace/skills/` and override built-ins with the same name.
 If you want to hide specific bundled or workspace skills from the main agent and subagents, set
 `agents.defaults.disabledSkills` to a list of skill directory names such as `["github", "weather"]`.
+The runtime skill summary is also query-aware and top-k scoped instead of dumping every skill into
+every prompt; when a newer skill declares `supersedes`, the older target is hidden from the shared
+summary as long as the newer skill is available.
 
 ### MCP
 

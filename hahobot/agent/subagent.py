@@ -168,7 +168,7 @@ class SubagentManager:
 
         try:
             tools = self._build_tools_for_mode(mode)
-            system_prompt = self._build_subagent_prompt(mode)
+            system_prompt = self._build_subagent_prompt(mode, task)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task},
@@ -346,7 +346,7 @@ class SubagentManager:
 
         return tools
 
-    def _build_subagent_prompt(self, mode: str) -> str:
+    def _build_subagent_prompt(self, mode: str, task: str = "") -> str:
         """Build a focused system prompt for the subagent."""
         from hahobot.agent.context import ContextBuilder
         from hahobot.agent.skills import SkillsLoader
@@ -355,7 +355,7 @@ class SubagentManager:
         skills_summary = SkillsLoader(
             self.workspace,
             disabled_skills=set(self.disabled_skills),
-        ).build_skills_summary()
+        ).build_skills_summary(query=task)
         return render_template(
             "agent/subagent_system.md",
             time_ctx=time_ctx,

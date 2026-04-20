@@ -15,6 +15,7 @@ import httpx
 from loguru import logger
 
 from hahobot.agent.i18n import text
+from hahobot.agent.skills import SkillsLoader
 from hahobot.agent.working_checkpoint import (
     latest_user_goal,
     normalize_working_checkpoint,
@@ -33,6 +34,11 @@ class SkillCommandHandler:
 
     _SKILL_NAME_LIMIT = 64
     _SUMMARY_LIMIT = 240
+    _DERIVE_TRIGGER_LIMIT = 8
+    _TRIGGER_STOPWORDS = frozenset({
+        "a", "an", "and", "are", "but", "for", "from", "into", "now", "that", "the",
+        "then", "this", "use", "with", "when", "your", "status", "workflow",
+    })
 
     def __init__(self, loop: AgentLoop) -> None:
         self.loop = loop
@@ -400,6 +406,32 @@ class SkillCommandHandler:
             "follow the saved workflow, and validate before finishing."
         )
 
+    @classmethod
+    def _derive_skill_triggers(cls, *, goal: str, brief: str, slug: str) -> list[str]:
+        tokens: list[str] = []
+        for part in re.findall(r"[a-z0-9]{3,}", " ".join([brief, goal, slug]).lower()):
+            if part in cls._TRIGGER_STOPWORDS:
+                continue
+            if part in tokens:
+                continue
+            tokens.append(part)
+            if len(tokens) >= cls._DERIVE_TRIGGER_LIMIT:
+                break
+        return tokens
+
+    @staticmethod
+    def _derive_skill_metadata(*, triggers: list[str], tool_list: list[str], today: str) -> str:
+        payload = {
+            "hahobot": {
+                "triggers": triggers,
+                "tool_tags": tool_list[:6],
+                "supersedes": [],
+                "success_count": 1,
+                "last_used": today,
+            }
+        }
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
     def _derive_skill_markdown(
         self,
         *,
@@ -423,6 +455,8 @@ class SkillCommandHandler:
         title = self._skill_title(slug) or slug
         today = datetime.now(tz=UTC).date().isoformat()
         description = self._derive_skill_description(goal=goal, brief=brief)
+        triggers = self._derive_skill_triggers(goal=goal, brief=brief, slug=slug)
+        metadata = self._derive_skill_metadata(triggers=triggers, tool_list=tool_list, today=today)
         summary_line = response_preview or assistant_preview or (
             "TODO: replace this with a tighter summary after one more successful run."
         )
@@ -431,6 +465,7 @@ class SkillCommandHandler:
             "---",
             f"name: {slug}",
             f"description: {json.dumps(description, ensure_ascii=False)}",
+            f"metadata: {metadata}",
             "---",
             "",
             f"# {title}",
@@ -470,12 +505,73 @@ class SkillCommandHandler:
                 "## Draft Notes",
                 f"- Derived from session: {session.key}",
                 f"- Source goal: {goal}",
+                f"- Trigger hints: {', '.join(triggers) if triggers else 'TODO'}",
                 f"- Recent tool pattern: {tool_line}",
                 f"- Recent completion summary: {summary_line}",
                 f"- Last review date: {today}",
             ]
         )
         return "\n".join(lines) + "\n"
+
+    def _format_skill_lint_report(self, language: str, report: dict[str, Any]) -> str:
+        lines = [
+            text(
+                language,
+                "skill_lint_header",
+                total=report["total"],
+                visible=report["visible"],
+            )
+        ]
+
+        clean = True
+        if report["superseded"]:
+            clean = False
+            lines.extend([
+                "",
+                text(language, "skill_lint_superseded_header"),
+                *[
+                    text(language, "skill_lint_superseded_item", name=name)
+                    for name in report["superseded"]
+                ],
+            ])
+
+        if report["missing_supersedes_targets"]:
+            clean = False
+            lines.extend([
+                "",
+                text(language, "skill_lint_missing_header"),
+                *[
+                    text(
+                        language,
+                        "skill_lint_missing_item",
+                        name=item["name"],
+                        targets=", ".join(item["targets"]),
+                    )
+                    for item in report["missing_supersedes_targets"]
+                ],
+            ])
+
+        if report["overlaps"]:
+            clean = False
+            lines.extend([
+                "",
+                text(language, "skill_lint_overlap_header"),
+                *[
+                    text(
+                        language,
+                        "skill_lint_overlap_item",
+                        left=item["left"],
+                        right=item["right"],
+                        triggers=", ".join(item["shared_triggers"]) or "-",
+                        tools=", ".join(item["shared_tools"]) or "-",
+                    )
+                    for item in report["overlaps"][:10]
+                ],
+            ])
+
+        if clean:
+            lines.extend(["", text(language, "skill_lint_clean")])
+        return "\n".join(lines)
 
     async def _run_skill_clawhub_command(
         self,
@@ -618,6 +714,13 @@ class SkillCommandHandler:
                 ]
             ),
         )
+
+    async def lint(self, msg: InboundMessage, language: str) -> OutboundMessage:
+        loader = SkillsLoader(
+            self.loop.workspace,
+            disabled_skills=set(getattr(self.loop, "_disabled_skills", [])),
+        )
+        return self._response(msg, self._format_skill_lint_report(language, loader.lint_skills()))
 
     async def list(self, msg: InboundMessage, language: str) -> OutboundMessage:
         return await self._run_skill_clawhub_command(msg, language, "list", "list")
