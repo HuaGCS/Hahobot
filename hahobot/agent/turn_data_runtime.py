@@ -41,6 +41,7 @@ class TurnDataRuntimeManager:
             state.chat_id,
             msg.metadata.get("message_id"),
             persona=state.persona,
+            session_key=state.key,
         )
         turn_history = history if history is not None else state.session.get_history(max_messages=0)
         memorix_context = await self.loop._maybe_start_memorix_session(state.session)
@@ -70,21 +71,36 @@ class TurnDataRuntimeManager:
         current_message: str | None = None,
         current_role: str = "user",
         media: list[str] | None = None,
+        omit_current_message: bool = False,
     ) -> list[dict[str, Any]]:
         """Build the request messages for the current turn."""
-        messages = self.loop.context.build_messages(
-            history=turn.history,
-            current_message=current_message or msg.content,
-            skill_names=self.loop._runtime_skill_names(),
-            media=media,
-            channel=turn.state.channel,
-            chat_id=turn.state.chat_id,
-            persona=turn.state.persona,
-            language=turn.state.language,
-            current_role=current_role,
-            session_summary=turn.state.pending_summary,
-            memory_context=turn.memory_context,
-        )
+        if omit_current_message:
+            messages = [
+                {
+                    "role": "system",
+                    "content": self.loop.context.build_system_prompt(
+                        self.loop._runtime_skill_names(),
+                        persona=turn.state.persona,
+                        language=turn.state.language,
+                        memory_context=turn.memory_context,
+                    ),
+                },
+                *turn.history,
+            ]
+        else:
+            messages = self.loop.context.build_messages(
+                history=turn.history,
+                current_message=current_message or msg.content,
+                skill_names=self.loop._runtime_skill_names(),
+                media=media,
+                channel=turn.state.channel,
+                chat_id=turn.state.chat_id,
+                persona=turn.state.persona,
+                language=turn.state.language,
+                current_role=current_role,
+                session_summary=turn.state.pending_summary,
+                memory_context=turn.memory_context,
+            )
         self.loop._append_untrusted_system_section(
             messages,
             "Workspace Memory (Memorix)",

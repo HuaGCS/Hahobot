@@ -314,6 +314,7 @@ class AgentLoop:
             disabled_skills=self._disabled_skills,
         )
         self._tool_runtime = ToolRuntimeManager(
+            loop=self,
             tools=self.tools,
             workspace=self.workspace,
             send_callback=self.bus.publish_outbound,
@@ -638,9 +639,10 @@ class AgentLoop:
         chat_id: str,
         message_id: str | None = None,
         persona: str | None = None,
+        session_key: str | None = None,
     ) -> None:
         """Update context for all tools that need routing info."""
-        self._tool_runtime.set_context(channel, chat_id, message_id, persona)
+        self._tool_runtime.set_context(channel, chat_id, message_id, persona, session_key)
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -983,6 +985,7 @@ class AgentLoop:
         current_message: str | None = None,
         current_role: str = "user",
         media: list[str] | None = None,
+        omit_current_message: bool = False,
     ) -> list[dict[str, Any]]:
         """Build the request messages for the current turn."""
         return self._turn_data_runtime_manager().build_turn_messages(
@@ -991,6 +994,7 @@ class AgentLoop:
             current_message=current_message,
             current_role=current_role,
             media=media,
+            omit_current_message=omit_current_message,
         )
 
     def _sanitize_persisted_blocks(

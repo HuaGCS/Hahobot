@@ -12,6 +12,7 @@ from hahobot.agent.hook import AgentHook, AgentHookContext
 from hahobot.agent.runner import AgentRunner, AgentRunSpec
 from hahobot.agent.skills import BUILTIN_SKILLS_DIR
 from hahobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+from hahobot.agent.tools.notebook import NotebookEditTool
 from hahobot.agent.tools.policy import RuntimeToolPolicy
 from hahobot.agent.tools.registry import ToolRegistry
 from hahobot.agent.tools.search import GlobTool, GrepTool
@@ -77,6 +78,7 @@ class SubagentManager:
         self.runner = AgentRunner(provider)
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        self._task_meta: dict[str, dict[str, str]] = {}
 
     def apply_runtime_config(
         self,
@@ -120,20 +122,30 @@ class SubagentManager:
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
         normalized_mode = self._normalize_mode(mode)
+        effective_session_key = session_key or f"{origin_channel}:{origin_chat_id}"
+        self._task_meta[task_id] = {
+            "task_id": task_id,
+            "label": display_label,
+            "mode": normalized_mode,
+            "origin_channel": origin_channel,
+            "origin_chat_id": origin_chat_id,
+            "session_key": effective_session_key,
+        }
 
         bg_task = asyncio.create_task(
             self._run_subagent(task_id, task, display_label, normalized_mode, origin)
         )
         self._running_tasks[task_id] = bg_task
-        if session_key:
-            self._session_tasks.setdefault(session_key, set()).add(task_id)
+        if effective_session_key:
+            self._session_tasks.setdefault(effective_session_key, set()).add(task_id)
 
         def _cleanup(_: asyncio.Task) -> None:
             self._running_tasks.pop(task_id, None)
-            if session_key and (ids := self._session_tasks.get(session_key)):
+            self._task_meta.pop(task_id, None)
+            if effective_session_key and (ids := self._session_tasks.get(effective_session_key)):
                 ids.discard(task_id)
                 if not ids:
-                    del self._session_tasks[session_key]
+                    del self._session_tasks[effective_session_key]
 
         bg_task.add_done_callback(_cleanup)
 
@@ -229,6 +241,12 @@ class SubagentManager:
             sender_id="subagent",
             chat_id=f"{origin['channel']}:{origin['chat_id']}",
             content=announce_content,
+            metadata={
+                "injected_event": "subagent_result",
+                "subagent_task_id": task_id,
+                "subagent_status": status,
+                "subagent_label": label,
+            },
         )
 
         await self.bus.publish_inbound(msg)
@@ -302,6 +320,7 @@ class SubagentManager:
         if mode == "implement":
             tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
             tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+            tools.register(NotebookEditTool(workspace=self.workspace, allowed_dir=allowed_dir))
 
         if mode in {"implement", "verify"} and policy.exec().enabled:
             tools.register(ExecTool(
@@ -358,3 +377,16 @@ class SubagentManager:
     def get_running_count(self) -> int:
         """Return the number of currently running subagents."""
         return len(self._running_tasks)
+
+    def running_tasks_snapshot(self, session_key: str | None = None) -> list[dict[str, str]]:
+        """Return a stable snapshot of currently running subagent tasks."""
+        snapshot: list[dict[str, str]] = []
+        for task_id, task in self._running_tasks.items():
+            if task.done():
+                continue
+            meta = dict(self._task_meta.get(task_id) or {})
+            meta.setdefault("task_id", task_id)
+            if session_key and meta.get("session_key") != session_key:
+                continue
+            snapshot.append(meta)
+        return sorted(snapshot, key=lambda item: item.get("task_id", ""))

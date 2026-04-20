@@ -67,8 +67,8 @@ Core capabilities:
   appending chat history.
 - Structured archived history for lossless recall via `history_search` / `history_expand`.
 - Optional Mem0 integration for external long-term memory, with `file` fallback kept available.
-- Built-in tools for web, files, shell, image generation, history recall, cron, messaging, and
-  MCP.
+- Built-in tools for web, files, shell, image generation, notebook editing, history recall, cron,
+  messaging, runtime self-inspection, and MCP.
 - OpenAI-compatible HTTP API for embedding the runtime behind other local systems.
 - A compatibility layer that still accepts legacy `nanobot` config paths, imports, CLI entrypoints,
   and old admin cookie names.
@@ -426,6 +426,9 @@ structured chunks. Those archives can later be searched and expanded through too
 - `history_expand`
 
 This gives hahobot a lossless recall path without keeping every old turn in the active prompt.
+Subagent completion follow-ups are also persisted into session history before the next model call,
+so background-task results survive retries or crashes instead of existing only as transient prompt
+injections.
 
 ### Dream-style reflective maintenance
 
@@ -551,9 +554,11 @@ The runtime can expose:
 - grep / glob style search
 - shell execution
 - image generation
+- Jupyter notebook cell editing through `notebook_edit`
 - cron scheduling
 - outbound messaging
 - history search and expansion
+- read-only runtime/session/subagent inspection through `self_inspect`
 - subagent spawning with `explore` / `implement` / `verify` execution modes
 
 Workspace restrictions for shell/file tools can be enforced through config.
@@ -562,6 +567,10 @@ The shell tool can also forward a narrow allowlist of environment variables thro
 `web_search` supports `brave`, `searxng`, and `duckduckgo`; DuckDuckGo needs no extra
 credentials and is executed exclusively so concurrent tool turns do not batch multiple
 DuckDuckGo searches together.
+`self_inspect` is intentionally read-only and returns a JSON snapshot of the active runtime,
+registered tools, actual session key, and currently running subagents. `notebook_edit` stays
+limited to `.ipynb` files; `spawn(mode="implement")` workers also receive it, while `explore` and
+`verify` workers do not.
 
 ### Skills
 

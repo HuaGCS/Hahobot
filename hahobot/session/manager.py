@@ -1,7 +1,9 @@
 """Session management for conversation history."""
 
 import json
+import os
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -162,46 +164,30 @@ class SessionManager:
             return None
 
         try:
-            messages = []
-            metadata = {}
-            created_at = None
-            updated_at = None
-            last_consolidated = 0
-
-            with open(path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    data = json.loads(line)
-
-                    if data.get("_type") == "metadata":
-                        metadata = data.get("metadata", {})
-                        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
-                        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else updated_at
-                        last_consolidated = data.get("last_consolidated", 0)
-                    else:
-                        messages.append(data)
-
-            resolved_created_at = created_at or datetime.now()
-            resolved_updated_at = updated_at or datetime.fromtimestamp(path.stat().st_mtime)
-            if resolved_updated_at < resolved_created_at:
-                resolved_updated_at = resolved_created_at
-
-            session = Session(
-                key=key,
+            messages, metadata, created_at, updated_at, last_consolidated, _ = self._read_session_file(
+                path
+            )
+            session = self._build_session(
+                key,
+                path,
                 messages=messages,
-                created_at=resolved_created_at,
-                updated_at=resolved_updated_at,
                 metadata=metadata,
-                last_consolidated=last_consolidated
+                created_at=created_at,
+                updated_at=updated_at,
+                last_consolidated=last_consolidated,
             )
             self._mark_persisted(session)
             return session
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
-            return None
+            repaired = self._repair(key)
+            if repaired is not None:
+                logger.info(
+                    "Recovered session {} from corrupt file ({} messages)",
+                    key,
+                    len(repaired.messages),
+                )
+            return repaired
 
     @staticmethod
     def _metadata_state(session: Session) -> str:
@@ -233,17 +219,134 @@ class SessionManager:
     def _write_jsonl_line(handle: Any, payload: dict[str, Any]) -> None:
         handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
+    @staticmethod
+    def _parse_iso_datetime(value: Any) -> datetime | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def _read_session_file(
+        self,
+        path: Path,
+        *,
+        tolerate_corrupt: bool = False,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], datetime | None, datetime | None, int, int]:
+        messages: list[dict[str, Any]] = []
+        metadata: dict[str, Any] = {}
+        created_at: datetime | None = None
+        updated_at: datetime | None = None
+        last_consolidated = 0
+        skipped = 0
+
+        with open(path, encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    if not tolerate_corrupt:
+                        raise
+                    skipped += 1
+                    continue
+
+                if data.get("_type") == "metadata":
+                    metadata = data.get("metadata", {})
+                    created_at = self._parse_iso_datetime(data.get("created_at")) or created_at
+                    updated_at = self._parse_iso_datetime(data.get("updated_at")) or updated_at
+                    last_consolidated = data.get("last_consolidated", 0)
+                else:
+                    messages.append(data)
+
+        return messages, metadata, created_at, updated_at, last_consolidated, skipped
+
+    def _build_session(
+        self,
+        key: str,
+        path: Path,
+        *,
+        messages: list[dict[str, Any]],
+        metadata: dict[str, Any],
+        created_at: datetime | None,
+        updated_at: datetime | None,
+        last_consolidated: int,
+    ) -> Session:
+        resolved_created_at = created_at or datetime.now()
+        resolved_updated_at = updated_at or datetime.fromtimestamp(path.stat().st_mtime)
+        if resolved_updated_at < resolved_created_at:
+            resolved_updated_at = resolved_created_at
+
+        return Session(
+            key=key,
+            messages=messages,
+            created_at=resolved_created_at,
+            updated_at=resolved_updated_at,
+            metadata=metadata,
+            last_consolidated=last_consolidated,
+        )
+
     def _mark_persisted(self, session: Session) -> None:
         session._persisted_message_count = len(session.messages)
         session._persisted_metadata_state = self._metadata_state(session)
         session._requires_full_save = False
 
     def _rewrite_session_file(self, path: Path, session: Session) -> None:
-        with open(path, "w", encoding="utf-8") as f:
-            self._write_jsonl_line(f, self._metadata_line(session))
-            for msg in session.messages:
-                self._write_jsonl_line(f, msg)
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(path.parent),
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                self._write_jsonl_line(f, self._metadata_line(session))
+                for msg in session.messages:
+                    self._write_jsonl_line(f, msg)
+            os.replace(tmp_path, path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
         self._mark_persisted(session)
+
+    def _repair(self, key: str) -> Session | None:
+        """Recover valid lines from a partially written or corrupt JSONL session."""
+        path = self._get_session_path(key)
+        if not path.exists():
+            return None
+
+        try:
+            messages, metadata, created_at, updated_at, last_consolidated, skipped = (
+                self._read_session_file(path, tolerate_corrupt=True)
+            )
+            if skipped:
+                logger.warning("Skipped {} corrupt lines in session {}", skipped, key)
+            if (
+                not messages
+                and not metadata
+                and created_at is None
+                and updated_at is None
+                and last_consolidated == 0
+            ):
+                return None
+
+            session = self._build_session(
+                key,
+                path,
+                messages=messages,
+                metadata=metadata,
+                created_at=created_at,
+                updated_at=updated_at,
+                last_consolidated=last_consolidated,
+            )
+            session._requires_full_save = True
+            return session
+        except Exception as e:
+            logger.warning("Repair failed for session {}: {}", key, e)
+            return None
 
     def save(self, session: Session) -> None:
         """Save a session to disk."""
@@ -307,6 +410,14 @@ class SessionManager:
                     "path": str(path)
                 })
             except Exception:
+                repaired = self._repair(path.stem.replace("_", ":", 1))
+                if repaired is not None:
+                    sessions.append({
+                        "key": repaired.key,
+                        "created_at": repaired.created_at.isoformat(),
+                        "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                        "path": str(path),
+                    })
                 continue
 
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)

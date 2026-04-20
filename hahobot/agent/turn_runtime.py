@@ -53,21 +53,21 @@ class TurnRuntimeManager:
         """Process one background/system message routed back into a chat session."""
         channel, chat_id = self._system_origin(msg.chat_id)
         logger.info("Processing system message from {}", msg.sender_id)
-        turn = await self.loop._prepare_turn_context(
-            msg,
-            self.loop._load_session_turn_state(
-                key=f"{channel}:{chat_id}",
-                channel=channel,
-                chat_id=chat_id,
-            ),
-            history=None,
+        state = self.loop._load_session_turn_state(
+            key=f"{channel}:{chat_id}",
+            channel=channel,
+            chat_id=chat_id,
         )
+        if msg.sender_id == "subagent" and self._persist_subagent_followup(state.session, msg):
+            self.loop.sessions.save(state.session)
+        turn = await self.loop._prepare_turn_context(msg, state, history=None)
         current_role = "assistant" if msg.sender_id == "subagent" else "user"
         messages = self.loop._build_turn_messages(
             msg,
             turn,
             current_message=msg.content,
             current_role=current_role,
+            omit_current_message=msg.sender_id == "subagent",
         )
         final_content, _, all_msgs, _ = await self.loop._run_agent_loop(
             messages,
@@ -81,7 +81,7 @@ class TurnRuntimeManager:
         self.loop.sessions.save(turn.state.session)
         await self.loop._commit_memory_turn(
             scope=turn.memory_scope,
-            inbound_content=msg.content,
+            inbound_content=None if msg.sender_id == "subagent" else msg.content,
             outbound_content=final_content,
             persisted_messages=persisted_messages,
         )
@@ -196,6 +196,29 @@ class TurnRuntimeManager:
         })
         self.loop._mark_pending_user_turn(session)
         self.loop.sessions.save(session)
+        return True
+
+    @staticmethod
+    def _persist_subagent_followup(session, msg: InboundMessage) -> bool:
+        """Persist a subagent follow-up before prompt assembly so it survives retries/crashes."""
+        metadata = msg.metadata if isinstance(msg.metadata, dict) else {}
+        task_id = metadata.get("subagent_task_id")
+        if task_id and any(
+            message.get("injected_event") == "subagent_result"
+            and message.get("subagent_task_id") == task_id
+            for message in session.messages
+        ):
+            return False
+
+        session.add_message(
+            "assistant",
+            msg.content,
+            sender_id=msg.sender_id,
+            injected_event=str(metadata.get("injected_event") or "subagent_result"),
+            subagent_task_id=task_id,
+            subagent_status=metadata.get("subagent_status"),
+            subagent_label=metadata.get("subagent_label"),
+        )
         return True
 
     def _bus_progress_callback(

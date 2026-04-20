@@ -352,6 +352,96 @@ async def test_openai_direct_reasoning_stream_falls_back_when_responses_api_is_u
     assert client_instance.chat.completions.create.call_count == 1
 
 
+@pytest.mark.asyncio
+async def test_openai_responses_fallback_opens_short_circuit_after_repeated_failures() -> None:
+    spec = find_by_name("openai")
+
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI") as mock_client_cls:
+        client_instance = mock_client_cls.return_value
+        client_instance.responses.create = AsyncMock(
+            side_effect=_CompatibilityError("Responses API not supported")
+        )
+        client_instance.chat.completions.create = AsyncMock(return_value=_fake_chat_response("fallback"))
+
+        provider = OpenAICompatProvider(
+            api_key="sk-test-key",
+            default_model="gpt-5-chat",
+            spec=spec,
+        )
+
+        for _ in range(4):
+            result = await provider.chat(
+                messages=[{"role": "user", "content": "hello"}],
+                model="gpt-5-chat",
+            )
+            assert result.content == "fallback"
+
+    assert client_instance.responses.create.call_count == 3
+    assert client_instance.chat.completions.create.call_count == 4
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_fallback_reprobes_after_circuit_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec = find_by_name("openai")
+    clock = {"value": 0.0}
+
+    def _now() -> float:
+        return clock["value"]
+
+    monkeypatch.setattr("hahobot.providers.openai_compat_provider.time.monotonic", _now)
+
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI") as mock_client_cls:
+        client_instance = mock_client_cls.return_value
+        client_instance.responses.create = AsyncMock(
+            side_effect=[
+                _CompatibilityError("Responses API not supported"),
+                _CompatibilityError("Responses API not supported"),
+                _CompatibilityError("Responses API not supported"),
+                _fake_responses_output("probe-ok"),
+                _fake_responses_output("steady-ok"),
+            ]
+        )
+        client_instance.chat.completions.create = AsyncMock(return_value=_fake_chat_response("fallback"))
+
+        provider = OpenAICompatProvider(
+            api_key="sk-test-key",
+            default_model="gpt-5-chat",
+            spec=spec,
+        )
+
+        for _ in range(3):
+            result = await provider.chat(
+                messages=[{"role": "user", "content": "hello"}],
+                model="gpt-5-chat",
+            )
+            assert result.content == "fallback"
+
+        clock["value"] = 10.0
+        skipped = await provider.chat(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-5-chat",
+        )
+        assert skipped.content == "fallback"
+
+        clock["value"] = 301.0
+        probe = await provider.chat(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-5-chat",
+        )
+        steady = await provider.chat(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-5-chat",
+        )
+
+    assert skipped.content == "fallback"
+    assert probe.content == "probe-ok"
+    assert steady.content == "steady-ok"
+    assert client_instance.responses.create.call_count == 5
+    assert client_instance.chat.completions.create.call_count == 4
+
+
 def test_openai_model_passthrough() -> None:
     """OpenAI models pass through unchanged."""
     spec = find_by_name("openai")
