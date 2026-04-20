@@ -346,16 +346,19 @@ class TestSubagentCancellation:
         assert explore_tools.get("read_file") is not None
         assert explore_tools.get("write_file") is None
         assert explore_tools.get("edit_file") is None
+        assert explore_tools.get("notebook_edit") is None
         assert explore_tools.get("exec") is None
 
         assert verify_tools.get("read_file") is not None
         assert verify_tools.get("write_file") is None
         assert verify_tools.get("edit_file") is None
+        assert verify_tools.get("notebook_edit") is None
         assert verify_tools.get("exec") is not None
 
         assert implement_tools.get("read_file") is not None
         assert implement_tools.get("write_file") is not None
         assert implement_tools.get("edit_file") is not None
+        assert implement_tools.get("notebook_edit") is not None
         assert implement_tools.get("exec") is not None
 
     @pytest.mark.asyncio
@@ -404,6 +407,39 @@ class TestSubagentCancellation:
         assert "Failure:" in args[3]
         assert "- list_dir: Error executing list_dir: boom" in args[3]
         assert args[5] == "error"
+
+    @pytest.mark.asyncio
+    async def test_subagent_announce_result_publishes_followup_metadata(self, tmp_path):
+        from hahobot.agent.subagent import SubagentManager
+        from hahobot.bus.queue import MessageBus
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        mgr = SubagentManager(
+            provider=provider,
+            workspace=tmp_path,
+            bus=bus,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+
+        await mgr._announce_result(
+            "sub-1",
+            "label",
+            "do task",
+            "done",
+            {"channel": "test", "chat_id": "c1"},
+            "ok",
+        )
+
+        inbound = await asyncio.wait_for(bus.consume_inbound(), timeout=1.0)
+        assert inbound.channel == "system"
+        assert inbound.sender_id == "subagent"
+        assert inbound.chat_id == "test:c1"
+        assert inbound.metadata["injected_event"] == "subagent_result"
+        assert inbound.metadata["subagent_task_id"] == "sub-1"
+        assert inbound.metadata["subagent_status"] == "ok"
+        assert inbound.metadata["subagent_label"] == "label"
 
     @pytest.mark.asyncio
     async def test_cancel_by_session_cancels_running_subagent_tool(self, monkeypatch, tmp_path):

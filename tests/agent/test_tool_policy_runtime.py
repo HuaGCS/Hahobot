@@ -217,6 +217,7 @@ def test_set_tool_context_updates_message_history_and_image_tools(tmp_path) -> N
     cron_tool = _ContextRecorder("cron")
     history_search_tool = _ContextRecorder("history_search")
     history_expand_tool = _ContextRecorder("history_expand")
+    self_tool = _ContextRecorder("self_inspect")
     image_tool = _ContextRecorder("image_gen")
 
     for tool in (
@@ -225,17 +226,19 @@ def test_set_tool_context_updates_message_history_and_image_tools(tmp_path) -> N
         cron_tool,
         history_search_tool,
         history_expand_tool,
+        self_tool,
         image_tool,
     ):
         loop.tools.register(tool)
 
-    loop._set_tool_context("telegram/main", "chat-1", "msg-1", "alice")
+    loop._set_tool_context("telegram/main", "chat-1", "msg-1", "alice", "unified:default")
 
     assert message_tool.calls == [("telegram/main", "chat-1", "msg-1")]
-    assert spawn_tool.calls == [("telegram/main", "chat-1")]
+    assert spawn_tool.calls == [("telegram/main", "chat-1", "unified:default")]
     assert cron_tool.calls == [("telegram/main", "chat-1")]
     assert history_search_tool.calls == [("telegram/main", "chat-1", "alice")]
     assert history_expand_tool.calls == [("telegram/main", "chat-1", "alice")]
+    assert self_tool.calls == [("telegram/main", "chat-1", "unified:default", "alice")]
     assert image_tool.personas == ["alice"]
 
 

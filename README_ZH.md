@@ -1029,6 +1029,8 @@ hahobot 支持 [MCP](https://modelcontextprotocol.io/)。
 [Memorix](https://github.com/AVIDS2/memorix) 更适合作为工作区 / 代码库记忆层，而不是用户长期画像记忆。
 建议通过 `tools.mcpServers` 接入，并继续保留当前文件式 `memory/MEMORY.md` 作为用户长期记忆主路径。
 旧对话在被压缩归档时，hahobot 现在也会把结构化副本写到 `memory/archive/`，这样 agent 可以通过 `history_search` / `history_expand` 回放历史细节，而不只依赖 `HISTORY.md` 的 grep 检索。
+subagent 完成后的 follow-up 结果也会先落到 session history，再进入下一轮 prompt 组装，
+这样后台任务回传不会只存在于瞬时上下文里，重试或异常恢复时也不会丢。
 
 stdio 示例：
 
@@ -1066,6 +1068,17 @@ HTTP 示例：
 
 - 把内置 `memorix` skill 注入系统提示
 - 在每个 runtime MCP 连接 / chat session 首次使用时调用一次 `memorix_session_start`
+
+### 运行时工具补充
+
+当前内置工具除了 web / 文件 / shell / image_gen / history / cron / message / MCP 之外，还额外包括：
+
+- `self_inspect`：只读运行时自检工具，返回当前 model、provider、注册工具、实际 session key 和运行中 subagent 的 JSON 快照
+- `notebook_edit`：受控的 `.ipynb` 单元格编辑工具，支持 `replace` / `insert` / `delete`
+
+其中 `self_inspect` 故意保持只读，不提供上游那类运行时自修改能力；`notebook_edit`
+主 agent 默认可用，`spawn(mode=implement)` 的 subagent 也会拿到，而 `explore` /
+`verify` 模式不会暴露它。
 
 ### 内置 Workflow Skills
 

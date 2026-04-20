@@ -313,6 +313,119 @@ async def test_process_system_message_uses_origin_route_context(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_process_system_subagent_persists_followup_without_prompt_duplication(
+    tmp_path: Path,
+) -> None:
+    loop = _make_full_loop(tmp_path)
+    captured: dict[str, list[dict[str, object]]] = {}
+
+    async def fake_run(messages, **kwargs):
+        captured["messages"] = messages
+        return (
+            "background done",
+            [],
+            [*messages, {"role": "assistant", "content": "background done"}],
+            "stop",
+        )
+
+    loop._run_agent_loop = AsyncMock(side_effect=fake_run)  # type: ignore[method-assign]
+
+    result = await loop._process_message(
+        InboundMessage(
+            channel="system",
+            sender_id="subagent",
+            chat_id="feishu:c-followup",
+            content="background task",
+            metadata={
+                "injected_event": "subagent_result",
+                "subagent_task_id": "task-1",
+                "subagent_status": "ok",
+                "subagent_label": "worker",
+            },
+        )
+    )
+
+    assert result is not None
+    assert result.content == "background done"
+    assistant_messages = [
+        message
+        for message in captured["messages"]
+        if message.get("role") == "assistant" and message.get("content") == "background task"
+    ]
+    assert len(assistant_messages) == 1
+    user_messages = [
+        message
+        for message in captured["messages"]
+        if message.get("role") == "user" and message.get("content") == "background task"
+    ]
+    assert user_messages == []
+
+    session = loop.sessions.get_or_create("feishu:c-followup")
+    followups = [message for message in session.messages if message.get("subagent_task_id") == "task-1"]
+    assert len(followups) == 1
+    assert followups[0]["role"] == "assistant"
+    assert followups[0]["injected_event"] == "subagent_result"
+    assert followups[0]["subagent_status"] == "ok"
+    assert followups[0]["subagent_label"] == "worker"
+
+
+@pytest.mark.asyncio
+async def test_process_system_subagent_followup_dedupes_same_task_id(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    captured: dict[str, list[dict[str, object]]] = {}
+    session = loop.sessions.get_or_create("feishu:c-dedupe")
+    session.add_message(
+        "assistant",
+        "background task",
+        sender_id="subagent",
+        injected_event="subagent_result",
+        subagent_task_id="task-1",
+        subagent_status="ok",
+        subagent_label="worker",
+    )
+    loop.sessions.save(session)
+
+    async def fake_run(messages, **kwargs):
+        captured["messages"] = messages
+        return (
+            "background done",
+            [],
+            [*messages, {"role": "assistant", "content": "background done"}],
+            "stop",
+        )
+
+    loop._run_agent_loop = AsyncMock(side_effect=fake_run)  # type: ignore[method-assign]
+
+    result = await loop._process_message(
+        InboundMessage(
+            channel="system",
+            sender_id="subagent",
+            chat_id="feishu:c-dedupe",
+            content="background task",
+            metadata={
+                "injected_event": "subagent_result",
+                "subagent_task_id": "task-1",
+                "subagent_status": "ok",
+                "subagent_label": "worker",
+            },
+        )
+    )
+
+    assert result is not None
+    assert result.content == "background done"
+    assistant_messages = [
+        message
+        for message in captured["messages"]
+        if message.get("role") == "assistant" and message.get("content") == "background task"
+    ]
+    assert len(assistant_messages) == 1
+
+    session = loop.sessions.get_or_create("feishu:c-dedupe")
+    followups = [message for message in session.messages if message.get("subagent_task_id") == "task-1"]
+    assert len(followups) == 1
+
+
+@pytest.mark.asyncio
 async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
     session = loop.sessions.get_or_create("feishu:c3")

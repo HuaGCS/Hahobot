@@ -10,13 +10,16 @@ from hahobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTo
 from hahobot.agent.tools.history import HistoryExpandTool, HistorySearchTool
 from hahobot.agent.tools.image_gen import ImageGenTool
 from hahobot.agent.tools.message import MessageTool
+from hahobot.agent.tools.notebook import NotebookEditTool
 from hahobot.agent.tools.policy import RuntimeToolPolicy
 from hahobot.agent.tools.search import GlobTool, GrepTool
+from hahobot.agent.tools.self_inspect import SelfInspectTool
 from hahobot.agent.tools.shell import ExecTool
 from hahobot.agent.tools.spawn import SpawnTool
 from hahobot.agent.tools.web import WebFetchTool, WebSearchTool
 
 if TYPE_CHECKING:
+    from hahobot.agent.loop import AgentLoop
     from hahobot.agent.tools.registry import ToolRegistry
     from hahobot.bus.events import OutboundMessage
     from hahobot.config.schema import ExecToolConfig, ImageGenConfig
@@ -32,6 +35,7 @@ class ToolRuntimeManager:
     def __init__(
         self,
         *,
+        loop: AgentLoop,
         tools: ToolRegistry,
         workspace: Path,
         send_callback: Callable[[OutboundMessage], Awaitable[None]],
@@ -49,6 +53,7 @@ class ToolRuntimeManager:
         cron_service: CronService | None = None,
         builtin_read_dirs: tuple[Path, ...] = (),
     ) -> None:
+        self.loop = loop
         self.tools = tools
         self.workspace = workspace
         self.send_callback = send_callback
@@ -249,7 +254,7 @@ class ToolRuntimeManager:
             read_tool._allowed_dir = allowed_dir
             read_tool._extra_allowed_dirs = extra_read
 
-        for name in ("write_file", "edit_file", "list_dir", "glob", "grep"):
+        for name in ("write_file", "edit_file", "list_dir", "glob", "grep", "notebook_edit"):
             if tool := self.tools.get(name):
                 tool._workspace = self.workspace
                 tool._allowed_dir = allowed_dir
@@ -305,6 +310,7 @@ class ToolRuntimeManager:
             self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
         for cls in (GlobTool, GrepTool):
             self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
+        self.tools.register(NotebookEditTool(workspace=self.workspace, allowed_dir=allowed_dir))
         if policy.exec().enabled:
             self.tools.register(self._create_exec_tool())
         if policy.web().enabled:
@@ -314,6 +320,7 @@ class ToolRuntimeManager:
         self.tools.register(HistoryExpandTool(workspace=self.workspace))
         self.tools.register(MessageTool(send_callback=self.send_callback))
         self.tools.register(SpawnTool(manager=self.subagents))
+        self.tools.register(SelfInspectTool(loop=self.loop))
         self._sync_image_gen_tool()
         if self.cron_service:
             self.tools.register(
@@ -326,15 +333,23 @@ class ToolRuntimeManager:
         chat_id: str,
         message_id: str | None = None,
         persona: str | None = None,
+        session_key: str | None = None,
     ) -> None:
         """Update context for tools that need routing or persona info."""
-        for name in ("message", "spawn", "cron", "history_search", "history_expand"):
+        for name in ("message", "spawn", "cron", "history_search", "history_expand", "self_inspect"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     if name == "message":
                         tool.set_context(channel, chat_id, message_id)
                     elif name in ("history_search", "history_expand"):
                         tool.set_context(channel, chat_id, persona)
+                    elif name == "spawn":
+                        if session_key is None:
+                            tool.set_context(channel, chat_id)
+                        else:
+                            tool.set_context(channel, chat_id, session_key)
+                    elif name == "self_inspect":
+                        tool.set_context(channel, chat_id, session_key, persona)
                     else:
                         tool.set_context(channel, chat_id)
         if image_tool := self.tools.get("image_gen"):
