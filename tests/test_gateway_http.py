@@ -407,6 +407,9 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert "命令列表" in commands_page.text
     assert "/language" in commands_page.text
     assert "/skill derive" in commands_page.text
+    assert "/skill supersede" in commands_page.text
+    assert "/skill supersede remove" in commands_page.text
+    assert "/skill supersede clear" in commands_page.text
     assert "/skill update" in commands_page.text
     assert "/restart" in commands_page.text
     assert "/update" in commands_page.text

@@ -413,3 +413,76 @@ def test_lint_skills_reports_missing_targets_and_overlap(tmp_path: Path) -> None
         item["left"] == "status-alpha" and item["right"] == "status-beta"
         for item in report["overlaps"]
     )
+
+
+def test_record_skill_usage_seeds_metadata_for_manual_workspace_skill(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    ws_skills = workspace / "skills"
+    ws_skills.mkdir(parents=True)
+    skill_file = ws_skills / "manual-fix" / "SKILL.md"
+    skill_file.parent.mkdir()
+    skill_file.write_text("# Manual Fix\n\nUse the manual fix flow.\n", encoding="utf-8")
+
+    loader = SkillsLoader(workspace, builtin_skills_dir=tmp_path / "builtin")
+    changed = loader.record_skill_usage("manual-fix", used_on="2026-04-20", success=True)
+
+    assert changed is True
+    content = skill_file.read_text(encoding="utf-8")
+    assert content.startswith("---\nname: manual-fix\nmetadata: ")
+    assert '"last_used":"2026-04-20"' in content
+    assert '"success_count":1' in content
+    assert "# Manual Fix" in content
+
+
+def test_set_skill_supersedes_merges_targets_without_duplicates(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    ws_skills = workspace / "skills"
+    ws_skills.mkdir(parents=True)
+    _write_skill(
+        ws_skills,
+        "cleanup-v2",
+        metadata_json={"supersedes": ["cleanup-v1"]},
+        body="# Cleanup V2",
+    )
+    _write_skill(ws_skills, "cleanup-v1", body="# Cleanup V1")
+    _write_skill(ws_skills, "cleanup-v0", body="# Cleanup V0")
+
+    loader = SkillsLoader(workspace, builtin_skills_dir=tmp_path / "builtin")
+    changed, targets = loader.set_skill_supersedes("cleanup-v2", ["cleanup-v1", "cleanup-v0"]) or (None, [])
+
+    assert changed is True
+    assert targets == ["cleanup-v1", "cleanup-v0"]
+    assert loader._get_skill_meta("cleanup-v2")["supersedes"] == ["cleanup-v1", "cleanup-v0"]
+
+    changed_again, same_targets = loader.set_skill_supersedes("cleanup-v2", ["cleanup-v0"]) or (None, [])
+    assert changed_again is False
+    assert same_targets == ["cleanup-v1", "cleanup-v0"]
+
+
+def test_remove_and_clear_skill_supersedes_update_metadata(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    ws_skills = workspace / "skills"
+    ws_skills.mkdir(parents=True)
+    _write_skill(
+        ws_skills,
+        "cleanup-v2",
+        metadata_json={"supersedes": ["cleanup-v1", "ghost-skill", "cleanup-v0"]},
+        body="# Cleanup V2",
+    )
+
+    loader = SkillsLoader(workspace, builtin_skills_dir=tmp_path / "builtin")
+    removed, targets = loader.remove_skill_supersedes("cleanup-v2", ["ghost-skill", "cleanup-v0"]) or (None, [])
+    assert removed is True
+    assert targets == ["cleanup-v1"]
+
+    unchanged, same_targets = loader.remove_skill_supersedes("cleanup-v2", ["ghost-skill"]) or (None, [])
+    assert unchanged is False
+    assert same_targets == ["cleanup-v1"]
+
+    cleared, empty_targets = loader.clear_skill_supersedes("cleanup-v2") or (None, [])
+    assert cleared is True
+    assert empty_targets == []
+
+    already_clear, still_empty = loader.clear_skill_supersedes("cleanup-v2") or (None, [])
+    assert already_clear is False
+    assert still_empty == []

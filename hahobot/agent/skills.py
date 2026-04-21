@@ -5,7 +5,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # Default builtin skills directory (relative to this file)
 BUILTIN_SKILLS_DIR = Path(__file__).parent.parent / "skills"
@@ -105,6 +105,18 @@ class SkillsLoader:
             ),
         }
 
+    def _canonical_project_metadata_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = self._normalize_project_metadata(payload)
+        return {
+            "always": normalized["always"],
+            "requires": normalized["requires"],
+            "triggers": normalized["triggers"],
+            "tool_tags": normalized["tool_tags"],
+            "supersedes": normalized["supersedes"],
+            "last_used": normalized["last_used"],
+            "success_count": normalized["success_count"],
+        }
+
     def _skill_entries_from_dir(self, base: Path, source: str, *, skip_names: set[str] | None = None) -> list[dict[str, str]]:
         if not base.exists():
             return []
@@ -163,6 +175,142 @@ class SkillsLoader:
             if path.exists():
                 return path.read_text(encoding="utf-8")
         return None
+
+    def workspace_skill_name_for_path(self, path: str | Path) -> str | None:
+        """Resolve `<workspace>/skills/<name>/SKILL.md` back to its skill name."""
+        candidate = Path(path).expanduser()
+        if not candidate.is_absolute():
+            candidate = self.workspace / candidate
+        try:
+            relative = candidate.resolve().relative_to(self.workspace_skills.resolve())
+        except ValueError:
+            return None
+        if len(relative.parts) != 2 or relative.parts[1] != "SKILL.md":
+            return None
+        return relative.parts[0]
+
+    def _update_workspace_skill_metadata(
+        self,
+        name: str,
+        updater: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> tuple[bool, dict[str, Any]] | None:
+        """Apply one metadata update to a workspace skill while preserving unknown keys."""
+        skill_path = self.workspace_skills / name / "SKILL.md"
+        if not skill_path.exists() or not skill_path.is_file():
+            return None
+
+        try:
+            raw = skill_path.read_bytes()
+            content = raw.decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+
+        updated_content, changed, updated_metadata = self._updated_skill_metadata_content(
+            content,
+            name=name,
+            updater=updater,
+        )
+        if not changed:
+            return False, updated_metadata
+
+        try:
+            if b"\r\n" in raw:
+                updated_content = updated_content.replace("\n", "\r\n")
+            skill_path.write_text(updated_content, encoding="utf-8")
+        except OSError:
+            return None
+        return True, updated_metadata
+
+    def record_skill_usage(
+        self,
+        name: str,
+        *,
+        used_on: str | None = None,
+        success: bool = False,
+    ) -> bool:
+        """Best-effort update workspace skill metadata after a real runtime use."""
+        result = self._update_workspace_skill_metadata(
+            name,
+            lambda current: {
+                **current,
+                "last_used": used_on or current.get("last_used", ""),
+                "success_count": int(current.get("success_count") or 0) + (1 if success else 0),
+            },
+        )
+        return bool(result and result[0])
+
+    def record_skill_usage_batch(
+        self,
+        names: list[str],
+        *,
+        used_on: str | None = None,
+        success: bool = False,
+    ) -> list[str]:
+        """Update one or more workspace skills, deduping repeated names."""
+        updated: list[str] = []
+        seen: set[str] = set()
+        for name in names:
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            if self.record_skill_usage(name, used_on=used_on, success=success):
+                updated.append(name)
+        return updated
+
+    def set_skill_supersedes(
+        self,
+        name: str,
+        targets: list[str],
+    ) -> tuple[bool, list[str]] | None:
+        """Add one or more superseded targets to a workspace skill."""
+        cleaned_targets = [target.strip() for target in targets if target and target.strip()]
+        result = self._update_workspace_skill_metadata(
+            name,
+            lambda current: {
+                **current,
+                "supersedes": self._normalize_string_list(
+                    [*(current.get("supersedes") or []), *cleaned_targets]
+                ),
+            },
+        )
+        if result is None:
+            return None
+        changed, updated = result
+        return changed, list(updated.get("supersedes") or [])
+
+    def remove_skill_supersedes(
+        self,
+        name: str,
+        targets: list[str],
+    ) -> tuple[bool, list[str]] | None:
+        """Remove one or more superseded targets from a workspace skill."""
+        lowered_targets = {target.strip().lower() for target in targets if target and target.strip()}
+        result = self._update_workspace_skill_metadata(
+            name,
+            lambda current: {
+                **current,
+                "supersedes": [
+                    target
+                    for target in current.get("supersedes") or []
+                    if target.lower() not in lowered_targets
+                ],
+            },
+        )
+        if result is None:
+            return None
+        changed, updated = result
+        return changed, list(updated.get("supersedes") or [])
+
+    def clear_skill_supersedes(self, name: str) -> tuple[bool, list[str]] | None:
+        """Clear all superseded targets from a workspace skill."""
+        result = self._update_workspace_skill_metadata(
+            name,
+            lambda current: {**current, "supersedes": []},
+        )
+        if result is None:
+            return None
+        changed, updated = result
+        return changed, list(updated.get("supersedes") or [])
 
     def load_skills_for_context(self, skill_names: list[str]) -> str:
         """
@@ -255,6 +403,57 @@ class SkillsLoader:
         if match:
             return content[match.end():].strip()
         return content
+
+    def _updated_skill_metadata_content(
+        self,
+        content: str,
+        *,
+        name: str,
+        updater: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> tuple[str, bool, dict[str, Any]]:
+        match = _STRIP_SKILL_FRONTMATTER.match(content)
+        if match:
+            frontmatter_lines = match.group(1).splitlines()
+            body = content[match.end():]
+        else:
+            frontmatter_lines = [f"name: {name}"]
+            body = content
+
+        metadata_line_index: int | None = None
+        metadata_payload: dict[str, Any] = {}
+        for index, line in enumerate(frontmatter_lines):
+            if ":" not in line:
+                continue
+            key, raw_value = line.split(":", 1)
+            if key.strip() != "metadata":
+                continue
+            metadata_line_index = index
+            try:
+                parsed = json.loads(raw_value.strip())
+            except json.JSONDecodeError:
+                parsed = {}
+            metadata_payload = parsed if isinstance(parsed, dict) else {}
+            break
+
+        current = self._canonical_project_metadata_payload(
+            self._parse_project_metadata(json.dumps(metadata_payload, ensure_ascii=False))
+        )
+        updated_meta = self._canonical_project_metadata_payload(updater(dict(current)))
+
+        updated_payload = dict(metadata_payload)
+        updated_payload["hahobot"] = updated_meta
+        metadata_line = (
+            f"metadata: {json.dumps(updated_payload, ensure_ascii=False, separators=(',', ':'))}"
+        )
+
+        if metadata_line_index is None:
+            frontmatter_lines.append(metadata_line)
+        else:
+            frontmatter_lines[metadata_line_index] = metadata_line
+
+        frontmatter = "\n".join(frontmatter_lines)
+        rendered = f"---\n{frontmatter}\n---\n{body}"
+        return rendered, rendered != content, updated_meta
 
     def _parse_project_metadata(self, raw: str) -> dict:
         """Parse skill metadata JSON from frontmatter across current and legacy keys."""

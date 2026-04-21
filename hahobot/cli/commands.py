@@ -153,6 +153,8 @@ class _InteractiveSlashCompleter(Completer):
         return self._unique(options)
 
     def _third_token_options(self, command: str, subcommand: str) -> list[str]:
+        if command == "/skill" and subcommand == "supersede":
+            return ["remove", "clear"]
         if command in {"/lang", "/language"} and subcommand == "set":
             return self._available_languages()
         if command == "/persona" and subcommand == "set":

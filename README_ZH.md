@@ -1106,6 +1106,16 @@ hahobot 现在额外内置了一组偏工作流的 skills：
 skill 重叠、缺失的 `supersedes` 目标，以及哪些旧 skill 已经因为被新 skill 取代而不会再进入
 运行时 summary。
 
+`/skill supersede <newer> <older> [more...]` 则是配套的显式元数据维护命令，用来给新的
+workspace skill 补上 `supersedes` 关系；现在还支持
+`/skill supersede remove <newer> <older> [more...]` 和
+`/skill supersede clear <newer>`，把减法链路也补齐。它们都只更新 metadata，不会自动删除或
+合并旧 skill，这样运行时选择可以收缩，但旧草稿仍然保留给你审阅。
+
+现在如果 agent 在某一轮里真的读取了 `workspace/skills/<name>/SKILL.md`，hahobot 会尽力回写
+该 skill 的 `last_used`；只有这一轮最终不是 `error`、`tool_error`、`empty_final_response`、
+`max_iterations` 这类失败结束时，才会额外给 `success_count` 加一。
+
 ### 隐藏内置或工作区 Skill
 
 如果你不希望某些 skill 暴露给主 agent 或 subagent，可以设置
@@ -1574,6 +1584,9 @@ manifest 中可声明：
 | `/skill list` | 查看技能 |
 | `/skill update` | 更新技能 |
 | `/skill derive <name> [brief] [--force]` | 从当前会话生成或显式覆盖本地 skill 草稿 |
+| `/skill supersede <newer> <older> [more...]` | 为新的 workspace skill 声明替代哪些旧 skill |
+| `/skill supersede remove <newer> <older> [more...]` | 从 supersedes 里移除指定旧 skill |
+| `/skill supersede clear <newer>` | 清空某个 workspace skill 的 supersedes |
 | `/skill lint` | 检查本地 skill 的 supersedes 和重叠问题 |
 | `/mcp [list]` | 查看 MCP 服务和工具 |
 | `/stop` | 停止当前任务 |

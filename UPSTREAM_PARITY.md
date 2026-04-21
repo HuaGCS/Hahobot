@@ -42,11 +42,13 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `8eddacf2` (`2026-04-20`), with focused diff
-  review from `v0.1.5.post1` (`2026-04-14`) through the latest session-durability, Responses
-  fallback, and WebUI changes.
-- `GenericAgent`: re-checked against upstream `main` at `63c7c83c` (`2026-04-19`) after the
-  earlier `2026-04-11` layered-memory update and the more recent loop/tool refactors.
+- `nanobot`: re-checked against upstream `main` at `c1957e14` (`2026-04-21`), covering the newer
+  ContextVar tool-routing isolation, MCP transient-retry patch, Anthropic message-normalization
+  fix, `/stop` partial-context restoration, memory cursor hardening, and recent Telegram split
+  follow-ups after the earlier session-durability and Responses fallback sync.
+- `GenericAgent`: re-checked against upstream `main` at `f14ad0c6` (`2026-04-21`), with the new
+  delta mostly in chat-frontend `/continue` / `/new`, optional tracing/plugin layout cleanup, and
+  Anthropic-thinking stream parsing rather than new skill/memory governance concepts.
 
 ## Current Snapshot
 
@@ -56,12 +58,13 @@ This file therefore records both:
 | Read-only self inspection tool | `synced` | Local `self_inspect` exposes a JSON snapshot of runtime/session/tool/subagent state, bound to the actual session key and intentionally read-only instead of porting upstream's mutable `self.py` surface. |
 | Notebook editing tool | `synced` | Local `notebook_edit` supports bounded `.ipynb` cell replace/insert/delete flows for the main agent and `spawn(mode="implement")` workers without porting upstream's broader file-state machinery. |
 | Session persistence durability | `synced` | Session full rewrites now use atomic replace, corrupt JSONL can be repaired for load/list flows, and recovered sessions are forced through the next clean rewrite instead of silently staying in a broken state. |
-| Turn recovery / idle compact safety | `synced` | Session recovery now restores runtime checkpoints before the next request, persists plain-text user turns early so crashes do not lose the prompt, closes orphaned pending user turns, and skips proactive auto-compact while a session still has an in-flight agent task. |
+| Turn recovery / idle compact safety | `synced` | Session recovery now restores runtime checkpoints before the next request, `/stop` cancellation materializes the latest runtime checkpoint immediately instead of waiting for the next message, plain-text user turns are persisted early so crashes do not lose the prompt, orphaned pending user turns are closed cleanly, and proactive auto-compact still skips sessions with an in-flight task. |
 | Subagent follow-up persistence | `synced` | Subagent announce messages now carry task metadata, are persisted into session history before prompt assembly, deduped by `subagent_task_id`, and avoid double-injecting the same follow-up as both history and current message. |
 | Hook lifecycle semantics | `synced` | Hook fan-out supports `reraise` semantics and keeps compatibility behavior for legacy hooks. |
 | OpenAI direct reasoning routing | `synced` | Direct OpenAI GPT-5/o-series requests prefer Responses API and fall back to Chat Completions only for compatibility errors. |
 | Responses compatibility circuit breaker | `synced` | Repeated Responses-API compatibility failures now open a short-lived per-`(model, reasoningEffort)` circuit before re-probing automatically, so direct OpenAI fallback does not keep paying the same failing probe cost every turn. |
 | Anthropic adaptive reasoning | `synced` | `reasoningEffort=adaptive` already maps to Anthropic `thinking={"type":"adaptive"}` locally, with token/temperature safeguards and focused provider tests. |
+| Anthropic message alternation recovery | `synced` | Anthropic request normalization now also enforces leading-user, strips trailing assistant prefill, and recovers the empty-array edge case without rerouting `tool_use`-carrying assistant blocks into invalid user turns. |
 | Tool hint formatting | `synced` | Exec hints handle quoted paths, path abbreviation, and duplicate collapse in one formatter. |
 | Provider request sanitization | `synced` | Role alternation repair now recovers a trailing assistant message as `user` when otherwise only `system` content would remain, preventing empty/invalid provider requests after assistant-scoped injections. |
 | On-demand context microcompact | `synced` | Older tool results are compacted before the next model call when a long tool-heavy turn would otherwise crowd out system prompt memory or the freshest working context. |
@@ -74,13 +77,15 @@ This file therefore records both:
 | Config fallback behavior | `intentional_divergence` | When no config path is passed, hahobot checks `~/.hahobot/config.json` first, then copies `~/.nanobot/config.json` into the hahobot location instead of migrating in place. |
 | Web search backend mix | `synced` | Built-in web search now supports Brave, SearXNG, and DuckDuckGo; DuckDuckGo runs as an exclusive tool so concurrent tool batches do not group multiple searches together. |
 | Search provider breadth | `watchlist` | Upstream now also carries Kagi search support; local runtime still intentionally limits `tools.web.search.provider` to Brave, SearXNG, and DuckDuckGo until there is real demand for another paid backend plus matching config/admin/docs wiring. |
+| MCP transient reconnect retry | `watchlist` | Upstream now retries one connection-class MCP failure after a short backoff; local MCP wrappers already distinguish true task cancellation from server-side `CancelledError`, but they still surface the first broken-pipe/closed-resource failure directly. Re-check if bridge restarts or transient MCP reconnects become noisy in practice. |
 | OpenAI-compatible API file inputs | `synced` | `hahobot serve` now accepts both JSON and `multipart/form-data`, extracts text-like uploaded or inline base64 file payloads into the prompt, and emits stable placeholders for binary/image attachments while keeping the direct API path single-message and non-streaming. |
 | OpenAI-compatible API streaming | `intentional_divergence` | Upstream now supports SSE when `stream=true`; local `hahobot serve` intentionally stays non-streaming until the API contract is deliberately expanded across docs, tests, and client expectations together. |
 | Mid-turn follow-up injection | `watchlist` | Local dispatch stays per-session serialized and crash-safe, but it does not splice new user turns into an already running session; upstream-style active-turn injection would touch locks, checkpoints, streaming, `/stop`, and compaction semantics together. |
 | Dream skill discovery automation | `intentional_divergence` | Upstream lets Dream discover/write reusable skills automatically; local skill accumulation stays operator-visible and reviewable through `/skill derive` instead of unattended Dream promotion. |
 | GenericAgent-style SOP workflow | `synced` | Hahobot now ships built-in workflow skills (`workflow-core`, `plan`, `verify`), subagent execution modes (`explore` / `implement` / `verify`), and persisted `working_checkpoint` state across session/admin/status surfaces. |
 | GenericAgent-style skill accumulation | `synced` | Hahobot now supports local skill derivation through `/skill derive <name> [brief] [--force]`, turning recent successful session workflow into a reusable workspace skill draft. |
-| Skill lifecycle hygiene / prompt budget control | `local_extension` | Runtime skill summaries are now query-aware top-k views, `supersedes` can hide replaced skills from the shared summary, and `/skill lint` reports overlap or missing supersedes targets before local skill growth turns chaotic. |
+| Skill lifecycle hygiene / prompt budget control | `local_extension` | Runtime skill summaries are now query-aware top-k views, `supersedes` can hide replaced skills from the shared summary, `/skill supersede` plus `remove` / `clear` maintain that metadata explicitly, and `/skill lint` reports overlap or missing supersedes targets before local skill growth turns chaotic. |
+| Skill usage writeback | `local_extension` | Workspace skill `last_used` / `success_count` now update from real runtime `read_file` usage instead of staying frozen at derive-time defaults. |
 | GenericAgent layered memory semantics | `synced` | hahobot already separates conversation archive, `MEMORY.md`, `PROFILE.md`, and `INSIGHTS.md`, with Dream + archive sidecars providing a stronger implementation than GenericAgent's simpler layered-memory framing. |
 | Hermes-inspired workspace wiki skill | `local_extension` | Built-in `llm-wiki` treats the repo itself as a local concept/config/architecture wiki, using docs + code + tests as the evidence chain without adding another runtime service. |
 | Persona / companion workflow | `local_extension` | `PROFILE.md`, `INSIGHTS.md`, `STYLE.md`, `LORE.md`, companion commands, SillyTavern imports, voice overrides, and scene generation are local-first features. |
@@ -173,8 +178,13 @@ as "do not re-port unless upstream changes again":
   the only non-system content left after alternation repair.
 - Direct OpenAI Responses fallback now uses a short-lived compatibility circuit breaker so repeated
   unsupported-probe failures do not recur every turn.
+- Anthropic message normalization now matches the stricter upstream invariants: no leading
+  assistant, no trailing assistant prefill, and no empty message array fallback unless rerouting
+  would create an invalid `tool_use`-inside-user request.
 - Anthropic requests already support `reasoningEffort=adaptive`, mapping it to Anthropic adaptive
   thinking without inflating token budgets or leaving incompatible temperature handling behind.
+- `/stop` cancellation now materializes the latest runtime checkpoint into session history
+  immediately instead of waiting for the next inbound turn to trigger recovery.
 - Web search supports Brave, SearXNG, and DuckDuckGo, and DuckDuckGo searches are serialized at the
   tool-runner layer when concurrent tool execution is enabled.
 - The built-in WebSocket server channel is available through `channels.websocket`.
@@ -233,6 +243,11 @@ These are local choices. When upstream behaves differently, that is not automati
   again; local append-only persistence means the rewrite/repair tradeoffs are slightly different.
 - Re-check upstream search-provider additions (for example Kagi) against local config/admin/docs
   before expanding `tools.web.search.provider`.
+- Re-check upstream `agent/tools/mcp.py` if transient `ClosedResourceError` / broken-pipe failures
+  become common enough to justify the same one-shot reconnect retry locally.
+- Re-check upstream tool-context isolation changes in `agent/tools/cron.py`, `message.py`, and
+  `spawn.py` if concurrent cross-session routing leakage appears; local runtime still relies on
+  per-turn `set_context()` updates instead of ContextVar-backed tool state.
 - Re-check upstream `cron/service.py` and `cron/types.py` whenever run-state persistence or wake-up
   semantics change.
 - Re-check upstream `agent/hook.py`, `agent/runner.py`, and related tests whenever lifecycle

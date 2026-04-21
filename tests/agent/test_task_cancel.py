@@ -122,6 +122,59 @@ class TestDispatch:
         assert out.content == "hi"
 
     @pytest.mark.asyncio
+    async def test_dispatch_restores_runtime_checkpoint_when_cancelled(self):
+        from hahobot.bus.events import InboundMessage
+        from hahobot.session.manager import Session
+
+        loop, _bus = _make_loop()
+        msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="hello")
+        session = Session(
+            key=msg.session_key,
+            messages=[{"role": "user", "content": "hello", "timestamp": "2026-04-21T00:00:00"}],
+        )
+        session.metadata[loop._RUNTIME_CHECKPOINT_KEY] = {
+            "assistant_message": {"role": "assistant", "content": "partial reply"},
+            "completed_tool_results": [
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "name": "read_file",
+                    "content": "partial tool result",
+                }
+            ],
+            "pending_tool_calls": [
+                {"id": "call_2", "function": {"name": "exec", "arguments": "{}"}}
+            ],
+        }
+        loop.sessions.get_or_create.return_value = session
+
+        started = asyncio.Event()
+
+        async def slow_process(_msg, **kwargs):
+            started.set()
+            await asyncio.sleep(60)
+
+        loop._process_message = slow_process
+
+        task = asyncio.create_task(loop._dispatch(msg))
+        await asyncio.wait_for(started.wait(), timeout=1.0)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert loop._RUNTIME_CHECKPOINT_KEY not in session.metadata
+        assert session.messages[1]["role"] == "assistant"
+        assert session.messages[1]["content"] == "partial reply"
+        assert session.messages[2]["role"] == "tool"
+        assert session.messages[2]["content"] == "partial tool result"
+        assert session.messages[3]["role"] == "tool"
+        assert session.messages[3]["name"] == "exec"
+        assert session.messages[3]["content"] == "Error: Task interrupted before this tool finished."
+        assert session.metadata[loop._WORKING_CHECKPOINT_KEY]["status"] == "interrupted"
+        loop.sessions.save.assert_called_with(session)
+
+    @pytest.mark.asyncio
     async def test_dispatch_streaming_preserves_message_metadata(self):
         from hahobot.bus.events import InboundMessage
 
