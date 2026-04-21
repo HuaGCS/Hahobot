@@ -73,6 +73,23 @@ class CommandRuntimeManager:
         return raw_name, brief, force
 
     @staticmethod
+    def _skill_supersede_args(parts: list[str]) -> tuple[str, str | None, list[str]]:
+        if len(parts) < 3:
+            return "add", None, []
+
+        mode = "add"
+        payload = parts[2:]
+        if parts[2].lower() in {"remove", "clear"}:
+            mode = parts[2].lower()
+            payload = parts[3:]
+
+        if not payload:
+            return mode, None, []
+        newer = payload[0].strip() or None
+        targets = [part.strip() for part in payload[1:] if part.strip()]
+        return mode, newer, targets
+
+    @staticmethod
     def _persona_usage(language: str) -> str:
         return "\n".join([
             text(language, "cmd_persona_current"),
@@ -187,6 +204,18 @@ class CommandRuntimeManager:
                 raw_name,
                 brief,
                 force=force,
+            )
+
+        if subcommand == "supersede":
+            mode, newer, targets = self._skill_supersede_args(parts)
+            if not newer or (mode != "clear" and not targets):
+                return self._response(msg, text(language, "skill_supersede_missing_args"))
+            return await self.loop._skill_commands.supersede(
+                msg,
+                language,
+                newer,
+                targets,
+                mode=mode,
             )
 
         if subcommand == "lint":

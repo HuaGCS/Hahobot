@@ -151,6 +151,28 @@ def test_interactive_slash_completer_matches_skill_subcommands():
     assert [completion.text for completion in completions] == ["derive"]
 
 
+def test_interactive_slash_completer_matches_skill_supersede_subcommand():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/skill su", cursor_position=len("/skill su")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["supersede"]
+
+
+def test_interactive_slash_completer_matches_skill_supersede_modes():
+    completions = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/skill supersede ", cursor_position=len("/skill supersede ")),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["remove", "clear"]
+
+
 def test_interactive_slash_completer_matches_skill_lint_subcommand():
     completions = list(
         commands._INTERACTIVE_SLASH_COMPLETER.get_completions(

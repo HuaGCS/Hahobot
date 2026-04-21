@@ -609,6 +609,16 @@ for hahobot-local lifecycle hints such as `triggers`, `tool_tags`, `supersedes`,
 overlap, missing `supersedes` targets, and which older skills are currently hidden from the runtime
 summary because a newer skill supersedes them.
 
+`/skill supersede <newer> <older> [more...]` is the explicit metadata-management command for that
+same lifecycle. `remove` and `clear` variants now cover the subtractive side as well:
+`/skill supersede remove <newer> <older> [more...]` and `/skill supersede clear <newer>`. These
+flows update `supersedes` without deleting or merging the older skills, so prompt selection can
+shrink while the old drafts remain reviewable.
+
+When the agent actually reads a workspace `skills/<name>/SKILL.md` during a turn, hahobot now
+best-effort writes back `last_used`, and increments `success_count` only when that turn finishes
+without an error, empty-final-response, or max-iteration stop.
+
 Workspace-local skills live under `workspace/skills/` and override built-ins with the same name.
 If you want to hide specific bundled or workspace skills from the main agent and subagents, set
 `agents.defaults.disabledSkills` to a list of skill directory names such as `["github", "weather"]`.

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 from loguru import logger
 
+from hahobot.agent.skills import SkillsLoader
 from hahobot.agent.tools.message import MessageTool
 from hahobot.bus.events import OutboundMessage
 from hahobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
@@ -69,7 +72,7 @@ class TurnRuntimeManager:
             current_role=current_role,
             omit_current_message=msg.sender_id == "subagent",
         )
-        final_content, _, all_msgs, _ = await self.loop._run_agent_loop(
+        final_content, _, all_msgs, stop_reason = await self.loop._run_agent_loop(
             messages,
             session=turn.state.session,
             channel=turn.state.channel,
@@ -78,6 +81,7 @@ class TurnRuntimeManager:
             persona=turn.state.persona,
         )
         persisted_messages = self.loop._save_turn(turn.state.session, all_msgs, 1 + len(turn.history))
+        self._record_turn_skill_usage(all_msgs, stop_reason)
         self.loop.sessions.save(turn.state.session)
         await self.loop._commit_memory_turn(
             scope=turn.memory_scope,
@@ -148,6 +152,7 @@ class TurnRuntimeManager:
             all_msgs,
             1 + len(turn.history) + (1 if user_persisted_early else 0),
         )
+        self._record_turn_skill_usage(all_msgs, stop_reason)
         self.loop._clear_pending_user_turn(turn.state.session)
         self.loop.sessions.save(turn.state.session)
         await self.loop._commit_memory_turn(
@@ -246,6 +251,65 @@ class TurnRuntimeManager:
         if final_content is None or not final_content.strip():
             return EMPTY_FINAL_RESPONSE_MESSAGE
         return final_content
+
+    @staticmethod
+    def _decode_tool_call_arguments(tool_call: dict) -> dict[str, str]:
+        function = tool_call.get("function")
+        if not isinstance(function, dict):
+            return {}
+        arguments = function.get("arguments")
+        if isinstance(arguments, dict):
+            return arguments
+        if not isinstance(arguments, str):
+            return {}
+        try:
+            parsed = json.loads(arguments)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _record_turn_skill_usage(
+        self,
+        messages: list[dict],
+        stop_reason: str,
+    ) -> None:
+        """Update workspace skill usage stats from successful `read_file` tool calls."""
+        try:
+            loader = SkillsLoader(self.loop.workspace)
+            tool_results = {
+                str(msg.get("tool_call_id")): msg.get("content")
+                for msg in messages
+                if msg.get("role") == "tool" and msg.get("tool_call_id")
+            }
+            used_names: list[str] = []
+            for msg in messages:
+                if msg.get("role") != "assistant":
+                    continue
+                for tool_call in msg.get("tool_calls") or []:
+                    if not isinstance(tool_call, dict):
+                        continue
+                    function = tool_call.get("function")
+                    if not isinstance(function, dict) or function.get("name") != "read_file":
+                        continue
+                    result = tool_results.get(str(tool_call.get("id")))
+                    if isinstance(result, str) and result.startswith("Error"):
+                        continue
+                    path = self._decode_tool_call_arguments(tool_call).get("path")
+                    if not isinstance(path, str) or not path.strip():
+                        continue
+                    if skill_name := loader.workspace_skill_name_for_path(path):
+                        used_names.append(skill_name)
+
+            if not used_names:
+                return
+
+            loader.record_skill_usage_batch(
+                used_names,
+                used_on=datetime.now(tz=UTC).date().isoformat(),
+                success=stop_reason not in {"error", "tool_error", "empty_final_response", "max_iterations"},
+            )
+        except Exception:
+            logger.exception("Skill usage writeback failed")
 
     async def _build_chat_outbound(
         self,

@@ -264,6 +264,13 @@ class SkillCommandHandler:
         """Validate a workspace skill slug for local install/remove operations."""
         return bool(slug) and slug not in {".", ".."} and "/" not in slug and "\\" not in slug
 
+    def _workspace_loader(self) -> SkillsLoader:
+        """Build the current workspace-scoped skills loader with runtime disabled-skill filtering."""
+        return SkillsLoader(
+            self.loop.workspace,
+            disabled_skills=set(getattr(self.loop, "_disabled_skills", [])),
+        )
+
     def _prune_clawhub_lockfile(self, slug: str) -> bool:
         """Best-effort removal of a skill entry from the local ClawHub lockfile."""
         lock_path = self.loop.workspace / ".clawhub" / "lock.json"
@@ -716,11 +723,109 @@ class SkillCommandHandler:
         )
 
     async def lint(self, msg: InboundMessage, language: str) -> OutboundMessage:
-        loader = SkillsLoader(
-            self.loop.workspace,
-            disabled_skills=set(getattr(self.loop, "_disabled_skills", [])),
-        )
+        loader = self._workspace_loader()
         return self._response(msg, self._format_skill_lint_report(language, loader.lint_skills()))
+
+    async def supersede(
+        self,
+        msg: InboundMessage,
+        language: str,
+        newer: str,
+        targets: list[str],
+        *,
+        mode: str = "add",
+    ) -> OutboundMessage:
+        if not self._is_valid_skill_slug(newer):
+            return self._response(msg, text(language, "skill_invalid_slug", slug=newer))
+
+        loader = self._workspace_loader()
+        records = loader.list_skill_records(filter_unavailable=False)
+        by_name = {record["name"]: record for record in records}
+        newer_record = by_name.get(newer)
+        if newer_record is None:
+            return self._response(msg, text(language, "skill_supersede_unknown_skill", slug=newer))
+        if newer_record.get("source") != "workspace":
+            return self._response(
+                msg,
+                text(
+                    language,
+                    "skill_supersede_not_workspace",
+                    slug=newer,
+                    path=self.loop.workspace / "skills" / newer / "SKILL.md",
+                ),
+            )
+
+        cleaned_targets = [target.strip() for target in targets if target and target.strip()]
+        skill_path = self.loop.workspace / "skills" / newer / "SKILL.md"
+        current_targets = list(newer_record["project_meta"].get("supersedes") or [])
+
+        if mode == "clear":
+            result = loader.clear_skill_supersedes(newer)
+            if result is None:
+                return self._response(
+                    msg,
+                    text(language, "skill_supersede_failed", slug=newer, path=skill_path),
+                )
+            changed, _ = result
+            return self._response(
+                msg,
+                text(
+                    language,
+                    "skill_supersede_cleared" if changed else "skill_supersede_already_clear",
+                    slug=newer,
+                    path=skill_path,
+                ),
+            )
+
+        if mode == "remove":
+            result = loader.remove_skill_supersedes(newer, cleaned_targets)
+            if result is None:
+                return self._response(
+                    msg,
+                    text(language, "skill_supersede_failed", slug=newer, path=skill_path),
+                )
+            changed, updated_targets = result
+            return self._response(
+                msg,
+                text(
+                    language,
+                    "skill_supersede_removed" if changed else "skill_supersede_remove_unchanged",
+                    slug=newer,
+                    path=skill_path,
+                    targets=", ".join(cleaned_targets) or "-",
+                    current=", ".join(updated_targets or current_targets) or "-",
+                ),
+            )
+
+        if newer in cleaned_targets:
+            return self._response(msg, text(language, "skill_supersede_self_target", slug=newer))
+
+        missing = [target for target in cleaned_targets if target not in by_name]
+        if missing:
+            return self._response(
+                msg,
+                text(language, "skill_supersede_unknown_targets", targets=", ".join(missing)),
+            )
+
+        result = loader.set_skill_supersedes(newer, cleaned_targets)
+        if result is None:
+            return self._response(
+                msg,
+                text(language, "skill_supersede_failed", slug=newer, path=skill_path),
+            )
+
+        changed, updated_targets = result
+        key = "skill_supersede_updated" if changed else "skill_supersede_unchanged"
+        return self._response(
+            msg,
+            text(
+                language,
+                key,
+                slug=newer,
+                path=skill_path,
+                targets=", ".join(updated_targets) or "-",
+            ),
+        )
 
     async def list(self, msg: InboundMessage, language: str) -> OutboundMessage:
         return await self._run_skill_clawhub_command(msg, language, "list", "list")

@@ -246,8 +246,19 @@ class AnthropicProvider(LLMProvider):
         }
 
     @staticmethod
+    def _has_tool_use(msg: dict[str, Any]) -> bool:
+        """Return whether one Anthropic message carries a ``tool_use`` block."""
+        content = msg.get("content")
+        if not isinstance(content, list):
+            return False
+        return any(
+            isinstance(block, dict) and block.get("type") == "tool_use"
+            for block in content
+        )
+
+    @staticmethod
     def _merge_consecutive(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Anthropic requires alternating user/assistant roles."""
+        """Normalize a message sequence for Anthropic's stricter alternation rules."""
         merged: list[dict[str, Any]] = []
         for msg in msgs:
             if merged and merged[-1]["role"] == msg["role"]:
@@ -265,6 +276,25 @@ class AnthropicProvider(LLMProvider):
                 merged[-1]["content"] = prev_c
             else:
                 merged.append(msg)
+
+        last_popped: dict[str, Any] | None = None
+        while merged and merged[-1].get("role") == "assistant":
+            last_popped = merged.pop()
+
+        if (
+            not merged
+            and last_popped is not None
+            and not AnthropicProvider._has_tool_use(last_popped)
+        ):
+            merged.append({"role": "user", "content": last_popped.get("content")})
+
+        if (
+            merged
+            and merged[0].get("role") == "assistant"
+            and not AnthropicProvider._has_tool_use(merged[0])
+        ):
+            merged.insert(0, {"role": "user", "content": "(conversation continued)"})
+
         return merged
 
     # ------------------------------------------------------------------

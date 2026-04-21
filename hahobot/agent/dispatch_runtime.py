@@ -157,6 +157,11 @@ class DispatchRuntimeManager:
                     ))
             except asyncio.CancelledError:
                 logger.info("Task cancelled for session {}", msg.session_key)
+                session = self.loop.sessions.get_or_create(msg.session_key)
+                restored = self.loop._restore_runtime_checkpoint(session)
+                restored = self.loop._restore_pending_user_turn(session) or restored
+                if restored:
+                    self.loop.sessions.save(session)
                 raise
             except ExternalHookBridgeBlocked as exc:
                 logger.info("External hook blocked session {}: {}", msg.session_key, exc)

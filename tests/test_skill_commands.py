@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
+from hahobot.agent.skills import SkillsLoader
 from hahobot.bus.events import InboundMessage
+from hahobot.providers.base import LLMResponse, ToolCallRequest
 
 
 def _make_loop(workspace: Path):
@@ -283,7 +286,7 @@ async def test_skill_help_includes_skill_command(tmp_path: Path) -> None:
     )
 
     assert response is not None
-    assert "/skill <search|install|uninstall|list|update|derive|lint>" in response.content
+    assert "/skill <search|install|uninstall|list|update|derive|supersede|lint>" in response.content
 
 
 @pytest.mark.asyncio
@@ -418,10 +421,16 @@ async def test_skill_usage_errors_are_user_facing(tmp_path: Path) -> None:
     missing_derive_name = await loop._process_message(
         InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill derive")
     )
+    missing_supersede_args = await loop._process_message(
+        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill supersede")
+    )
 
     assert usage is not None
     assert "/skill search <query>" in usage.content
     assert "/skill derive <name> [brief] [--force]" in usage.content
+    assert "/skill supersede <newer> <older> [more...]" in usage.content
+    assert "/skill supersede remove <newer> <older> [more...]" in usage.content
+    assert "/skill supersede clear <newer>" in usage.content
     assert "/skill lint" in usage.content
     assert missing_slug is not None
     assert "Missing skill slug" in missing_slug.content
@@ -429,6 +438,119 @@ async def test_skill_usage_errors_are_user_facing(tmp_path: Path) -> None:
     assert "/skill uninstall <slug>" in missing_uninstall_slug.content
     assert missing_derive_name is not None
     assert "/skill derive <name> [brief] [--force]" in missing_derive_name.content
+    assert missing_supersede_args is not None
+    assert "/skill supersede <newer> <older> [more...]" in missing_supersede_args.content
+
+
+@pytest.mark.asyncio
+async def test_skill_supersede_updates_workspace_metadata(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir(parents=True)
+    for name in ("cleanup-v2", "cleanup-v1", "cleanup-v0"):
+        skill_dir = skills_root / name
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+
+    response = await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="/skill supersede cleanup-v2 cleanup-v1 cleanup-v0",
+        )
+    )
+
+    assert response is not None
+    assert "Updated workspace skill cleanup-v2" in response.content
+    assert "cleanup-v1, cleanup-v0" in response.content
+    metadata = SkillsLoader(tmp_path)._get_skill_meta("cleanup-v2")
+    assert metadata["supersedes"] == ["cleanup-v1", "cleanup-v0"]
+
+
+@pytest.mark.asyncio
+async def test_skill_supersede_rejects_unknown_targets(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    skill_dir = tmp_path / "skills" / "cleanup-v2"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+
+    response = await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="/skill supersede cleanup-v2 ghost-skill",
+        )
+    )
+
+    assert response is not None
+    assert "Unknown supersedes targets: ghost-skill" in response.content
+
+
+@pytest.mark.asyncio
+async def test_skill_supersede_remove_updates_metadata_even_for_missing_workspace_targets(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    skill_dir = tmp_path / "skills" / "cleanup-v2"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        '\n'.join([
+            "---",
+            'metadata: {"hahobot":{"supersedes":["cleanup-v1","ghost-skill"]}}',
+            "---",
+            "",
+            "# cleanup-v2",
+        ]),
+        encoding="utf-8",
+    )
+    old_dir = tmp_path / "skills" / "cleanup-v1"
+    old_dir.mkdir(parents=True)
+    (old_dir / "SKILL.md").write_text("# cleanup-v1\n", encoding="utf-8")
+
+    response = await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="/skill supersede remove cleanup-v2 ghost-skill",
+        )
+    )
+
+    assert response is not None
+    assert "Remaining supersedes: cleanup-v1" in response.content
+    metadata = SkillsLoader(tmp_path)._get_skill_meta("cleanup-v2")
+    assert metadata["supersedes"] == ["cleanup-v1"]
+
+
+@pytest.mark.asyncio
+async def test_skill_supersede_clear_empties_metadata(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    skill_dir = tmp_path / "skills" / "cleanup-v2"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        '\n'.join([
+            "---",
+            'metadata: {"hahobot":{"supersedes":["cleanup-v1","cleanup-v0"]}}',
+            "---",
+            "",
+            "# cleanup-v2",
+        ]),
+        encoding="utf-8",
+    )
+
+    response = await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="/skill supersede clear cleanup-v2",
+        )
+    )
+
+    assert response is not None
+    assert "Cleared supersedes metadata for workspace skill cleanup-v2" in response.content
+    metadata = SkillsLoader(tmp_path)._get_skill_meta("cleanup-v2")
+    assert metadata["supersedes"] == []
 
 
 @pytest.mark.asyncio
@@ -470,3 +592,48 @@ async def test_skill_lint_reports_supersedes_and_overlap(tmp_path: Path) -> None
     assert "cleanup-v1" in response.content
     assert "ghost-skill" in response.content
     assert "status-alpha <-> status-beta" in response.content
+
+
+@pytest.mark.asyncio
+async def test_runtime_skill_read_updates_last_used_and_success_count(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    skill_path = tmp_path / "skills" / "status-page-fix" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text(
+        "\n".join(
+            [
+                "---",
+                'metadata: {"hahobot":{"triggers":["status"],"tool_tags":["read_file"],"supersedes":[],"last_used":"2026-04-18","success_count":1}}',
+                "---",
+                "",
+                "# Status Page Fix",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loop.provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content="Need the saved skill.",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_1",
+                        name="read_file",
+                        arguments={"path": "skills/status-page-fix/SKILL.md"},
+                    )
+                ],
+            ),
+            LLMResponse(content="Applied the skill.", tool_calls=[]),
+        ]
+    )
+
+    response = await loop._process_message(
+        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="Use the status page fix skill")
+    )
+
+    assert response is not None
+    assert response.content == "Applied the skill."
+    metadata = SkillsLoader(tmp_path)._get_skill_meta("status-page-fix")
+    assert metadata["last_used"] == datetime.now(tz=UTC).date().isoformat()
+    assert metadata["success_count"] == 2
