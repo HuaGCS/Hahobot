@@ -63,6 +63,7 @@ class TelegramConfig(Base):
     connection_pool_size: int = 32  # Outbound Telegram API HTTP pool size
     pool_timeout: float = 5.0  # Shared HTTP pool timeout for bot sends and getUpdates
     streaming: bool = True  # Progressive edit-based streaming for final text replies
+    inline_keyboards: bool = False  # Render OutboundMessage.buttons as Telegram inline keyboards
     stream_edit_interval: float = Field(
         default=0.6,
         ge=0.1,
@@ -462,6 +463,7 @@ class ChannelsConfig(Base):
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
     send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
     transcription_provider: Literal["groq", "openai"] = "groq"
+    transcription_language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}$")
     voice_reply: VoiceReplyConfig = Field(default_factory=VoiceReplyConfig)
     whatsapp: WhatsAppConfig | WhatsAppMultiConfig = Field(default_factory=WhatsAppConfig)
     telegram: TelegramConfig | TelegramMultiConfig = Field(default_factory=TelegramConfig)
@@ -475,6 +477,13 @@ class ChannelsConfig(Base):
     matrix: MatrixConfig | MatrixMultiConfig = Field(default_factory=MatrixConfig)
     weixin: WeixinConfig = Field(default_factory=WeixinConfig)
     wecom: WecomConfig | WecomMultiConfig = Field(default_factory=WecomConfig)
+
+    @field_validator("transcription_language", mode="before")
+    @classmethod
+    def _empty_transcription_language_to_none(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator(
         "whatsapp",

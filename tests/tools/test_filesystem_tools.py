@@ -1,5 +1,7 @@
 """Tests for enhanced filesystem tools: ReadFileTool, EditFileTool, ListDirTool."""
 
+import zipfile
+
 import pytest
 
 from hahobot.agent.tools.filesystem import (
@@ -90,6 +92,76 @@ class TestReadFileTool:
         result = await tool.execute(path=str(f))
         assert len(result) <= ReadFileTool._MAX_CHARS + 500  # small margin for footer
         assert "Use offset=" in result
+
+    @pytest.mark.asyncio
+    async def test_read_docx_extracts_text(self, tool, tmp_path):
+        f = tmp_path / "sample.docx"
+        with zipfile.ZipFile(f, "w") as zf:
+            zf.writestr(
+                "word/document.xml",
+                """
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body><w:p><w:r><w:t>Hello DOCX</w:t></w:r></w:p></w:body>
+                </w:document>
+                """,
+            )
+
+        result = await tool.execute(path=str(f))
+
+        assert "Hello DOCX" in result
+
+    @pytest.mark.asyncio
+    async def test_read_xlsx_extracts_shared_strings(self, tool, tmp_path):
+        f = tmp_path / "sample.xlsx"
+        with zipfile.ZipFile(f, "w") as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                """
+                <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                  <sheets><sheet name="Data" sheetId="1"/></sheets>
+                </workbook>
+                """,
+            )
+            zf.writestr(
+                "xl/sharedStrings.xml",
+                """
+                <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                  <si><t>Hello XLSX</t></si>
+                </sst>
+                """,
+            )
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                """
+                <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                  <sheetData><row><c t="s"><v>0</v></c></row></sheetData>
+                </worksheet>
+                """,
+            )
+
+        result = await tool.execute(path=str(f))
+
+        assert "--- Sheet: Data ---" in result
+        assert "Hello XLSX" in result
+
+    @pytest.mark.asyncio
+    async def test_read_pptx_extracts_slide_text(self, tool, tmp_path):
+        f = tmp_path / "sample.pptx"
+        with zipfile.ZipFile(f, "w") as zf:
+            zf.writestr(
+                "ppt/slides/slide1.xml",
+                """
+                <p:sld xmlns:a="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+                       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+                  <a:t>Hello PPTX</a:t>
+                </p:sld>
+                """,
+            )
+
+        result = await tool.execute(path=str(f))
+
+        assert "--- Slide 1 ---" in result
+        assert "Hello PPTX" in result
 
 
 # ---------------------------------------------------------------------------

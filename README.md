@@ -478,6 +478,13 @@ Recent upstream nanobot syncs already included here:
 
 - Telegram progressive reply editing now uses `channels.telegram.streamEditInterval` to throttle
   `edit_message_text` frequency instead of a hardcoded interval.
+- Telegram can render `OutboundMessage.buttons` as native inline keyboards when
+  `channels.telegram.inlineKeyboards` is enabled; otherwise button labels are preserved as inline
+  text fallback.
+- `read_file` can extract text from Office Open XML documents (`.docx`, `.xlsx`, `.pptx`) without
+  adding a second document service.
+- Channel audio transcription can pass an optional `channels.transcriptionLanguage` ISO-639 hint to
+  the configured Groq/OpenAI transcription backend.
 - Discord supports progressive streamed replies when `channels.discord.streaming` is enabled; the
   same config block also exposes `readReceiptEmoji`, `workingEmoji`, and
   `workingEmojiDelay`. Discord can also connect through `channels.discord.proxy`, with optional
@@ -508,8 +515,9 @@ Notable gateway features:
   second SPA runtime
 - read-only sessions, skills, and cron pages in the admin UI for the active runtime workspace
 - visual config coverage for `tools.exec.*`, channel runtime controls such as
-  `channels.transcriptionProvider`, and the common Telegram/Discord single-instance extras
-  (`channels.telegram.streamEditInterval`, Discord streaming/emoji/proxy fields)
+  `channels.transcriptionProvider` / `channels.transcriptionLanguage`, and the common
+  Telegram/Discord single-instance extras (`channels.telegram.streamEditInterval`,
+  `channels.telegram.inlineKeyboards`, Discord streaming/emoji/proxy fields)
 - built-in slash-command reference in the admin page
 - persona editor in the admin page, including companion scene fields for `/scene` reference images,
   prompt overrides, and caption overrides

@@ -25,6 +25,7 @@ from hahobot.utils.helpers import (
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
     strip_think,
+    truncate_text,
 )
 from hahobot.utils.prompt_templates import render_template
 
@@ -80,6 +81,10 @@ _TOOL_CHOICE_ERROR_MARKERS = (
     "does not support",
     'should be ["none", "auto"]',
 )
+
+_RAW_ARCHIVE_MAX_CHARS = 16_000
+_ARCHIVE_SUMMARY_MAX_CHARS = 8_000
+_HISTORY_ENTRY_HARD_CAP = 64_000
 
 
 def _is_tool_choice_unsupported(content: str | None) -> bool:
@@ -317,11 +322,16 @@ class MemoryStore:
 
     # -- history.jsonl — append-only, JSONL format ---------------------------
 
-    def append_history(self, entry: str) -> int:
+    def append_history(self, entry: str, *, max_chars: int | None = None) -> int:
         """Append *entry* to history.jsonl and return its auto-incrementing cursor."""
         cursor = self._next_cursor()
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-        content = strip_think(entry.rstrip()) or entry.rstrip()
+        raw = entry.rstrip()
+        limit = max_chars if max_chars is not None else _HISTORY_ENTRY_HARD_CAP
+        if len(raw) > limit:
+            logger.warning("History entry exceeded {} chars ({}); truncating", limit, len(raw))
+            raw = truncate_text(raw, limit)
+        content = strip_think(raw) or raw
         record = {"cursor": cursor, "timestamp": ts, "content": content}
         try:
             payload = json.loads(content)
@@ -509,7 +519,7 @@ class MemoryStore:
                 logger.warning("Memory consolidation: history_entry is empty after normalization")
                 return self._fail_or_raw_archive(messages, on_archive=on_archive)
 
-            self.append_history(entry)
+            self.append_history(entry, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
             update = _ensure_text(update)
             if update != current_memory:
                 self.write_long_term(update)
@@ -554,9 +564,10 @@ class MemoryStore:
     ) -> None:
         """Fallback: dump raw messages to HISTORY.md without LLM summarization."""
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        formatted = truncate_text(self._format_messages(messages), _RAW_ARCHIVE_MAX_CHARS)
         entry = (
             f"[{ts}] [RAW] {len(messages)} messages\n"
-            f"{self._format_messages(messages)}"
+            f"{formatted}"
         )
         self.append_history(entry)
         if on_archive is not None:

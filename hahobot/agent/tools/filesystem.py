@@ -94,9 +94,10 @@ class ReadFileTool(_FsTool):
     @property
     def description(self) -> str:
         return (
-            "Read a text file. Output format: LINE_NUM|CONTENT. "
-            "Use offset and limit for large files. "
-            "Cannot read binary files or images. "
+            "Read a file (text, image, or document). "
+            "Text output format: LINE_NUM|CONTENT. "
+            "Supports DOCX, XLSX, and PPTX document text extraction. "
+            "Use offset and limit for large text files. "
             "Reads exceeding ~128K chars are truncated."
         )
 
@@ -121,6 +122,9 @@ class ReadFileTool(_FsTool):
             mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
             if mime and mime.startswith("image/"):
                 return build_image_content_blocks(raw, mime, str(fp), f"(Image file: {path})")
+
+            if fp.suffix.lower() in {".docx", ".xlsx", ".pptx"}:
+                return self._read_document(fp)
 
             try:
                 text_content = raw.decode("utf-8")
@@ -159,6 +163,20 @@ class ReadFileTool(_FsTool):
             return f"Error: {e}"
         except Exception as e:
             return f"Error reading file: {e}"
+
+    def _read_document(self, fp: Path) -> str:
+        from hahobot.utils.document import extract_text
+
+        result = extract_text(fp)
+        if result is None:
+            return f"Error: Unsupported file format: {fp.suffix}"
+        if result.startswith("[error:"):
+            return f"Error reading {fp.suffix.upper()} file: {result}"
+        if not result:
+            return f"({fp.suffix.upper().lstrip('.')} has no extractable text: {fp})"
+        if len(result) > self._MAX_CHARS:
+            return result[: self._MAX_CHARS] + "\n\n(Document text truncated at ~128K chars)"
+        return result
 
 
 # ---------------------------------------------------------------------------

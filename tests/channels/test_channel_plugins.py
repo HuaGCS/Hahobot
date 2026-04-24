@@ -97,6 +97,11 @@ def test_channels_config_accepts_transcription_provider_alias():
     assert cfg.transcription_provider == "openai"
 
 
+def test_channels_config_accepts_transcription_language_alias():
+    cfg = ChannelsConfig.model_validate({"transcriptionLanguage": "zh"})
+    assert cfg.transcription_language == "zh"
+
+
 # ---------------------------------------------------------------------------
 # discover_plugins
 # ---------------------------------------------------------------------------

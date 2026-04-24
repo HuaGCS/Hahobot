@@ -28,6 +28,7 @@ class BaseChannel(ABC):
     display_name: str = "Base"
     transcription_provider: str = "groq"
     transcription_api_key: str = ""
+    transcription_language: str | None = None
 
     @classmethod
     def default_config(cls) -> dict[str, Any] | None:
@@ -53,10 +54,16 @@ class BaseChannel(ABC):
         try:
             if self.transcription_provider == "openai":
                 from hahobot.providers.transcription import OpenAITranscriptionProvider
-                provider = OpenAITranscriptionProvider(api_key=self.transcription_api_key)
+                provider = OpenAITranscriptionProvider(
+                    api_key=self.transcription_api_key,
+                    language=self.transcription_language,
+                )
             else:
                 from hahobot.providers.transcription import GroqTranscriptionProvider
-                provider = GroqTranscriptionProvider(api_key=self.transcription_api_key)
+                provider = GroqTranscriptionProvider(
+                    api_key=self.transcription_api_key,
+                    language=self.transcription_language,
+                )
             return await provider.transcribe(file_path)
         except Exception as e:
             logger.warning("{}: audio transcription failed: {}", self.name, e)
