@@ -12,6 +12,7 @@ Primary upstreams tracked here:
 
 - `HKUDS/nanobot`
 - `lsdefine/GenericAgent`
+- `thedotmack/claude-mem`
 
 Related inspiration that is intentionally **not** treated as a parity target:
 
@@ -26,12 +27,16 @@ These upstreams are not tracked in the same way:
 - `GenericAgent` is tracked as an architectural/workflow upstream: planning SOPs, layered memory
   semantics, skill accumulation, and lightweight autonomous loops are worth auditing, but local
   implementation is not expected to mirror file layout or minimal-tool philosophy one-to-one.
+- `claude-mem` is tracked as a memory-architecture inspiration source. Hahobot adopts compatible
+  ideas such as structured observations, progressive-disclosure recall, file timelines, and private
+  tags through its existing archive/Dream/admin surfaces rather than copying the AGPL-licensed
+  implementation or Claude Code hook layout.
 
 This file therefore records both:
 
 - direct upstream parity work for `nanobot`
-- explicit adoption / divergence decisions for `GenericAgent` where the ideas are relevant to
-  hahobot's local runtime
+- explicit adoption / divergence decisions for `GenericAgent` and `claude-mem` where the ideas are
+  relevant to hahobot's local runtime
 
 ## Status Legend
 
@@ -50,6 +55,10 @@ This file therefore records both:
 - `GenericAgent`: re-checked against upstream `main` at `e2a57e7a` (`2026-04-24`), with the new
   delta mostly in Feishu `/llm` model switching, Telegram/photo/frontend streaming polish, SSE/tool
   call parser hardening, and packaging docs rather than new skill/memory governance concepts.
+- `claude-mem`: audited from `thedotmack/claude-mem` docs/repo on `2026-04-24`, adopting private
+  tags, structured observation fields, and search → timeline → expand progressive recall into the
+  existing hahobot archive tools while intentionally avoiding direct code reuse or a separate
+  SQLite/Chroma memory service.
 
 ## Current Snapshot
 
@@ -84,6 +93,9 @@ This file therefore records both:
 | OpenAI-compatible API file inputs | `synced` | `hahobot serve` now accepts both JSON and `multipart/form-data`, extracts text-like uploaded or inline base64 file payloads into the prompt, and emits stable placeholders for binary/image attachments while keeping the direct API path single-message and non-streaming. |
 | OpenAI-compatible API streaming | `intentional_divergence` | Upstream now supports SSE when `stream=true`; local `hahobot serve` intentionally stays non-streaming until the API contract is deliberately expanded across docs, tests, and client expectations together. |
 | Memory/history pollution caps | `synced` | Recent-history prompt injection, raw archive fallback, and consolidated history entries now have explicit size caps so failed summarization or oversized legacy entries cannot bloat every future prompt. |
+| claude-mem-style private tags | `synced` | `<private>...</private>` blocks are stripped before session persistence, history archives, `HISTORY.md` entries, and Mem0 writes so marked secrets do not become long-term memory. |
+| claude-mem-style observations | `synced` | Archive sidecars now include observation metadata (`type`, `facts`, `concepts`, `files`, title/subtitle/narrative) derived from summarized turns and tool traces. |
+| Progressive memory recall | `synced` | `history_search` returns compact observation indexes, `history_timeline` gives chronological/file context, and `history_expand` remains the explicit transcript expansion step. |
 | Document read support | `synced` | `read_file` extracts text from `.docx`, `.xlsx`, and `.pptx` files through a small local OOXML parser while keeping images and text files on the existing path. |
 | Transcription language hints | `synced` | `channels.transcriptionLanguage` validates ISO-639-like language hints, hot-reloads into running channels, and is passed to Groq/OpenAI transcription requests. |
 | Mid-turn follow-up injection | `watchlist` | Local dispatch stays per-session serialized and crash-safe, but it does not splice new user turns into an already running session; upstream-style active-turn injection would touch locks, checkpoints, streaming, `/stop`, and compaction semantics together. |
@@ -96,6 +108,7 @@ This file therefore records both:
 | Hermes-inspired workspace wiki skill | `local_extension` | Built-in `llm-wiki` treats the repo itself as a local concept/config/architecture wiki, using docs + code + tests as the evidence chain without adding another runtime service. |
 | Persona / companion workflow | `local_extension` | `PROFILE.md`, `INSIGHTS.md`, `STYLE.md`, `LORE.md`, companion commands, SillyTavern imports, voice overrides, and scene generation are local-first features. |
 | Memory architecture | `local_extension` | Dream maintenance, archive sidecars, Mem0 backend/shadow-write, and structured profile/insight hygiene go beyond upstream nanobot. |
+| claude-mem storage backend | `intentional_divergence` | Hahobot keeps markdown/archive JSON sidecars plus optional Mem0 instead of adopting claude-mem's SQLite/FTS/Chroma service; local recall remains inspectable and persona-scoped. |
 | Gateway/admin/runtime ops | `local_extension` | Admin UI, `/status`, Star-Office push, companion doctor, runtime doctor, session inspection, and gateway-backed `/session` / `/repo` / `/review` / `/compact` controls are local operational surfaces. |
 | Standalone browser WebUI | `intentional_divergence` | Upstream now ships a separate browser chat SPA over WebSocket; local web surfaces still stay in the existing gateway admin and `/status` shell rather than adopting a second chat frontend stack. |
 | Extension model | `local_extension` | Skills, MCP, built-in companion helpers, and `ExternalHookBridge` are the main extension surfaces; there is no separate plugin framework today. |

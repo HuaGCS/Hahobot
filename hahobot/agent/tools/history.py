@@ -46,8 +46,9 @@ class HistorySearchTool(_HistoryTool):
     def description(self) -> str:
         return (
             "Search archived chat-history chunks for the active persona. "
-            "Returns archive ids, summaries, and time ranges. Use history_expand "
-            "with a returned id when you need the transcript details."
+            "Returns compact observation ids, titles, summaries, files, concepts, and time ranges. "
+            "Use history_timeline for surrounding context, then history_expand with a returned id "
+            "when you need transcript details."
         )
 
     @property
@@ -78,6 +79,14 @@ class HistorySearchTool(_HistoryTool):
                     "type": ["string", "null"],
                     "description": "Optional upper time bound, such as '2026-03-30' or ISO datetime.",
                 },
+                "file": {
+                    "type": ["string", "null"],
+                    "description": "Optional file/path filter, e.g. 'hahobot/agent/loop.py'.",
+                },
+                "type": {
+                    "type": ["string", "null"],
+                    "description": "Optional observation type filter such as bugfix, decision, feature, refactor.",
+                },
             },
             "required": ["query"],
         }
@@ -89,10 +98,16 @@ class HistorySearchTool(_HistoryTool):
         session_key: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        file: str | None = None,
+        type: str | None = None,
         **kwargs: Any,
     ) -> str:
         if session_key is None:
             session_key = kwargs.get("sessionKey")
+        if file is None:
+            file = kwargs.get("path") or kwargs.get("filePath")
+        if type is None:
+            type = kwargs.get("observationType")
         results = self._store().search(
             query=query,
             limit=limit,
@@ -100,6 +115,8 @@ class HistorySearchTool(_HistoryTool):
             preferred_session_key=None if session_key else self._current_session_key(),
             since=since,
             until=until,
+            file=file,
+            observation_type=type,
         )
         if not results:
             return f'No archived history matches for "{query}".'
@@ -115,10 +132,101 @@ class HistorySearchTool(_HistoryTool):
             summary = str(entry.get("summary", "")).strip()
             if summary:
                 lines.append(f"   Summary: {summary}")
+            observation_type = str(entry.get("observationType", "")).strip()
+            if observation_type:
+                lines.append(f"   Type: {observation_type}")
+            files = [str(item) for item in entry.get("files") or [] if str(item).strip()]
+            if files:
+                lines.append(f"   Files: {', '.join(files[:6])}")
+            concepts = [str(item) for item in entry.get("concepts") or [] if str(item).strip()]
+            if concepts:
+                lines.append(f"   Concepts: {', '.join(concepts[:8])}")
             keywords = [str(item) for item in entry.get("keywords") or [] if str(item).strip()]
             if keywords:
                 lines.append(f"   Keywords: {', '.join(keywords[:8])}")
-            lines.append(f'   Next: call history_expand with id="{entry.get("id", "")}"')
+            lines.append(
+                f'   Next: call history_timeline anchor="{entry.get("id", "")}" '
+                f'or history_expand id="{entry.get("id", "")}"'
+            )
+        return "\n".join(lines)
+
+
+class HistoryTimelineTool(_HistoryTool):
+    """Return a compact timeline around a query, file, or archive id."""
+
+    @property
+    def name(self) -> str:
+        return "history_timeline"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Show a compact archived-memory timeline for the active persona by query, file/path, "
+            "or anchor archive id. Use this after history_search and before history_expand when "
+            "you need chronological context without full transcripts."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "query": {"type": ["string", "null"], "description": "Optional text query."},
+                "file": {"type": ["string", "null"], "description": "Optional file/path filter."},
+                "anchor": {"type": ["string", "null"], "description": "Optional archive id to center on."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+            },
+        }
+
+    async def execute(
+        self,
+        query: str | None = None,
+        file: str | None = None,
+        anchor: str | None = None,
+        limit: int = 8,
+        **kwargs: Any,
+    ) -> str:
+        if file is None:
+            file = kwargs.get("path") or kwargs.get("filePath")
+        store = self._store()
+        anchor_entry = None
+        if anchor:
+            loaded = store.load_entry(anchor)
+            if isinstance(loaded, dict) and isinstance(loaded.get("entry"), dict):
+                anchor_entry = loaded["entry"]
+
+        search_query = query or file or ""
+        if anchor_entry and not search_query:
+            concepts = anchor_entry.get("concepts") or anchor_entry.get("keywords") or []
+            search_query = " ".join(str(item) for item in concepts[:3]) or str(anchor_entry.get("title", ""))
+
+        entries = store.search(
+            query=search_query,
+            limit=max(1, min(limit, 20)),
+            preferred_session_key=self._current_session_key(),
+            file=file,
+        )
+        if anchor_entry and all(entry.get("id") != anchor_entry.get("id") for entry in entries):
+            entries = [anchor_entry, *entries]
+        entries = sorted(entries[: max(1, min(limit, 20))], key=lambda item: str(item.get("timeEnd", "")))
+        if not entries:
+            return "No archived history timeline entries found."
+
+        lines = ["Archived history timeline:"]
+        for entry in entries:
+            marker = "*" if anchor and entry.get("id") == anchor else "-"
+            title = str(entry.get("title") or entry.get("summary") or "(untitled)").strip()
+            lines.append(
+                f'{marker} {entry.get("timeEnd", "")} | {entry.get("observationType", "conversation")} | '
+                f'{title[:120]} | id={entry.get("id", "")} '
+            )
+            files = [str(item) for item in entry.get("files") or [] if str(item).strip()]
+            if files:
+                lines.append(f"  files: {', '.join(files[:5])}")
+            facts = [str(item) for item in entry.get("facts") or [] if str(item).strip()]
+            if facts:
+                lines.append(f"  facts: {'; '.join(facts[:2])}")
+        lines.append("Next: use history_expand id=<id> for transcript details.")
         return "\n".join(lines)
 
 

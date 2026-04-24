@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import re
 from datetime import UTC, datetime, time
@@ -11,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from hahobot.agent.personas import DEFAULT_PERSONA, persona_workspace, resolve_persona_name
+from hahobot.agent.privacy import strip_private_messages, strip_private_text
 from hahobot.utils.helpers import ensure_dir, safe_filename
 
 _BACKTICK_RE = re.compile(r"`([^`\n]{1,80})`")
@@ -169,10 +169,14 @@ class HistoryArchiveStore:
         archived_at = datetime.now().astimezone().isoformat()
         time_start, time_end = self._time_bounds(messages, fallback=archived_at)
         archive_id = self._build_archive_id(time_end, session_key)
-        summary = history_entry.strip() or f"[{time_end[:16]}] Archived {len(messages)} messages."
-        normalized_messages = copy.deepcopy(messages)
+        summary = strip_private_text(history_entry).strip() or f"[{time_end[:16]}] Archived {len(messages)} messages."
+        normalized_messages = strip_private_messages(messages)
         tools = self._extract_tools(normalized_messages)
-        keywords = self._extract_keywords(normalized_messages, summary, tools)
+        files = self._extract_files(normalized_messages, summary)
+        facts = self._extract_facts(summary)
+        concepts = self._extract_concepts(normalized_messages, summary, tools, files)
+        observation_type = self._classify_observation(summary, normalized_messages, source)
+        keywords = self._extract_keywords(normalized_messages, summary, tools, files, concepts)
         title = self._build_title(summary, normalized_messages)
 
         record = {
@@ -184,6 +188,15 @@ class HistoryArchiveStore:
             "rawArchive": raw_archive,
             "archivedAt": archived_at,
             "messages": normalized_messages,
+            "observation": {
+                "title": title,
+                "subtitle": f"{source} · {session_key}",
+                "narrative": summary,
+                "facts": facts,
+                "concepts": concepts,
+                "type": observation_type,
+                "files": files,
+            },
         }
         chunk_name = f"{archive_id}.json"
         chunk_path = self._chunks_dir / chunk_name
@@ -201,6 +214,10 @@ class HistoryArchiveStore:
             "messageCount": len(normalized_messages),
             "title": title,
             "summary": summary,
+            "observationType": observation_type,
+            "facts": facts,
+            "concepts": concepts,
+            "files": files,
             "keywords": keywords,
             "tools": tools,
             "chunkPath": f"{self.CHUNKS_DIRNAME}/{chunk_name}",
@@ -218,6 +235,8 @@ class HistoryArchiveStore:
         preferred_session_key: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        file: str | None = None,
+        observation_type: str | None = None,
     ) -> list[dict[str, Any]]:
         """Return archive index hits ranked by simple lexical relevance."""
         entries = self._load_index_entries()
@@ -228,6 +247,8 @@ class HistoryArchiveStore:
         query_tokens = tokenize_query(query)
         since_dt = parse_datetime(since, end_of_day=False)
         until_dt = parse_datetime(until, end_of_day=True)
+        file_query = file.strip().lower() if isinstance(file, str) and file.strip() else None
+        type_query = observation_type.strip().lower() if isinstance(observation_type, str) and observation_type.strip() else None
         ranked: list[tuple[int, datetime, dict[str, Any]]] = []
 
         for entry in entries:
@@ -238,6 +259,12 @@ class HistoryArchiveStore:
             if since_dt and entry_dt < since_dt:
                 continue
             if until_dt and entry_dt > until_dt:
+                continue
+            if file_query:
+                files = [str(item).lower() for item in entry.get("files") or []]
+                if not any(file_query == item or file_query in item for item in files):
+                    continue
+            if type_query and str(entry.get("observationType", "")).lower() != type_query:
                 continue
 
             score = self._score_entry(
@@ -364,6 +391,8 @@ class HistoryArchiveStore:
         messages: list[dict[str, Any]],
         summary: str,
         tools: list[str],
+        files: list[str] | None = None,
+        concepts: list[str] | None = None,
     ) -> list[str]:
         ordered: list[str] = []
         seen: set[str] = set()
@@ -380,6 +409,10 @@ class HistoryArchiveStore:
 
         for tool in tools:
             _remember(tool)
+        for file in files or []:
+            _remember(file)
+        for concept in concepts or []:
+            _remember(concept)
 
         for text in [summary, *(content_to_text(msg.get("content")) for msg in messages)]:
             if not text:
@@ -392,6 +425,94 @@ class HistoryArchiveStore:
                     _remember(token)
 
         return ordered[:16]
+
+    @classmethod
+    def _extract_files(cls, messages: list[dict[str, Any]], summary: str) -> list[str]:
+        seen: set[str] = set()
+        files: list[str] = []
+
+        def _remember(value: Any) -> None:
+            if not isinstance(value, str):
+                return
+            cleaned = value.strip().strip("`'\".,:;()[]{}")
+            if not cleaned or cleaned in seen:
+                return
+            if "/" not in cleaned and "." not in cleaned:
+                return
+            seen.add(cleaned)
+            files.append(cleaned)
+
+        for text in [summary, *(content_to_text(msg.get("content")) for msg in messages)]:
+            for match in _PATH_RE.findall(text or ""):
+                _remember(match)
+            for match in _BACKTICK_RE.findall(text or ""):
+                _remember(match)
+
+        return files[:20]
+
+    @staticmethod
+    def _extract_facts(summary: str) -> list[str]:
+        facts: list[str] = []
+        for part in re.split(r"[\n。！？!?;；]+", summary):
+            cleaned = _TIMESTAMP_PREFIX_RE.sub("", part.strip())
+            if len(cleaned) >= 12:
+                facts.append(cleaned[:240])
+            if len(facts) >= 5:
+                break
+        return facts
+
+    @classmethod
+    def _extract_concepts(
+        cls,
+        messages: list[dict[str, Any]],
+        summary: str,
+        tools: list[str],
+        files: list[str],
+    ) -> list[str]:
+        concepts: list[str] = []
+        seen: set[str] = set()
+
+        def _remember(value: str) -> None:
+            cleaned = value.strip().strip(".,:;()[]{}")
+            lowered = cleaned.lower()
+            if len(cleaned) < 3 or lowered in _STOPWORDS or lowered in seen:
+                return
+            seen.add(lowered)
+            concepts.append(cleaned)
+
+        for tool in tools:
+            _remember(tool)
+        for file in files:
+            stem = Path(file).stem if file else ""
+            if stem:
+                _remember(stem)
+        for text in [summary, *(content_to_text(msg.get("content")) for msg in messages)]:
+            for token in _WORD_RE.findall(text or ""):
+                if token.startswith("/") or "/" in token or "." in token:
+                    continue
+                _remember(token)
+                if len(concepts) >= 12:
+                    return concepts
+        return concepts[:12]
+
+    @staticmethod
+    def _classify_observation(
+        summary: str,
+        messages: list[dict[str, Any]],
+        source: str,
+    ) -> str:
+        text = "\n".join([summary, *(content_to_text(msg.get("content")) for msg in messages)]).lower()
+        if "error" in text or "failed" in text or "bug" in text or "fix" in text:
+            return "bugfix"
+        if "decision" in text or "decided" in text or "choose" in text:
+            return "decision"
+        if "implement" in text or "add" in text or "feature" in text:
+            return "feature"
+        if "refactor" in text or "cleanup" in text:
+            return "refactor"
+        if source:
+            return source.replace("_", "-")[:32]
+        return "conversation"
 
     @staticmethod
     def _score_entry(
@@ -406,6 +527,9 @@ class HistoryArchiveStore:
         session = str(entry.get("sessionKey", "")).lower()
         keywords = [str(item).lower() for item in entry.get("keywords") or []]
         tools = [str(item).lower() for item in entry.get("tools") or []]
+        files = [str(item).lower() for item in entry.get("files") or []]
+        concepts = [str(item).lower() for item in entry.get("concepts") or []]
+        facts = [str(item).lower() for item in entry.get("facts") or []]
         score = 0
 
         if preferred_session_key and session == preferred_session_key.lower():
@@ -424,6 +548,12 @@ class HistoryArchiveStore:
                 score += 6
             if any(token == tool or token in tool for tool in tools):
                 score += 5
+            if any(token == file or token in file for file in files):
+                score += 7
+            if any(token == concept or token in concept for concept in concepts):
+                score += 4
+            if any(token in fact for fact in facts):
+                score += 3
             if token in session:
                 score += 2
         return score
