@@ -56,9 +56,9 @@ This file therefore records both:
   delta mostly in Feishu `/llm` model switching, Telegram/photo/frontend streaming polish, SSE/tool
   call parser hardening, and packaging docs rather than new skill/memory governance concepts.
 - `claude-mem`: audited from `thedotmack/claude-mem` docs/repo on `2026-04-24`, adopting private
-  tags, structured observation fields, and search → timeline → expand progressive recall into the
-  existing hahobot archive tools while intentionally avoiding direct code reuse or a separate
-  SQLite/Chroma memory service.
+  tags, structured observation fields, search → timeline → expand progressive recall, and an
+  optional rebuildable SQLite FTS archive index while intentionally avoiding direct code reuse or a
+  separate Chroma/vector memory service.
 
 ## Current Snapshot
 
@@ -108,7 +108,8 @@ This file therefore records both:
 | Hermes-inspired workspace wiki skill | `local_extension` | Built-in `llm-wiki` treats the repo itself as a local concept/config/architecture wiki, using docs + code + tests as the evidence chain without adding another runtime service. |
 | Persona / companion workflow | `local_extension` | `PROFILE.md`, `INSIGHTS.md`, `STYLE.md`, `LORE.md`, companion commands, SillyTavern imports, voice overrides, and scene generation are local-first features. |
 | Memory architecture | `local_extension` | Dream maintenance, archive sidecars, Mem0 backend/shadow-write, and structured profile/insight hygiene go beyond upstream nanobot. |
-| claude-mem storage backend | `intentional_divergence` | Hahobot keeps markdown/archive JSON sidecars plus optional Mem0 instead of adopting claude-mem's SQLite/FTS/Chroma service; local recall remains inspectable and persona-scoped. |
+| claude-mem SQLite FTS archive index | `synced` | Hahobot now supports `memory.archive.indexBackend="sqlite"` as a persona-local derived FTS cache for `history_search` / `history_timeline`, rebuildable with `hahobot memory index rebuild` from JSON sidecars. |
+| claude-mem Chroma/service backend | `intentional_divergence` | Hahobot keeps markdown/archive JSON sidecars as the source of truth plus optional Mem0 instead of adopting a separate Chroma/vector memory service; local recall remains inspectable and persona-scoped. |
 | Gateway/admin/runtime ops | `local_extension` | Admin UI, `/status`, Star-Office push, companion doctor, runtime doctor, session inspection, and gateway-backed `/session` / `/repo` / `/review` / `/compact` controls are local operational surfaces. |
 | Standalone browser WebUI | `intentional_divergence` | Upstream now ships a separate browser chat SPA over WebSocket; local web surfaces still stay in the existing gateway admin and `/status` shell rather than adopting a second chat frontend stack. |
 | Extension model | `local_extension` | Skills, MCP, built-in companion helpers, and `ExternalHookBridge` are the main extension surfaces; there is no separate plugin framework today. |

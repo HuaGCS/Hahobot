@@ -867,10 +867,17 @@ class UserMemoryConfig(Base):
     mem0: Mem0Config = Field(default_factory=Mem0Config)
 
 
+class ArchiveMemoryConfig(Base):
+    """Structured history archive search/index settings."""
+
+    index_backend: Literal["jsonl", "sqlite"] = "jsonl"
+
+
 class MemoryConfig(Base):
     """Long-term memory configuration."""
 
     user: UserMemoryConfig = Field(default_factory=UserMemoryConfig)
+    archive: ArchiveMemoryConfig = Field(default_factory=ArchiveMemoryConfig)
 
 
 class Config(BaseSettings):

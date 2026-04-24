@@ -33,6 +33,7 @@ class RuntimeConfigManager:
             web_search_provider=self.loop.web_search_provider,
             web_search_base_url=self.loop.web_search_base_url,
             web_search_max_results=self.loop.web_search_max_results,
+            history_index_backend=self.loop.memory_config.archive.index_backend,
             timezone=self.loop.context.timezone,
         )
 

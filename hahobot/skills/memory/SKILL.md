@@ -10,7 +10,7 @@ always: true
 
 - `memory/MEMORY.md` — Long-term facts (preferences, project context, relationships). Always loaded into your context.
 - `memory/HISTORY.md` — Append-only event log. NOT loaded into context. Search it with grep-style tools or in-memory filters. Each entry starts with [YYYY-MM-DD HH:MM].
-- `memory/archive/index.jsonl` + `memory/archive/chunks/*.json` — Structured archived conversation observations for `history_search` / `history_timeline` / `history_expand`.
+- `memory/archive/index.jsonl` + `memory/archive/chunks/*.json` — Structured archived conversation observations for `history_search` / `history_timeline` / `history_expand`. Optional `memory/archive/index.sqlite` is a rebuildable derived FTS cache when `memory.archive.indexBackend` is `sqlite`.
 
 ## Search Past Events
 

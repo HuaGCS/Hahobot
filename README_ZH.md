@@ -1033,7 +1033,8 @@ hahobot 支持 [MCP](https://modelcontextprotocol.io/)。
 
 [Memorix](https://github.com/AVIDS2/memorix) 更适合作为工作区 / 代码库记忆层，而不是用户长期画像记忆。
 建议通过 `tools.mcpServers` 接入，并继续保留当前文件式 `memory/MEMORY.md` 作为用户长期记忆主路径。
-旧对话在被压缩归档时，hahobot 现在也会把结构化副本写到 `memory/archive/`，这样 agent 可以通过 `history_search` / `history_expand` 回放历史细节，而不只依赖 `HISTORY.md` 的 grep 检索。
+旧对话在被压缩归档时，hahobot 现在也会把结构化副本写到 `memory/archive/`，这样 agent 可以通过 `history_search` / `history_timeline` / `history_expand` 回放历史细节，而不只依赖 `HISTORY.md` 的 grep 检索。
+如果需要更快的本地归档检索，可以设置 `memory.archive.indexBackend: "sqlite"` 启用 persona-local SQLite FTS 派生索引；`index.jsonl` 与 `chunks/*.json` 仍是事实来源，`hahobot memory index rebuild` 可随时重建 `memory/archive/index.sqlite`。
 subagent 完成后的 follow-up 结果也会先落到 session history，再进入下一轮 prompt 组装，
 这样后台任务回传不会只存在于瞬时上下文里，重试或异常恢复时也不会丢。
 
@@ -1423,6 +1424,7 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 | `hahobot sessions show <key> [--json]` | 查看指定会话的元数据、working checkpoint 和最近消息 |
 | `hahobot sessions export <key> [--format md|json] [--output <path>]` | 导出一个已保存会话，默认写到 `workspace/out/sessions/` |
 | `hahobot sessions compact <key> [--json]` | 手动对一个已保存会话执行现有的 token consolidation，并持久化更新后的游标 |
+| `hahobot memory index rebuild [--json]` | 从 `memory/archive/` 的 JSON 事实来源重建可选 SQLite FTS 归档索引 |
 | `hahobot repo status [--json]` | 只读查看当前 workspace 对应 Git 仓库的分支、跟踪状态和改动计数 |
 | `hahobot repo diff [--staged] [--name-only] [--json]` | 只读查看当前 workspace 对应 Git 仓库的 tracked diff 摘要 |
 | `hahobot review [--staged] [--base <rev>] [--path <path>] [--json]` | 用当前配置的模型只读审查当前 workspace 的 Git diff |

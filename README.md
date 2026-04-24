@@ -331,6 +331,7 @@ hahobot companion doctor --persona Aria --json
   artifact under `workspace/out/sessions/` by default
 - `hahobot sessions compact <key>`: manually run the existing session token compaction flow for one
   saved session and persist the updated consolidation cursor
+- `hahobot memory index rebuild`: rebuild the optional SQLite FTS archive index from JSON sidecars
 - `hahobot repo status`: inspect the active workspace's local Git state and change counts
 - `hahobot repo diff --staged --name-only`: inspect tracked diff summaries without mutating the
   repository
@@ -423,7 +424,12 @@ When context grows too large, older turns are consolidated into durable memory a
 structured chunks. Those archives can later be searched and expanded through tools such as:
 
 - `history_search`
+- `history_timeline`
 - `history_expand`
+
+Set `memory.archive.indexBackend: "sqlite"` to enable an optional persona-local SQLite FTS index
+for faster archive lookup. The JSONL index and chunk files remain the source of truth;
+`hahobot memory index rebuild` can recreate `memory/archive/index.sqlite` at any time.
 
 This gives hahobot a lossless recall path without keeping every old turn in the active prompt.
 Subagent completion follow-ups are also persisted into session history before the next model call,

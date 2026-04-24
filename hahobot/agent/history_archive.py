@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from loguru import logger
+
+from hahobot.agent.history_sqlite import HistoryArchiveSQLiteIndex
 from hahobot.agent.personas import DEFAULT_PERSONA, persona_workspace, resolve_persona_name
 from hahobot.agent.privacy import strip_private_messages, strip_private_text
 from hahobot.utils.helpers import ensure_dir, safe_filename
@@ -135,10 +138,17 @@ class HistoryArchiveStore:
     INDEX_FILENAME = "index.jsonl"
     CHUNKS_DIRNAME = "chunks"
 
-    def __init__(self, workspace: Path, persona: str | None = None) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        persona: str | None = None,
+        *,
+        index_backend: str = "jsonl",
+    ) -> None:
         resolved = resolve_persona_name(workspace, persona) or DEFAULT_PERSONA
         self._workspace = workspace
         self._persona = resolved
+        self._index_backend = index_backend if index_backend in {"jsonl", "sqlite"} else "jsonl"
         self._persona_workspace = persona_workspace(workspace, resolved)
         self._archive_dir = self._persona_workspace / "memory" / "archive"
         self._chunks_dir = self._archive_dir / self.CHUNKS_DIRNAME
@@ -146,11 +156,15 @@ class HistoryArchiveStore:
 
     def update_workspace(self, workspace: Path) -> None:
         """Rebind the root workspace while keeping the current persona selection."""
-        self.__init__(workspace, self._persona)
+        self.__init__(workspace, self._persona, index_backend=self._index_backend)
 
     def set_persona(self, persona: str | None) -> None:
         """Switch the active persona archive scope."""
-        self.__init__(self._workspace, persona)
+        self.__init__(self._workspace, persona, index_backend=self._index_backend)
+
+    @property
+    def archive_dir(self) -> Path:
+        return self._archive_dir
 
     def write_archive(
         self,
@@ -243,6 +257,23 @@ class HistoryArchiveStore:
         if not entries:
             return []
 
+        if self._index_backend == "sqlite":
+            try:
+                index = HistoryArchiveSQLiteIndex(self._archive_dir)
+                index.ensure_current(entries, index_mtime_ns=self._index_path.stat().st_mtime_ns)
+                return index.search(
+                    query=query,
+                    limit=limit,
+                    session_key=session_key,
+                    preferred_session_key=preferred_session_key,
+                    since=since,
+                    until=until,
+                    file=file,
+                    observation_type=observation_type,
+                )
+            except Exception:
+                logger.exception("History archive SQLite search failed; falling back to JSONL")
+
         query_text = query.strip().lower()
         query_tokens = tokenize_query(query)
         since_dt = parse_datetime(since, end_of_day=False)
@@ -279,6 +310,10 @@ class HistoryArchiveStore:
 
         ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
         return [entry for _, _, entry in ranked[: max(1, min(limit, 20))]]
+
+    def rebuild_sqlite_index(self) -> int:
+        """Rebuild the optional derived SQLite index for this archive."""
+        return HistoryArchiveSQLiteIndex(self._archive_dir).rebuild(self._load_index_entries())
 
     def load_entry(self, archive_id: str) -> dict[str, Any] | None:
         """Load a single archive chunk by id."""

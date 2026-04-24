@@ -12,8 +12,9 @@ from hahobot.agent.tools.base import Tool
 class _HistoryTool(Tool):
     """Shared persona/session-bound archive tool behavior."""
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, index_backend: str = "jsonl"):
         self._workspace = workspace
+        self._index_backend = index_backend
         self._channel = ""
         self._chat_id = ""
         self._persona: str | None = None
@@ -27,7 +28,14 @@ class _HistoryTool(Tool):
         self._persona = persona
 
     def _store(self) -> HistoryArchiveStore:
-        return HistoryArchiveStore(self._workspace, self._persona)
+        return HistoryArchiveStore(
+            self._workspace,
+            self._persona,
+            index_backend=self._index_backend,
+        )
+
+    def set_index_backend(self, index_backend: str) -> None:
+        self._index_backend = index_backend if index_backend in {"jsonl", "sqlite"} else "jsonl"
 
     def _current_session_key(self) -> str | None:
         if not self._channel or not self._chat_id:
