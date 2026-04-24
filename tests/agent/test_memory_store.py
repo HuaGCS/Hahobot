@@ -104,6 +104,24 @@ class TestHistoryWithCursor:
         assert len(entries) == 2
         assert entries[0]["cursor"] in {4, 5}
 
+    def test_append_history_truncates_oversized_entries(self, store):
+        store.append_history("x" * 20, max_chars=10)
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert len(entries[0]["content"]) <= 30
+        assert "truncated" in entries[0]["content"]
+
+    def test_raw_archive_caps_formatted_messages(self, store):
+        store.raw_archive([
+            {
+                "timestamp": "2026-04-24 10:00",
+                "role": "user",
+                "content": "x" * 20_000,
+            }
+        ])
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert len(entries[0]["content"]) < 17_000
+        assert "truncated" in entries[0]["content"]
+
 
 class TestDreamCursor:
     def test_initial_cursor_is_zero(self, store):

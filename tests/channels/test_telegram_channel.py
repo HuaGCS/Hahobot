@@ -228,6 +228,31 @@ async def test_start_respects_custom_pool_config(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_start_enables_callback_updates_for_inline_keyboards(monkeypatch) -> None:
+    _FakeHTTPXRequest.clear()
+    config = TelegramConfig(
+        enabled=True,
+        token="123:abc",
+        allow_from=["*"],
+        inline_keyboards=True,
+    )
+    bus = MessageBus()
+    channel = TelegramChannel(config, bus)
+    app = _FakeApp(lambda: setattr(channel, "_running", False))
+    builder = _FakeBuilder(app)
+
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=lambda: builder),
+    )
+
+    await channel.start()
+
+    assert app.updater.start_polling_kwargs["allowed_updates"] == ["message", "callback_query"]
+
+
+@pytest.mark.asyncio
 async def test_send_text_retries_on_timeout() -> None:
     """_send_text retries on TimedOut before succeeding."""
     from telegram.error import TimedOut
@@ -260,6 +285,84 @@ async def test_send_text_retries_on_timeout() -> None:
 
     assert call_count == 3
     assert len(channel._app.bot.sent_messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_send_renders_inline_keyboard_when_enabled() -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], inline_keyboards=True),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+
+    await channel.send(OutboundMessage(
+        channel="telegram",
+        chat_id="123",
+        content="Choose",
+        buttons=[["Yes", "No"]],
+    ))
+
+    sent = channel._app.bot.sent_messages[0]
+    assert sent["text"] == "Choose"
+    assert sent["reply_markup"] is not None
+
+
+@pytest.mark.asyncio
+async def test_send_falls_back_to_button_text_when_keyboard_disabled() -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], inline_keyboards=False),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+
+    await channel.send(OutboundMessage(
+        channel="telegram",
+        chat_id="123",
+        content="Choose",
+        buttons=[["Yes", "No"]],
+    ))
+
+    sent = channel._app.bot.sent_messages[0]
+    assert "[Yes] [No]" in sent["text"]
+    assert sent["reply_markup"] is None
+
+
+def test_safe_callback_data_stays_under_telegram_limit() -> None:
+    data = TelegramChannel._safe_callback_data("选项" * 40)
+    assert len(data.encode("utf-8")) <= 64
+
+
+@pytest.mark.asyncio
+async def test_callback_query_forwards_button_label() -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], inline_keyboards=True),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._start_typing = lambda _chat_id: None
+    handled = []
+
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+
+    channel._handle_message = capture_handle
+    query = SimpleNamespace(
+        id="cb1",
+        data="Yes",
+        message=SimpleNamespace(chat_id=123, edit_reply_markup=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=12345, username="alice", first_name="Alice"),
+    )
+
+    await channel._on_callback_query(update, None)
+
+    query.answer.assert_awaited_once()
+    query.message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    assert handled[0]["content"] == "Yes"
+    assert handled[0]["metadata"]["is_callback"] is True
 
 
 @pytest.mark.asyncio

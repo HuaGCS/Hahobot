@@ -1114,6 +1114,14 @@ _CONFIG_FIELDS = (
         options=("groq", "openai"),
     ),
     ConfigFieldSpec(
+        "channels_transcription_language",
+        ("channels", "transcriptionLanguage"),
+        "text",
+        "admin_config_channel_transcription_language_label",
+        "admin_config_channel_transcription_language_hint",
+        placeholder="zh",
+    ),
+    ConfigFieldSpec(
         "channels_voice_reply_enabled",
         ("channels", "voiceReply", "enabled"),
         "bool",
@@ -1642,6 +1650,7 @@ _CONFIG_SECTIONS = (
             "channels_send_tool_hints",
             "channels_send_max_retries",
             "channels_transcription_provider",
+            "channels_transcription_language",
         ),
     ),
     (
@@ -3368,6 +3377,7 @@ def _config_form_values(config: Config) -> dict[str, Any]:
         "channels_send_tool_hints": config.channels.send_tool_hints,
         "channels_send_max_retries": str(config.channels.send_max_retries),
         "channels_transcription_provider": config.channels.transcription_provider,
+        "channels_transcription_language": config.channels.transcription_language or "",
         "channels_voice_reply_enabled": voice.enabled,
         "channels_voice_reply_channels": ", ".join(voice.channels),
         "channels_voice_reply_provider": voice.provider,

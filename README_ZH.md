@@ -476,7 +476,8 @@ OpenAI 兼容 TTS 示例：
       "token": "YOUR_BOT_TOKEN",
       "allowFrom": ["YOUR_USER_ID"],
       "streaming": true,
-      "streamEditInterval": 0.6
+      "streamEditInterval": 0.6,
+      "inlineKeyboards": false
     }
   }
 }
@@ -486,6 +487,7 @@ OpenAI 兼容 TTS 示例：
 
 - `streaming` 默认就是 `true`，表示最终回复会优先走“先发一条、后续逐步编辑”的流式体验
 - `streamEditInterval` 控制 Telegram `edit_message_text` 的最小节流间隔，适合按自己的频率/限流情况调整
+- `inlineKeyboards` 开启后会把出站消息里的 `buttons` 渲染成 Telegram 原生内联按钮；关闭时会把按钮标签拼回正文，避免选项丢失
 
 运行：
 
@@ -970,7 +972,8 @@ ollama run llama3.2
     "sendProgress": true,
     "sendToolHints": false,
     "sendMaxRetries": 3,
-    "transcriptionProvider": "groq"
+    "transcriptionProvider": "groq",
+    "transcriptionLanguage": "zh"
   }
 }
 ```
@@ -986,6 +989,8 @@ ollama run llama3.2
 - `transcriptionProvider`
   语音转写后端，可选 `groq`（默认）或 `openai`；API Key 会自动从对应的
   `providers.groq` / `providers.openai` 读取，运行时重载配置后会直接更新到当前渠道实例
+- `transcriptionLanguage`
+  可选 ISO-639 语言提示，例如 `zh`、`en`、`ja`；留空时由转写后端自动识别
 
 ### MCP
 

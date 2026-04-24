@@ -42,13 +42,14 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `c1957e14` (`2026-04-21`), covering the newer
-  ContextVar tool-routing isolation, MCP transient-retry patch, Anthropic message-normalization
-  fix, `/stop` partial-context restoration, memory cursor hardening, and recent Telegram split
-  follow-ups after the earlier session-durability and Responses fallback sync.
-- `GenericAgent`: re-checked against upstream `main` at `f14ad0c6` (`2026-04-21`), with the new
-  delta mostly in chat-frontend `/continue` / `/new`, optional tracing/plugin layout cleanup, and
-  Anthropic-thinking stream parsing rather than new skill/memory governance concepts.
+- `nanobot`: re-checked against upstream `main` at `3441d5f8` (`2026-04-24`), covering the newer
+  DeepSeek/provider thinking toggles, GitHub Copilot Responses routing, Anthropic Opus 4.7
+  temperature omission, `tool_result` image conversion, memory/history pollution caps, Telegram
+  inline keyboard buttons, Office-document read support, and transcription-language knobs; WebUI
+  image upload remains queued behind local gateway/admin UX decisions.
+- `GenericAgent`: re-checked against upstream `main` at `e2a57e7a` (`2026-04-24`), with the new
+  delta mostly in Feishu `/llm` model switching, Telegram/photo/frontend streaming polish, SSE/tool
+  call parser hardening, and packaging docs rather than new skill/memory governance concepts.
 
 ## Current Snapshot
 
@@ -63,7 +64,8 @@ This file therefore records both:
 | Hook lifecycle semantics | `synced` | Hook fan-out supports `reraise` semantics and keeps compatibility behavior for legacy hooks. |
 | OpenAI direct reasoning routing | `synced` | Direct OpenAI GPT-5/o-series requests prefer Responses API and fall back to Chat Completions only for compatibility errors. |
 | Responses compatibility circuit breaker | `synced` | Repeated Responses-API compatibility failures now open a short-lived per-`(model, reasoningEffort)` circuit before re-probing automatically, so direct OpenAI fallback does not keep paying the same failing probe cost every turn. |
-| Anthropic adaptive reasoning | `synced` | `reasoningEffort=adaptive` already maps to Anthropic `thinking={"type":"adaptive"}` locally, with token/temperature safeguards and focused provider tests. |
+| Provider thinking toggles | `synced` | `ProviderSpec.thinking_style` now owns DashScope, DeepSeek, VolcEngine/BytePlus, and MiniMax thinking wire formats; legacy assistant turns receive empty `reasoning_content` when thinking mode is enabled mid-session. |
+| Anthropic adaptive / Opus reasoning | `synced` | `reasoningEffort=adaptive` maps to Anthropic `thinking={"type":"adaptive"}`, Opus 4.7 requests omit deprecated `temperature`, and tool-result image blocks are normalized before Anthropic submission. |
 | Anthropic message alternation recovery | `synced` | Anthropic request normalization now also enforces leading-user, strips trailing assistant prefill, and recovers the empty-array edge case without rerouting `tool_use`-carrying assistant blocks into invalid user turns. |
 | Tool hint formatting | `synced` | Exec hints handle quoted paths, path abbreviation, and duplicate collapse in one formatter. |
 | Provider request sanitization | `synced` | Role alternation repair now recovers a trailing assistant message as `user` when otherwise only `system` content would remain, preventing empty/invalid provider requests after assistant-scoped injections. |
@@ -72,6 +74,7 @@ This file therefore records both:
 | MCP resources / prompts as tool surfaces | `synced` | MCP connections already wrap remote tools, resources, and prompts into native hahobot tool entries, keeping non-mutating resource/prompt calls read-only while preserving local timeout/error handling and `enabledTools` filtering. |
 | Cron state / scheduler behavior | `synced` | Cron preserves last-run status plus merged run history on disk, and the workspace scheduler periodically wakes to reload external `cron/jobs.json` edits via `gateway.cron.maxSleepMs`. |
 | Telegram / Discord streaming | `synced` | Telegram uses configurable `channels.telegram.streamEditInterval`; Discord keeps edit-based streaming enabled by default, and the related runtime knobs are exposed in local schema/docs/admin surfaces. |
+| Telegram inline buttons | `synced` | `channels.telegram.inlineKeyboards` can render `OutboundMessage.buttons` as Telegram inline keyboards, caps callback payload bytes, and falls back to inline text when native keyboards are disabled. |
 | WebSocket server channel | `synced` | Local runtime already ships `channels.websocket`, including tokenless local mode, optional `tokenIssuePath` / `tokenIssueSecret`, and the simple `ready` / `message` / `delta` / `stream_end` frame contract. |
 | Legacy rename compatibility | `synced` | `nanobot` CLI/module/import compatibility stays live, and default config fallback is preserved. |
 | Config fallback behavior | `intentional_divergence` | When no config path is passed, hahobot checks `~/.hahobot/config.json` first, then copies `~/.nanobot/config.json` into the hahobot location instead of migrating in place. |
@@ -80,6 +83,9 @@ This file therefore records both:
 | MCP transient reconnect retry | `watchlist` | Upstream now retries one connection-class MCP failure after a short backoff; local MCP wrappers already distinguish true task cancellation from server-side `CancelledError`, but they still surface the first broken-pipe/closed-resource failure directly. Re-check if bridge restarts or transient MCP reconnects become noisy in practice. |
 | OpenAI-compatible API file inputs | `synced` | `hahobot serve` now accepts both JSON and `multipart/form-data`, extracts text-like uploaded or inline base64 file payloads into the prompt, and emits stable placeholders for binary/image attachments while keeping the direct API path single-message and non-streaming. |
 | OpenAI-compatible API streaming | `intentional_divergence` | Upstream now supports SSE when `stream=true`; local `hahobot serve` intentionally stays non-streaming until the API contract is deliberately expanded across docs, tests, and client expectations together. |
+| Memory/history pollution caps | `synced` | Recent-history prompt injection, raw archive fallback, and consolidated history entries now have explicit size caps so failed summarization or oversized legacy entries cannot bloat every future prompt. |
+| Document read support | `synced` | `read_file` extracts text from `.docx`, `.xlsx`, and `.pptx` files through a small local OOXML parser while keeping images and text files on the existing path. |
+| Transcription language hints | `synced` | `channels.transcriptionLanguage` validates ISO-639-like language hints, hot-reloads into running channels, and is passed to Groq/OpenAI transcription requests. |
 | Mid-turn follow-up injection | `watchlist` | Local dispatch stays per-session serialized and crash-safe, but it does not splice new user turns into an already running session; upstream-style active-turn injection would touch locks, checkpoints, streaming, `/stop`, and compaction semantics together. |
 | Dream skill discovery automation | `intentional_divergence` | Upstream lets Dream discover/write reusable skills automatically; local skill accumulation stays operator-visible and reviewable through `/skill derive` instead of unattended Dream promotion. |
 | GenericAgent-style SOP workflow | `synced` | Hahobot now ships built-in workflow skills (`workflow-core`, `plan`, `verify`), subagent execution modes (`explore` / `implement` / `verify`), and persisted `working_checkpoint` state across session/admin/status surfaces. |
@@ -178,16 +184,31 @@ as "do not re-port unless upstream changes again":
   the only non-system content left after alternation repair.
 - Direct OpenAI Responses fallback now uses a short-lived compatibility circuit breaker so repeated
   unsupported-probe failures do not recur every turn.
+- Provider-specific thinking toggles are centralized through `ProviderSpec.thinking_style`, covering
+  DashScope `enable_thinking`, DeepSeek/VolcEngine/BytePlus `thinking.type`, MiniMax
+  `reasoning_split`, and DeepSeek's legacy assistant `reasoning_content` backfill.
+- GitHub Copilot GPT-5/o-series routing uses the Responses path rather than falling back to an
+  incompatible chat-completions probe.
 - Anthropic message normalization now matches the stricter upstream invariants: no leading
   assistant, no trailing assistant prefill, and no empty message array fallback unless rerouting
   would create an invalid `tool_use`-inside-user request.
 - Anthropic requests already support `reasoningEffort=adaptive`, mapping it to Anthropic adaptive
   thinking without inflating token budgets or leaving incompatible temperature handling behind.
+- Anthropic Opus 4.7 requests omit the now-rejected `temperature` parameter, and `tool_result`
+  blocks convert nested `image_url` content before API submission.
+- Memory/history prompt pollution is bounded: recent history, LLM-written summaries, and raw archive
+  fallbacks all have defensive character caps before they can enter future prompts.
 - `/stop` cancellation now materializes the latest runtime checkpoint into session history
   immediately instead of waiting for the next inbound turn to trigger recovery.
 - Web search supports Brave, SearXNG, and DuckDuckGo, and DuckDuckGo searches are serialized at the
   tool-runner layer when concurrent tool execution is enabled.
 - The built-in WebSocket server channel is available through `channels.websocket`.
+- Telegram inline keyboards are available through `channels.telegram.inlineKeyboards`, with safe
+  callback-data truncation and text fallback when keyboards are disabled.
+- `read_file` can extract text from `.docx`, `.xlsx`, and `.pptx` documents without changing the
+  binary/image delivery contract.
+- Voice transcription can pass optional ISO-639 hints through `channels.transcriptionLanguage`, and
+  the field hot-reloads alongside `channels.transcriptionProvider`.
 - The built-in OpenAI-compatible API accepts JSON or multipart requests with inline/uploaded file
   payloads; text-like attachments are extracted into prompt context, while binary/image inputs are
   kept as stable placeholders on the direct path.
@@ -241,6 +262,9 @@ These are local choices. When upstream behaves differently, that is not automati
 - Re-check upstream `providers/*` when request routing, retry behavior, or error surfaces change.
 - Re-check upstream `session/manager.py` whenever JSONL durability or recovery semantics change
   again; local append-only persistence means the rewrite/repair tradeoffs are slightly different.
+- Re-check upstream multimodal/WebUI upload and `channels.websocket` media-envelope work only if the
+  local gateway/admin UX grows a matching browser-chat surface; hahobot currently treats upstream's
+  standalone WebUI as intentional divergence.
 - Re-check upstream search-provider additions (for example Kagi) against local config/admin/docs
   before expanding `tools.web.search.provider`.
 - Re-check upstream `agent/tools/mcp.py` if transient `ClosedResourceError` / broken-pipe failures

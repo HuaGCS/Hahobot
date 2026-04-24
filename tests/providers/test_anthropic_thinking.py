@@ -63,3 +63,33 @@ def test_none_does_not_enable_thinking() -> None:
     kw = _build(_make_provider(), None)
     assert "thinking" not in kw
     assert kw["temperature"] == 0.7
+
+
+def test_opus_4_7_omits_temperature_without_thinking() -> None:
+    kw = _build(_make_provider("claude-opus-4-7"), None)
+    assert "temperature" not in kw
+
+
+def test_opus_4_7_omits_temperature_with_adaptive_thinking() -> None:
+    kw = _build(_make_provider("claude-opus-4-7"), "adaptive")
+    assert kw["thinking"] == {"type": "adaptive"}
+    assert "temperature" not in kw
+
+
+def test_tool_result_converts_image_url_blocks() -> None:
+    block = AnthropicProvider._tool_result_block(
+        {
+            "tool_call_id": "toolu_1",
+            "content": [
+                {"type": "text", "text": "see image"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,aGVsbG8="},
+                },
+            ],
+        }
+    )
+
+    assert block["content"][0] == {"type": "text", "text": "see image"}
+    assert block["content"][1]["type"] == "image"
+    assert block["content"][1]["source"]["media_type"] == "image/png"

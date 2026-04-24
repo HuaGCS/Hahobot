@@ -16,7 +16,12 @@ from hahobot.agent.personas import (
     resolve_persona_name,
 )
 from hahobot.agent.skills import SkillsLoader
-from hahobot.utils.helpers import build_assistant_message, current_time_str, detect_image_mime
+from hahobot.utils.helpers import (
+    build_assistant_message,
+    current_time_str,
+    detect_image_mime,
+    truncate_text,
+)
 from hahobot.utils.prompt_templates import render_template
 
 
@@ -29,6 +34,7 @@ class ContextBuilder:
     INSIGHTS_FILE = "INSIGHTS.md"
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
     _MAX_RECENT_HISTORY = 50
+    _MAX_HISTORY_CHARS = 32_000
 
     def __init__(
         self,
@@ -124,9 +130,10 @@ class ContextBuilder:
         entries = self.memory.read_unprocessed_history(since_cursor=self.memory.get_last_dream_cursor())
         if entries:
             capped = entries[-self._MAX_RECENT_HISTORY:]
-            parts.append("# Recent History\n\n" + "\n".join(
+            history_text = "\n".join(
                 f"- [{e['timestamp']}] {e['content']}" for e in capped
-            ))
+            )
+            parts.append("# Recent History\n\n" + truncate_text(history_text, self._MAX_HISTORY_CHARS))
 
         return "\n\n---\n\n".join(parts)
 

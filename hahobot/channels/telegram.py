@@ -10,9 +10,23 @@ from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
-from telegram import BotCommand, ReactionTypeEmoji, ReplyParameters, Update
+from telegram import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReactionTypeEmoji,
+    ReplyParameters,
+    Update,
+)
 from telegram.error import BadRequest, NetworkError, TimedOut
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 from telegram.request import HTTPXRequest
 
 from hahobot.agent.i18n import (
@@ -293,6 +307,8 @@ class TelegramChannel(BaseChannel):
         for command_name in telegram_forwardable_commands():
             self._app.add_handler(CommandHandler(command_name, self._forward_command))
         self._app.add_handler(CommandHandler("help", self._on_help))
+        if self.config.inline_keyboards:
+            self._app.add_handler(CallbackQueryHandler(self._on_callback_query))
 
         # Add message handler for text, photos, voice, documents, and locations
         self._app.add_handler(
@@ -324,7 +340,8 @@ class TelegramChannel(BaseChannel):
 
         # Start polling (this runs until stopped)
         await self._app.updater.start_polling(
-            allowed_updates=["message"],
+            allowed_updates=["message", "callback_query"]
+            if self.config.inline_keyboards else ["message"],
             drop_pending_updates=False,  # Process pending messages on startup
             error_callback=self._on_polling_error,
         )
@@ -450,10 +467,17 @@ class TelegramChannel(BaseChannel):
         # Send text content
         if msg.content and msg.content != "[empty message]":
             render_as_blockquote = bool(msg.metadata.get("_tool_hint"))
-            for chunk in split_message(msg.content, TELEGRAM_MAX_MESSAGE_LEN):
+            buttons = msg.buttons or []
+            reply_markup = self._build_keyboard(buttons) if buttons else None
+            text = msg.content
+            if buttons and reply_markup is None:
+                text = f"{text}\n\n{self._buttons_as_text(buttons)}"
+            chunks = split_message(text, TELEGRAM_MAX_MESSAGE_LEN)
+            for index, chunk in enumerate(chunks):
                 await self._send_text(
                     chat_id, chunk, reply_params, thread_kwargs,
                     render_as_blockquote=render_as_blockquote,
+                    reply_markup=reply_markup if index == len(chunks) - 1 else None,
                 )
 
     async def _call_with_retry(self, fn, *args, **kwargs):
@@ -489,6 +513,7 @@ class TelegramChannel(BaseChannel):
         reply_params=None,
         thread_kwargs: dict | None = None,
         render_as_blockquote: bool = False,
+        reply_markup=None,
     ) -> None:
         """Send a plain text message with HTML fallback."""
         try:
@@ -497,6 +522,7 @@ class TelegramChannel(BaseChannel):
                 self._app.bot.send_message,
                 chat_id=chat_id, text=html, parse_mode="HTML",
                 reply_parameters=reply_params,
+                reply_markup=reply_markup,
                 **(thread_kwargs or {}),
             )
         except Exception as e:
@@ -507,6 +533,7 @@ class TelegramChannel(BaseChannel):
                     chat_id=chat_id,
                     text=text,
                     reply_parameters=reply_params,
+                    reply_markup=reply_markup,
                     **(thread_kwargs or {}),
                 )
             except Exception as e2:
@@ -1049,3 +1076,61 @@ class TelegramChannel(BaseChannel):
             return "".join(Path(filename).suffixes)
 
         return ""
+
+    def _build_keyboard(self, buttons: list[list[str]]) -> InlineKeyboardMarkup | None:
+        """Build Telegram inline keyboard markup when enabled."""
+        if not buttons or not self.config.inline_keyboards:
+            return None
+        keyboard = [
+            [
+                InlineKeyboardButton(str(label), callback_data=self._safe_callback_data(str(label)))
+                for label in row
+                if str(label)
+            ]
+            for row in buttons
+            if row
+        ]
+        return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+    @staticmethod
+    def _safe_callback_data(label: str) -> str:
+        encoded = label.encode("utf-8")
+        if len(encoded) <= 64:
+            return label
+        return encoded[:64].decode("utf-8", errors="ignore")
+
+    @staticmethod
+    def _buttons_as_text(buttons: list[list[str]]) -> str:
+        return "\n".join(" ".join(f"[{label}]" for label in row) for row in buttons if row)
+
+    async def _on_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline keyboard taps as normal inbound user turns."""
+        if not update.callback_query or not update.effective_user:
+            return
+        query = update.callback_query
+        user = update.effective_user
+        chat_id = query.message.chat_id if query.message else None
+        if not chat_id:
+            logger.warning("Callback query without chat_id")
+            return
+        button_label = query.data or ""
+        await query.answer()
+        if query.message:
+            try:
+                await query.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+        self._start_typing(str(chat_id))
+        await self._handle_message(
+            sender_id=self._sender_id(user),
+            chat_id=str(chat_id),
+            content=button_label,
+            metadata={
+                "callback_query_id": query.id,
+                "button_label": button_label,
+                "user_id": user.id,
+                "username": user.username,
+                "first_name": user.first_name,
+                "is_callback": True,
+            },
+        )

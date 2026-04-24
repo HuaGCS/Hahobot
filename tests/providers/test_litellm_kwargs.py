@@ -588,3 +588,49 @@ def test_openai_no_thinking_extra_body() -> None:
     """Non-thinking providers should never get extra_body for thinking."""
     kw = _build_kwargs_for("openai", "gpt-4o", reasoning_effort="medium")
     assert "extra_body" not in kw
+
+
+def test_deepseek_thinking_enabled_and_backfills_legacy_assistant_reasoning() -> None:
+    spec = find_by_name("deepseek")
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI"):
+        provider = OpenAICompatProvider(api_key="k", default_model="deepseek-reasoner", spec=spec)
+    kw = provider._build_kwargs(
+        messages=[
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "legacy response"},
+            {"role": "user", "content": "continue"},
+        ],
+        tools=None,
+        model="deepseek-reasoner",
+        max_tokens=1024,
+        temperature=0.7,
+        reasoning_effort="medium",
+        tool_choice=None,
+    )
+
+    assert kw["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert kw["messages"][1]["reasoning_content"] == ""
+
+
+def test_minimax_uses_reasoning_split_style() -> None:
+    kw = _build_kwargs_for("minimax", "MiniMax-M1", reasoning_effort="high")
+    assert kw["extra_body"] == {"reasoning_split": True}
+
+
+def test_dashscope_accepts_minimum_alias_as_minimal() -> None:
+    kw = _build_kwargs_for("dashscope", "qwen3-plus", reasoning_effort="minimum")
+    assert kw["reasoning_effort"] == "minimal"
+    assert kw["extra_body"] == {"enable_thinking": False}
+
+
+def test_github_copilot_responses_route_for_gpt5() -> None:
+    spec = find_by_name("github_copilot")
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI"):
+        provider = OpenAICompatProvider(
+            api_key="",
+            api_base="https://api.githubcopilot.com",
+            default_model="github_copilot/gpt-5",
+            spec=spec,
+        )
+
+    assert provider._should_use_responses_api("github_copilot/gpt-5", None) is True

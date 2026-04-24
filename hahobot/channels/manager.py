@@ -45,6 +45,7 @@ class ChannelManager:
 
         transcription_provider = self.config.channels.transcription_provider
         transcription_key = self._resolve_transcription_key(transcription_provider)
+        transcription_language = self.config.channels.transcription_language
 
         for name, cls in discover_all().items():
             section = getattr(self.config.channels, name, None)
@@ -81,6 +82,7 @@ class ChannelManager:
                             channel,
                             provider=transcription_provider,
                             api_key=transcription_key,
+                            language=transcription_language,
                         )
                         self.channels[channel_name] = channel
                         logger.info(
@@ -96,6 +98,7 @@ class ChannelManager:
                     channel,
                     provider=transcription_provider,
                     api_key=transcription_key,
+                    language=transcription_language,
                 )
                 self.channels[name] = channel
                 logger.info("{} channel enabled", cls.display_name)
@@ -117,10 +120,12 @@ class ChannelManager:
         *,
         provider: str,
         api_key: str,
+        language: str | None = None,
     ) -> None:
         """Apply shared voice transcription settings to one channel instance."""
         channel.transcription_provider = provider
         channel.transcription_api_key = api_key
+        channel.transcription_language = language or None
 
     def _resolve_transcription_key(self, provider: str) -> str:
         """Pick the API key for the configured transcription provider."""
@@ -162,6 +167,7 @@ class ChannelManager:
         restrict = bool(getattr(config.tools, "restrict_to_workspace", False))
         transcription_provider = config.channels.transcription_provider
         transcription_key = self._resolve_transcription_key(transcription_provider)
+        transcription_language = config.channels.transcription_language
         for channel in self.channels.values():
             if hasattr(channel, "_workspace"):
                 channel._workspace = Path(workspace).expanduser()
@@ -171,6 +177,7 @@ class ChannelManager:
                 channel,
                 provider=transcription_provider,
                 api_key=transcription_key,
+                language=transcription_language,
             )
 
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:

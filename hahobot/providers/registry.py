@@ -63,6 +63,10 @@ class ProviderSpec:
     # Provider supports cache_control on content blocks (e.g. Anthropic prompt caching)
     supports_prompt_caching: bool = False
 
+    # How to inject provider-specific thinking toggles into extra_body.
+    # "" | "thinking_type" | "enable_thinking" | "reasoning_split"
+    thinking_style: str = ""
+
     @property
     def label(self) -> str:
         return self.display_name or self.name.title()
@@ -143,6 +147,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_gateway=True,
         detect_by_base_keyword="volces",
         default_api_base="https://ark.cn-beijing.volces.com/api/v3",
+        thinking_style="thinking_type",
     ),
 
     # VolcEngine Coding Plan (火山引擎 Coding Plan): same key as volcengine
@@ -155,6 +160,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_gateway=True,
         default_api_base="https://ark.cn-beijing.volces.com/api/coding/v3",
         strip_model_prefix=True,
+        thinking_style="thinking_type",
     ),
 
     # BytePlus: VolcEngine international, pay-per-use models
@@ -168,6 +174,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         detect_by_base_keyword="bytepluses",
         default_api_base="https://ark.ap-southeast.bytepluses.com/api/v3",
         strip_model_prefix=True,
+        thinking_style="thinking_type",
     ),
 
     # BytePlus Coding Plan: same key as byteplus
@@ -180,6 +187,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_gateway=True,
         default_api_base="https://ark.ap-southeast.bytepluses.com/api/coding/v3",
         strip_model_prefix=True,
+        thinking_style="thinking_type",
     ),
 
 
@@ -223,6 +231,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="https://api.githubcopilot.com",
         strip_model_prefix=True,
         is_oauth=True,
+        supports_max_completion_tokens=True,
     ),
     # DeepSeek: OpenAI-compatible at api.deepseek.com
     ProviderSpec(
@@ -232,6 +241,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         display_name="DeepSeek",
         backend="openai_compat",
         default_api_base="https://api.deepseek.com",
+        thinking_style="thinking_type",
     ),
     # Gemini: Google's OpenAI-compatible endpoint
     ProviderSpec(
@@ -260,6 +270,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         display_name="DashScope",
         backend="openai_compat",
         default_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        thinking_style="enable_thinking",
     ),
     # Moonshot (月之暗面): Kimi models. K2.5 enforces temperature >= 1.0.
     ProviderSpec(
@@ -279,6 +290,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         display_name="MiniMax",
         backend="openai_compat",
         default_api_base="https://api.minimax.io/v1",
+        thinking_style="reasoning_split",
     ),
     # Mistral AI: OpenAI-compatible API
     ProviderSpec(
