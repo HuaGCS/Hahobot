@@ -17,6 +17,7 @@ from hahobot.agent.history_archive import HistoryArchiveStore
 from hahobot.agent.i18n import DEFAULT_LANGUAGE, resolve_language
 from hahobot.agent.memory_metadata import format_memory_metadata_summary
 from hahobot.agent.personas import DEFAULT_PERSONA, persona_workspace, resolve_persona_name
+from hahobot.agent.privacy import strip_private_text
 from hahobot.agent.runner import AgentRunner, AgentRunSpec
 from hahobot.agent.tools.registry import ToolRegistry
 from hahobot.utils.gitstore import GitStore
@@ -326,7 +327,7 @@ class MemoryStore:
         """Append *entry* to history.jsonl and return its auto-incrementing cursor."""
         cursor = self._next_cursor()
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-        raw = entry.rstrip()
+        raw = strip_private_text(entry.rstrip())
         limit = max_chars if max_chars is not None else _HISTORY_ENTRY_HARD_CAP
         if len(raw) > limit:
             logger.warning("History entry exceeded {} chars ({}); truncating", limit, len(raw))

@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from hahobot.agent.memory_backends.base import UserMemoryBackend
 from hahobot.agent.memory_models import MemoryCommitRequest, MemoryScope, ResolvedMemoryContext
+from hahobot.agent.privacy import strip_private_text
 
 
 class Mem0UserMemoryBackend(UserMemoryBackend):
@@ -177,16 +178,18 @@ class Mem0UserMemoryBackend(UserMemoryBackend):
 
     def _stringify_content(self, content: Any) -> str:
         if isinstance(content, str):
-            return content.strip()
+            return strip_private_text(content).strip()
         if isinstance(content, list):
             parts: list[str] = []
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "text":
-                    text = block.get("text")
+                    text = strip_private_text(block.get("text") or "")
                     if isinstance(text, str) and text.strip():
                         parts.append(text.strip())
                 elif isinstance(block, str) and block.strip():
-                    parts.append(block.strip())
+                    cleaned = strip_private_text(block)
+                    if cleaned.strip():
+                        parts.append(cleaned.strip())
             return "\n".join(parts).strip()
         return ""
 

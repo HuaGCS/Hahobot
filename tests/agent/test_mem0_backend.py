@@ -216,6 +216,30 @@ async def test_mem0_backend_commits_turn_messages_with_metadata(tmp_path: Path) 
     ]
 
 
+@pytest.mark.asyncio
+async def test_mem0_commit_strips_private_blocks(tmp_path: Path) -> None:
+    _FakeAsyncMemory.last_client = None
+    config = Config.model_validate({"memory": {"user": {"mem0": {}}}})
+
+    with patch(
+        "hahobot.agent.memory_backends.mem0_backend.import_module",
+        return_value=SimpleNamespace(AsyncMemory=_FakeAsyncMemory),
+    ):
+        backend = Mem0UserMemoryBackend(config.memory.user.mem0)
+        request = MemoryCommitRequest(
+            scope=_make_scope(tmp_path, query="hello"),
+            inbound_content="Visible <private>secret</private>",
+            outbound_content="Stored <private>hidden</private>",
+        )
+        await backend.commit_turn(request)
+
+    messages = _FakeAsyncMemory.last_client.add_calls[0][0][0]
+    assert messages == [
+        {"role": "user", "content": "Visible [private redacted]"},
+        {"role": "assistant", "content": "Stored [private redacted]"},
+    ]
+
+
 def test_mem0_backend_raises_clear_error_when_dependency_missing() -> None:
     config = Config().memory.user.mem0
 

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from hahobot.agent.context import ContextBuilder
+from hahobot.agent.privacy import strip_private_message
 from hahobot.utils.helpers import image_placeholder_text
 from hahobot.utils.helpers import (
     truncate_text as truncate_text_value,
@@ -298,7 +299,7 @@ class TurnDataRuntimeManager:
         """Save new-turn messages into session, truncating large tool results."""
         persisted: list[dict[str, Any]] = []
         for message in messages[skip:]:
-            entry = dict(message)
+            entry = strip_private_message(message)
             role = entry.get("role")
             content = entry.get("content")
 

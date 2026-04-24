@@ -110,6 +110,11 @@ class TestHistoryWithCursor:
         assert len(entries[0]["content"]) <= 30
         assert "truncated" in entries[0]["content"]
 
+    def test_append_history_strips_private_blocks(self, store):
+        store.append_history("visible <private>secret</private>")
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert entries[0]["content"] == "visible [private redacted]"
+
     def test_raw_archive_caps_formatted_messages(self, store):
         store.raw_archive([
             {

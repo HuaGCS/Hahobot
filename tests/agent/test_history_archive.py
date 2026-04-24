@@ -10,7 +10,7 @@ import pytest
 
 from hahobot.agent.history_archive import HistoryArchiveStore
 from hahobot.agent.memory import MemoryStore
-from hahobot.agent.tools.history import HistoryExpandTool, HistorySearchTool
+from hahobot.agent.tools.history import HistoryExpandTool, HistorySearchTool, HistoryTimelineTool
 from hahobot.bus.events import InboundMessage
 from hahobot.bus.queue import MessageBus
 from hahobot.providers.base import GenerationSettings, LLMResponse, ToolCallRequest
@@ -111,6 +111,46 @@ async def test_memory_store_consolidate_writes_archive_sidecar(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_archive_sidecar_strips_private_blocks_and_adds_observation(tmp_path: Path) -> None:
+    store = HistoryArchiveStore(tmp_path)
+    archive_id = store.write_archive(
+        session_key="cli:direct",
+        messages=[
+            {
+                "role": "user",
+                "content": "Fix `hahobot/agent/loop.py`. <private>token=secret</private>",
+                "timestamp": "2026-03-30T12:00:01",
+            },
+            {
+                "role": "assistant",
+                "content": "Implemented the bug fix in hahobot/agent/loop.py.",
+                "timestamp": "2026-03-30T12:00:20",
+            },
+        ],
+        history_entry=(
+            "[2026-03-30 12:00] Fixed bug in hahobot/agent/loop.py. "
+            "<private>secret summary</private>"
+        ),
+        source="token_consolidation",
+    )
+
+    entries = _read_jsonl(tmp_path / "memory" / "archive" / "index.jsonl")
+    entry = entries[0]
+    assert entry["observationType"] == "bugfix"
+    assert "hahobot/agent/loop.py" in entry["files"]
+    assert entry["facts"]
+    assert "secret" not in json.dumps(entry, ensure_ascii=False)
+
+    chunk = json.loads(
+        (tmp_path / "memory" / "archive" / entry["chunkPath"]).read_text(encoding="utf-8")
+    )
+    assert chunk["observation"]["type"] == "bugfix"
+    assert chunk["observation"]["files"] == entry["files"]
+    assert archive_id is not None
+    assert "secret" not in json.dumps(chunk, ensure_ascii=False)
+
+
+@pytest.mark.asyncio
 async def test_history_search_prioritizes_current_session(tmp_path: Path) -> None:
     store = HistoryArchiveStore(tmp_path)
     store.write_archive(
@@ -134,6 +174,40 @@ async def test_history_search_prioritizes_current_session(tmp_path: Path) -> Non
     first_id = re.search(r"1\. ID: ([^\n]+)", output)
     assert first_id is not None
     assert first_id.group(1).strip() == current_id
+    assert "Type:" in output
+    assert "Next: call history_timeline" in output
+
+
+@pytest.mark.asyncio
+async def test_history_search_filters_by_file_and_timeline(tmp_path: Path) -> None:
+    store = HistoryArchiveStore(tmp_path)
+    loop_id = store.write_archive(
+        session_key="cli:direct",
+        messages=_messages(),
+        history_entry="[2026-03-30 12:00] Fixed providerPool behavior in hahobot/agent/loop.py.",
+        source="token_consolidation",
+    )
+    store.write_archive(
+        session_key="cli:direct",
+        messages=[{"role": "user", "content": "Discuss README.md", "timestamp": "2026-03-30T13:00:00"}],
+        history_entry="[2026-03-30 13:00] Updated README.md docs.",
+        source="token_consolidation",
+    )
+
+    search = HistorySearchTool(tmp_path)
+    search.set_context("cli", "direct", "default")
+    output = await search.execute("providerPool", file="hahobot/agent/loop.py", limit=5)
+
+    assert loop_id in output
+    assert "README.md" not in output
+
+    timeline = HistoryTimelineTool(tmp_path)
+    timeline.set_context("cli", "direct", "default")
+    timeline_output = await timeline.execute(file="hahobot/agent/loop.py", limit=5)
+
+    assert "Archived history timeline" in timeline_output
+    assert f"id={loop_id}" in timeline_output
+    assert "files: hahobot/agent/loop.py" in timeline_output
 
 
 @pytest.mark.asyncio

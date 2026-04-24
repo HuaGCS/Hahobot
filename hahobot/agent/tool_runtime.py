@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from hahobot.agent.tools.cron import CronTool
 from hahobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
-from hahobot.agent.tools.history import HistoryExpandTool, HistorySearchTool
+from hahobot.agent.tools.history import HistoryExpandTool, HistorySearchTool, HistoryTimelineTool
 from hahobot.agent.tools.image_gen import ImageGenTool
 from hahobot.agent.tools.message import MessageTool
 from hahobot.agent.tools.notebook import NotebookEditTool
@@ -282,7 +282,7 @@ class ToolRuntimeManager:
             update_tool=self._update_web_fetch_tool,
         )
 
-        for name in ("history_search", "history_expand"):
+        for name in ("history_search", "history_expand", "history_timeline"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "update_workspace"):
                     tool.update_workspace(self.workspace)
@@ -317,6 +317,7 @@ class ToolRuntimeManager:
             self.tools.register(self._create_web_search_tool())
             self.tools.register(self._create_web_fetch_tool())
         self.tools.register(HistorySearchTool(workspace=self.workspace))
+        self.tools.register(HistoryTimelineTool(workspace=self.workspace))
         self.tools.register(HistoryExpandTool(workspace=self.workspace))
         self.tools.register(MessageTool(send_callback=self.send_callback))
         self.tools.register(SpawnTool(manager=self.subagents))
@@ -336,12 +337,15 @@ class ToolRuntimeManager:
         session_key: str | None = None,
     ) -> None:
         """Update context for tools that need routing or persona info."""
-        for name in ("message", "spawn", "cron", "history_search", "history_expand", "self_inspect"):
+        for name in (
+            "message", "spawn", "cron", "history_search", "history_expand",
+            "history_timeline", "self_inspect",
+        ):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     if name == "message":
                         tool.set_context(channel, chat_id, message_id)
-                    elif name in ("history_search", "history_expand"):
+                    elif name in ("history_search", "history_expand", "history_timeline"):
                         tool.set_context(channel, chat_id, persona)
                     elif name == "spawn":
                         if session_key is None:
