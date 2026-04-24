@@ -291,3 +291,55 @@ async def test_history_expand_reports_missing_chunk(tmp_path: Path) -> None:
 
     assert output.startswith("Error:")
     assert "missing" in output.lower()
+
+
+def test_history_archive_sqlite_index_search_and_rebuild(tmp_path: Path) -> None:
+    store = HistoryArchiveStore(tmp_path)
+    loop_id = store.write_archive(
+        session_key="cli:direct",
+        messages=_messages(),
+        history_entry="[2026-03-30 12:00] Fixed providerPool behavior in hahobot/agent/loop.py.",
+        source="token_consolidation",
+    )
+    store.write_archive(
+        session_key="cli:direct",
+        messages=[
+            {
+                "role": "user",
+                "content": "Discuss README.md",
+                "timestamp": "2026-03-30T13:00:00",
+            }
+        ],
+        history_entry="[2026-03-30 13:00] Updated README.md docs.",
+        source="token_consolidation",
+    )
+
+    sqlite_store = HistoryArchiveStore(tmp_path, index_backend="sqlite")
+    assert sqlite_store.rebuild_sqlite_index() == 2
+
+    index_path = tmp_path / "memory" / "archive" / "index.sqlite"
+    assert index_path.exists()
+
+    matches = sqlite_store.search(query="providerPool", file="hahobot/agent/loop.py", limit=5)
+    assert [match["id"] for match in matches] == [loop_id]
+
+    timeline_matches = sqlite_store.search(query="", file="hahobot/agent/loop.py", limit=5)
+    assert [match["id"] for match in timeline_matches] == [loop_id]
+
+
+def test_history_archive_sqlite_falls_back_to_jsonl_on_corrupt_index(tmp_path: Path) -> None:
+    store = HistoryArchiveStore(tmp_path)
+    archive_id = store.write_archive(
+        session_key="cli:direct",
+        messages=_messages(),
+        history_entry="[2026-03-30 12:00] providerPool discussion in hahobot/agent/loop.py.",
+        source="token_consolidation",
+    )
+
+    sqlite_store = HistoryArchiveStore(tmp_path, index_backend="sqlite")
+    sqlite_store.rebuild_sqlite_index()
+    (tmp_path / "memory" / "archive" / "index.sqlite").write_text("not sqlite", encoding="utf-8")
+
+    matches = sqlite_store.search(query="providerPool", file="hahobot/agent/loop.py", limit=5)
+
+    assert [match["id"] for match in matches] == [archive_id]

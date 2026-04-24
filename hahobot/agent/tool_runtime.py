@@ -49,6 +49,7 @@ class ToolRuntimeManager:
         web_search_provider: str = "brave",
         web_search_base_url: str | None = None,
         web_search_max_results: int = 5,
+        history_index_backend: str = "jsonl",
         timezone: str | None = None,
         cron_service: CronService | None = None,
         builtin_read_dirs: tuple[Path, ...] = (),
@@ -67,6 +68,7 @@ class ToolRuntimeManager:
         self.web_search_provider = web_search_provider
         self.web_search_base_url = web_search_base_url
         self.web_search_max_results = web_search_max_results
+        self.history_index_backend = history_index_backend
         self.timezone = timezone
         self.cron_service = cron_service
         self.builtin_read_dirs = builtin_read_dirs
@@ -84,6 +86,7 @@ class ToolRuntimeManager:
         web_search_provider: str | object = _UNSET,
         web_search_base_url: str | None | object = _UNSET,
         web_search_max_results: int | object = _UNSET,
+        history_index_backend: str | object = _UNSET,
         timezone: str | None | object = _UNSET,
     ) -> None:
         """Refresh runtime-bound tool settings in place."""
@@ -107,6 +110,8 @@ class ToolRuntimeManager:
             self.web_search_base_url = web_search_base_url
         if web_search_max_results is not _UNSET:
             self.web_search_max_results = web_search_max_results
+        if history_index_backend is not _UNSET:
+            self.history_index_backend = str(history_index_backend or "jsonl")
         if timezone is not _UNSET:
             self.timezone = timezone
 
@@ -286,6 +291,8 @@ class ToolRuntimeManager:
             if tool := self.tools.get(name):
                 if hasattr(tool, "update_workspace"):
                     tool.update_workspace(self.workspace)
+                if hasattr(tool, "set_index_backend"):
+                    tool.set_index_backend(self.history_index_backend)
 
         if cron_tool := self.tools.get("cron"):
             if hasattr(cron_tool, "set_default_timezone"):
@@ -316,8 +323,12 @@ class ToolRuntimeManager:
         if policy.web().enabled:
             self.tools.register(self._create_web_search_tool())
             self.tools.register(self._create_web_fetch_tool())
-        self.tools.register(HistorySearchTool(workspace=self.workspace))
-        self.tools.register(HistoryTimelineTool(workspace=self.workspace))
+        self.tools.register(
+            HistorySearchTool(workspace=self.workspace, index_backend=self.history_index_backend)
+        )
+        self.tools.register(
+            HistoryTimelineTool(workspace=self.workspace, index_backend=self.history_index_backend)
+        )
         self.tools.register(HistoryExpandTool(workspace=self.workspace))
         self.tools.register(MessageTool(send_callback=self.send_callback))
         self.tools.register(SpawnTool(manager=self.subagents))

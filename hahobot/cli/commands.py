@@ -794,6 +794,12 @@ app.add_typer(sessions_app, name="sessions")
 repo_app = typer.Typer(help="Inspect local repository state")
 app.add_typer(repo_app, name="repo")
 
+memory_app = typer.Typer(help="Manage memory indexes")
+app.add_typer(memory_app, name="memory")
+
+memory_index_app = typer.Typer(help="Manage archive search indexes")
+memory_app.add_typer(memory_index_app, name="index")
+
 
 # ============================================================================
 # Onboard / Setup
@@ -2211,6 +2217,38 @@ def sessions_compact(
         typer.echo(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
         return
     console.print(render_session_compact_text(report))
+
+
+@memory_index_app.command("rebuild")
+def memory_index_rebuild(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    persona: str | None = typer.Option(None, "--persona", help="Persona name to rebuild"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Rebuild the derived SQLite index for archived history."""
+    import json
+
+    from hahobot.agent.history_archive import HistoryArchiveStore
+
+    loaded = _load_runtime_config(config, workspace, quiet=json_output)
+    store = HistoryArchiveStore(loaded.workspace_path, persona=persona, index_backend="sqlite")
+    count = store.rebuild_sqlite_index()
+    payload = {
+        "workspace": str(loaded.workspace_path),
+        "persona": persona or "default",
+        "archiveDir": str(store.archive_dir),
+        "indexPath": str(store.archive_dir / "index.sqlite"),
+        "count": count,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    console.print("Rebuilt history archive SQLite index")
+    console.print(f"Workspace: {payload['workspace']}")
+    console.print(f"Persona: {payload['persona']}")
+    console.print(f"Entries: {count}")
+    console.print(f"Index: {payload['indexPath']}")
 
 
 @repo_app.command("status")

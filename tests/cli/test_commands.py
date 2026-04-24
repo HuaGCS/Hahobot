@@ -28,6 +28,49 @@ def _strip_ansi(text: str) -> str:
 runner = CliRunner()
 
 
+def test_config_accepts_archive_sqlite_backend() -> None:
+    config = Config.model_validate({"memory": {"archive": {"indexBackend": "sqlite"}}})
+
+    assert config.memory.archive.index_backend == "sqlite"
+
+
+def test_memory_index_rebuild_command(tmp_path):
+    config_path = tmp_path / "config.json"
+    workspace = tmp_path / "workspace"
+    config_path.write_text(
+        json.dumps({"agents": {"defaults": {"workspace": str(workspace)}}}),
+        encoding="utf-8",
+    )
+
+    from hahobot.agent.history_archive import HistoryArchiveStore
+
+    store = HistoryArchiveStore(workspace)
+    store.write_archive(
+        session_key="cli:direct",
+        messages=[
+            {
+                "role": "user",
+                "content": "Remember providerPool",
+                "timestamp": "2026-03-30T12:00:00",
+            }
+        ],
+        history_entry="[2026-03-30 12:00] providerPool note.",
+        source="token_consolidation",
+    )
+
+    result = runner.invoke(
+        app,
+        ["memory", "index", "rebuild", "--config", str(config_path), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["workspace"] == str(workspace)
+    assert payload["persona"] == "default"
+    assert payload["count"] == 1
+    assert (workspace / "memory" / "archive" / "index.sqlite").exists()
+
+
 class _StopGatewayError(RuntimeError):
     pass
 

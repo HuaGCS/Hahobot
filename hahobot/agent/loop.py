@@ -328,6 +328,7 @@ class AgentLoop:
             web_search_provider=self.web_search_provider,
             web_search_base_url=self.web_search_base_url,
             web_search_max_results=self.web_search_max_results,
+            history_index_backend=self.memory_config.archive.index_backend,
             timezone=self.context.timezone,
             cron_service=self.cron_service,
             builtin_read_dirs=(BUILTIN_SKILLS_DIR,),
