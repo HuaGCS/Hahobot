@@ -1,5 +1,7 @@
 """Agent core module."""
 
+from __future__ import annotations
+
 from hahobot.agent.context import ContextBuilder
 from hahobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
 from hahobot.agent.hook_bridge import (
@@ -8,10 +10,6 @@ from hahobot.agent.hook_bridge import (
     ExternalHookBridgeBlockedError,
     ExternalHookBridgeError,
 )
-from hahobot.agent.loop import AgentLoop
-from hahobot.agent.memory import Dream, MemoryStore
-from hahobot.agent.skills import SkillsLoader
-from hahobot.agent.subagent import SubagentManager
 
 __all__ = [
     "AgentHook",
@@ -28,3 +26,24 @@ __all__ = [
     "SkillsLoader",
     "SubagentManager",
 ]
+
+
+def __getattr__(name: str):
+    """Lazily expose heavyweight agent classes without creating import cycles."""
+    if name == "AgentLoop":
+        from hahobot.agent.loop import AgentLoop
+
+        return AgentLoop
+    if name in {"Dream", "MemoryStore"}:
+        from hahobot.agent.memory import Dream, MemoryStore
+
+        return {"Dream": Dream, "MemoryStore": MemoryStore}[name]
+    if name == "SkillsLoader":
+        from hahobot.agent.skills import SkillsLoader
+
+        return SkillsLoader
+    if name == "SubagentManager":
+        from hahobot.agent.subagent import SubagentManager
+
+        return SubagentManager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
