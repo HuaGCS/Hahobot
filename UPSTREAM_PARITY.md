@@ -47,18 +47,20 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `3441d5f8` (`2026-04-24`), covering the newer
-  DeepSeek/provider thinking toggles, GitHub Copilot Responses routing, Anthropic Opus 4.7
-  temperature omission, `tool_result` image conversion, memory/history pollution caps, Telegram
-  inline keyboard buttons, Office-document read support, and transcription-language knobs; WebUI
-  image upload remains queued behind local gateway/admin UX decisions.
-- `GenericAgent`: re-checked against upstream `main` at `e2a57e7a` (`2026-04-24`), with the new
-  delta mostly in Feishu `/llm` model switching, Telegram/photo/frontend streaming polish, SSE/tool
-  call parser hardening, and packaging docs rather than new skill/memory governance concepts.
-- `claude-mem`: audited from `thedotmack/claude-mem` docs/repo on `2026-04-24`, adopting private
-  tags, structured observation fields, search → timeline → expand progressive recall, and an
-  optional rebuildable SQLite FTS archive index while intentionally avoiding direct code reuse or a
-  separate Chroma/vector memory service.
+- `nanobot`: re-checked against upstream `main` at `ca66dd8c` (`2026-04-27`), covering the
+  post-`3441d5f8` changes around `ask_user`, finite LLM request timeouts, session timestamp anchors,
+  safer `tools.exec.pathAppend`, local/LAN provider connection behavior, configurable consolidation
+  ratio, proactive delivery/thread context continuity, Feishu group-thread isolation, video/media
+  envelopes, lazy document parser imports, and provider factory ownership. No direct bulk merge was
+  taken in this audit; the concrete candidates are recorded below.
+- `GenericAgent`: re-checked against upstream `main` at `db6bf00d` (`2026-04-27`), with the new
+  delta mostly in file-read UX (`PARTIAL` hints), file paste/upload handling, inherited proxy-env
+  hygiene for WeChat-style long polling, SSE residual-block cleanup, ask-user display/prompt polish,
+  and reasoning/thinking conversion robustness rather than new skill-governance primitives.
+- `claude-mem`: re-checked from `thedotmack/claude-mem` at latest visible GitHub commit `49ab404`
+  (`2026-04-27`). The previously adopted private tags, structured observations, progressive recall,
+  and optional rebuildable SQLite FTS archive index remain the relevant local borrow points; the
+  service/Chroma/vector-memory architecture remains an intentional divergence.
 
 ## Current Snapshot
 
@@ -77,11 +79,19 @@ This file therefore records both:
 | Anthropic adaptive / Opus reasoning | `synced` | `reasoningEffort=adaptive` maps to Anthropic `thinking={"type":"adaptive"}`, Opus 4.7 requests omit deprecated `temperature`, and tool-result image blocks are normalized before Anthropic submission. |
 | Anthropic message alternation recovery | `synced` | Anthropic request normalization now also enforces leading-user, strips trailing assistant prefill, and recovers the empty-array edge case without rerouting `tool_use`-carrying assistant blocks into invalid user turns. |
 | Tool hint formatting | `synced` | Exec hints handle quoted paths, path abbreviation, and duplicate collapse in one formatter. |
+| Exec `pathAppend` safety | `synced` | Local POSIX `tools.exec.pathAppend` now passes the appended path through `HAHOBOT_PATH_APPEND` instead of interpolating the raw config value into shell syntax, while Windows still appends through the subprocess env. |
+| Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
+| Session timestamp anchors in model context | `synced` | `Session.get_history(..., include_timestamps=True)` can annotate user/assistant text with `[Message Time: ...]`, and normal prompt assembly plus compaction probes use that timestamped view while persisted session format stays unchanged. |
+| Ask-user clarification tool | `watchlist` | Upstream added an `ask_user` tool plus CLI/WebUI choice rendering. Local hahobot should only adopt this after mapping the UX across CLI, gateway channels, buttons, and session-lock semantics. |
 | Provider request sanitization | `synced` | Role alternation repair now recovers a trailing assistant message as `user` when otherwise only `system` content would remain, preventing empty/invalid provider requests after assistant-scoped injections. |
+| Local/LAN provider transport behavior | `watchlist` | Upstream tightened local endpoint detection and disables HTTP keepalive for local/LAN endpoints to avoid stale socket failures. Local provider error reporting is strong, but transport pooling policy should be rechecked for Ollama/vLLM/custom LAN endpoints. |
+| Provider factory ownership | `watchlist` | Upstream moved provider snapshot/refresh creation into a factory layer and subsystem owners. Local provider pool/runtime config code is richer; borrow only if it reduces duplication without weakening hot reload. |
 | On-demand context microcompact | `synced` | Older tool results are compacted before the next model call when a long tool-heavy turn would otherwise crowd out system prompt memory or the freshest working context. |
 | Skill filtering / idle compact / MCP tool filtering | `synced` | `agents.defaults.disabledSkills`, `agents.defaults.idleCompactAfterMinutes` (plus `sessionTtlMinutes` alias), and `tools.mcpServers.<name>.enabledTools` are wired through local runtime, tests, and docs. |
 | MCP resources / prompts as tool surfaces | `synced` | MCP connections already wrap remote tools, resources, and prompts into native hahobot tool entries, keeping non-mutating resource/prompt calls read-only while preserving local timeout/error handling and `enabledTools` filtering. |
 | Cron state / scheduler behavior | `synced` | Cron preserves last-run status plus merged run history on disk, and the workspace scheduler periodically wakes to reload external `cron/jobs.json` edits via `gateway.cron.maxSleepMs`. |
+| Proactive delivery session continuity | `synced` | Cross-session `message` tool sends, cron delivery, and heartbeat notify now record delivered assistant text into the target `channel:chat` session so later user replies can see what was actually sent. |
+| Configurable consolidation ratio | `watchlist` | Upstream exposes a bounded `consolidationRatio` for token compaction targets. Local compaction has richer archive/Dream behavior; adding the knob may help large-context users if docs/admin make the tradeoff clear. |
 | Telegram / Discord streaming | `synced` | Telegram uses configurable `channels.telegram.streamEditInterval`; Discord keeps edit-based streaming enabled by default, and the related runtime knobs are exposed in local schema/docs/admin surfaces. |
 | Telegram inline buttons | `synced` | `channels.telegram.inlineKeyboards` can render `OutboundMessage.buttons` as Telegram inline keyboards, caps callback payload bytes, and falls back to inline text when native keyboards are disabled. |
 | WebSocket server channel | `synced` | Local runtime already ships `channels.websocket`, including tokenless local mode, optional `tokenIssuePath` / `tokenIssueSecret`, and the simple `ready` / `message` / `delta` / `stream_end` frame contract. |
@@ -97,6 +107,8 @@ This file therefore records both:
 | claude-mem-style observations | `synced` | Archive sidecars now include observation metadata (`type`, `facts`, `concepts`, `files`, title/subtitle/narrative) derived from summarized turns and tool traces. |
 | Progressive memory recall | `synced` | `history_search` returns compact observation indexes, `history_timeline` gives chronological/file context, and `history_expand` remains the explicit transcript expansion step. |
 | Document read support | `synced` | `read_file` extracts text from `.docx`, `.xlsx`, and `.pptx` files through a small local OOXML parser while keeping images and text files on the existing path. |
+| Lazy document parser imports | `watchlist` | Upstream lazy-loads heavier document parser dependencies. Local OOXML parsing is already small, but startup/import cost should be checked before adding more document formats. |
+| Video/media envelope parity | `watchlist` | Upstream added Telegram/WebSocket video and WebUI media rendering. Local QQ already handles local `.mp4` uploads and image/voice paths; Telegram/WebSocket/video parity should be considered only with channel-specific delivery tests. |
 | Transcription language hints | `synced` | `channels.transcriptionLanguage` validates ISO-639-like language hints, hot-reloads into running channels, and is passed to Groq/OpenAI transcription requests. |
 | Mid-turn follow-up injection | `watchlist` | Local dispatch stays per-session serialized and crash-safe, but it does not splice new user turns into an already running session; upstream-style active-turn injection would touch locks, checkpoints, streaming, `/stop`, and compaction semantics together. |
 | Dream skill discovery automation | `intentional_divergence` | Upstream lets Dream discover/write reusable skills automatically; local skill accumulation stays operator-visible and reviewable through `/skill derive` instead of unattended Dream promotion. |
@@ -140,6 +152,36 @@ already productized locally and which ones are still only partially reflected in
 | Minimal single-surface local architecture | `intentional_divergence` | Hahobot keeps CLI, gateway, admin, status pages, channel adapters, and OpenAI-compatible API together | Richer operational surfaces are treated as part of the product, not as accidental complexity to remove for parity. |
 | Skill derivation beyond draft creation | `watchlist` | Current flow stops at local draft creation and explicit overwrite via `--force` | Re-check whether we want later steps such as review helpers, packaging shortcuts, or admin UI promotion once there is real usage pressure. |
 | Autonomous self-improvement beyond operator-visible jobs | `watchlist` | Current background behavior is bounded to Dream / heartbeat / cron and explicit config-driven jobs | Re-check only if GenericAgent's unattended improvement loop becomes concrete enough to justify a safe local analog. |
+
+## Borrow Candidates From 2026-04-27 Audit
+
+High-priority candidates now implemented locally:
+
+- **Exec `pathAppend` hardening**: POSIX path append is env-backed through `HAHOBOT_PATH_APPEND`
+  instead of raw shell interpolation.
+- **LLM request timeout**: provider awaits are bounded by `HAHOBOT_LLM_TIMEOUT_S` /
+  `NANOBOT_LLM_TIMEOUT_S` with a 300s default and `0` escape hatch.
+- **Session timestamp anchors**: prompt history and compaction probes can include persisted message
+  timestamps without changing the session file format.
+- **Proactive session continuity**: cross-session message sends plus cron/heartbeat delivery record
+  delivered assistant text into the target channel session.
+
+Medium-priority candidates:
+
+- **Local/LAN keepalive policy**: re-check custom/Ollama/vLLM endpoint detection and disable HTTP
+  keepalive only where it demonstrably reduces stale socket failures.
+- **Configurable consolidation ratio**: expose a bounded `agents.defaults.consolidationRatio` only
+  if it can be explained in docs/admin and tested against archive/Dream behavior.
+- **Lazy document imports and media envelopes**: useful quality/performance improvements, but should
+  be ported per channel/filetype with focused tests rather than as broad WebUI parity.
+
+Lower-priority / deliberate caution:
+
+- **`ask_user` tool**: attractive for clarification flows, but adopting it safely requires a channel
+  UX contract for CLI, Telegram/Discord/Slack/Feishu/etc., timeout/cancel behavior, and session-lock
+  handling. Keep on watchlist until that cross-channel contract is designed.
+- **Provider factory refactor**: borrow only if it materially reduces local provider-pool/runtime
+  duplication; avoid churn that makes hahobot's richer hot-reload paths harder to reason about.
 
 ## GenericAgent Adoption Notes
 
@@ -271,6 +313,12 @@ These are local choices. When upstream behaves differently, that is not automati
 
 ## Watchlist For Next Upstream Sync
 
+- The 2026-04-27 high-priority nanobot candidates (`pathAppend` hardening, finite LLM request
+  timeout, session timestamp anchors, proactive delivery continuity) are now synced; next pass should
+  focus on optional consolidation-ratio/media/provider-factory polish.
+- Re-check GenericAgent's file-read `PARTIAL` hints and proxy-env hygiene when touching local
+  `read_file`, WebSocket/SSE, or Weixin/WeCom long-poll code; the ideas are portable even if the
+  frontend implementations are not.
 - Re-check upstream `channels/*` when new transport defaults, streaming semantics, or multi-instance
   behavior changes land.
 - Re-check upstream `providers/*` when request routing, retry behavior, or error surfaces change.

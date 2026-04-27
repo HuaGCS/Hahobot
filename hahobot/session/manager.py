@@ -29,6 +29,18 @@ class Session:
     _persisted_metadata_state: str = field(default="", init=False, repr=False)
     _requires_full_save: bool = field(default=False, init=False, repr=False)
 
+    @staticmethod
+    def _annotate_message_time(message: dict[str, Any], content: Any) -> Any:
+        """Expose persisted turn timestamps to the model for relative-date reasoning."""
+        timestamp = message.get("timestamp")
+        if (
+            not timestamp
+            or message.get("role") not in {"user", "assistant"}
+            or not isinstance(content, str)
+        ):
+            return content
+        return f"[Message Time: {timestamp}]\n{content}"
+
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to the session."""
         msg = {
@@ -40,7 +52,12 @@ class Session:
         self.messages.append(msg)
         self.updated_at = datetime.now()
 
-    def get_history(self, max_messages: int = 500) -> list[dict[str, Any]]:
+    def get_history(
+        self,
+        max_messages: int = 500,
+        *,
+        include_timestamps: bool = False,
+    ) -> list[dict[str, Any]]:
         """Return unconsolidated messages for LLM input, aligned to a legal tool-call boundary."""
         unconsolidated = self.messages[self.last_consolidated:]
         sliced = unconsolidated[-max_messages:]
@@ -58,7 +75,10 @@ class Session:
 
         out: list[dict[str, Any]] = []
         for message in sliced:
-            entry: dict[str, Any] = {"role": message["role"], "content": message.get("content", "")}
+            content = message.get("content", "")
+            if include_timestamps:
+                content = self._annotate_message_time(message, content)
+            entry: dict[str, Any] = {"role": message["role"], "content": content}
             for key in ("tool_calls", "tool_call_id", "name", "reasoning_content"):
                 if key in message:
                     entry[key] = message[key]

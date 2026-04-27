@@ -217,3 +217,54 @@ def test_window_cuts_mid_tool_group():
     # leaving orphan tool results for split_a at the front.
     history = session.get_history(max_messages=6)
     _assert_no_orphans(history)
+
+
+def test_get_history_can_include_message_timestamps():
+    session = Session(key="test:timestamps")
+    session.messages.append({
+        "role": "user",
+        "content": "What did we do yesterday?",
+        "timestamp": "2026-04-27T09:00:00",
+    })
+    session.messages.append({
+        "role": "assistant",
+        "content": "We reviewed upstream parity.",
+        "timestamp": "2026-04-27T09:01:00",
+    })
+    session.messages.append({
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "read_file", "arguments": "{}"},
+            }
+        ],
+        "timestamp": "2026-04-27T09:01:30",
+    })
+    session.messages.append({
+        "role": "tool",
+        "name": "read_file",
+        "tool_call_id": "call_1",
+        "content": "tool output",
+        "timestamp": "2026-04-27T09:02:00",
+    })
+
+    history = session.get_history(max_messages=10, include_timestamps=True)
+
+    assert history[0]["content"].startswith("[Message Time: 2026-04-27T09:00:00]")
+    assert history[1]["content"].startswith("[Message Time: 2026-04-27T09:01:00]")
+    assert history[2]["content"] is None
+    assert history[3]["content"] == "tool output"
+
+
+def test_get_history_omits_timestamps_by_default():
+    session = Session(key="test:no-timestamps")
+    session.messages.append({
+        "role": "user",
+        "content": "plain",
+        "timestamp": "2026-04-27T09:00:00",
+    })
+
+    assert session.get_history(max_messages=10)[0]["content"] == "plain"

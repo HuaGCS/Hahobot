@@ -44,7 +44,7 @@ class TurnDataRuntimeManager:
             persona=state.persona,
             session_key=state.key,
         )
-        turn_history = history if history is not None else state.session.get_history(max_messages=0)
+        turn_history = history if history is not None else state.session.get_history(max_messages=0, include_timestamps=True)
         memorix_context = await self.loop._maybe_start_memorix_session(state.session)
         memory_scope = self.loop._memory_scope(
             state.session,

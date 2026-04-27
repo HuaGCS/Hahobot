@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from loguru import logger
 
 from hahobot.agent.hook import AgentHook, AgentHookContext
 from hahobot.agent.tools.registry import ToolRegistry
-from hahobot.providers.base import LLMProvider, ToolCallRequest
+from hahobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from hahobot.utils.helpers import (
     build_assistant_message,
     estimate_message_tokens,
@@ -68,6 +69,7 @@ class AgentRunSpec:
     provider_retry_mode: str = "standard"
     progress_callback: Any | None = None
     checkpoint_callback: Any | None = None
+    llm_timeout_s: float | None = None
 
 
 @dataclass(slots=True)
@@ -386,11 +388,13 @@ class AgentRunner:
             async def _stream(delta: str) -> None:
                 await hook.on_stream(context, delta)
 
-            return await self.provider.chat_stream_with_retry(
+            coro = self.provider.chat_stream_with_retry(
                 **kwargs,
                 on_content_delta=_stream,
             )
-        return await self.provider.chat_with_retry(**kwargs)
+        else:
+            coro = self.provider.chat_with_retry(**kwargs)
+        return await self._await_provider_response(coro, self._llm_timeout_s(spec))
 
     async def _request_finalization_retry(
         self,
@@ -400,7 +404,38 @@ class AgentRunner:
         retry_messages = list(messages)
         retry_messages.append(build_finalization_retry_message())
         kwargs = self._build_request_kwargs(spec, retry_messages, tools=None)
-        return await self.provider.chat_with_retry(**kwargs)
+        coro = self.provider.chat_with_retry(**kwargs)
+        return await self._await_provider_response(coro, self._llm_timeout_s(spec))
+
+    @staticmethod
+    def _llm_timeout_s(spec: AgentRunSpec) -> float | None:
+        timeout_s = spec.llm_timeout_s
+        if timeout_s is None:
+            raw = (
+                os.environ.get("HAHOBOT_LLM_TIMEOUT_S")
+                or os.environ.get("NANOBOT_LLM_TIMEOUT_S")
+                or "300"
+            ).strip()
+            try:
+                timeout_s = float(raw)
+            except (TypeError, ValueError):
+                timeout_s = 300.0
+        if timeout_s <= 0:
+            return None
+        return timeout_s
+
+    @staticmethod
+    async def _await_provider_response(coro, timeout_s: float | None):
+        if timeout_s is None:
+            return await coro
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return LLMResponse(
+                content=f"Error calling LLM: timed out after {timeout_s:g}s",
+                finish_reason="error",
+                error_kind="timeout",
+            )
 
     @staticmethod
     def _usage_dict(usage: dict[str, Any] | None) -> dict[str, int]:

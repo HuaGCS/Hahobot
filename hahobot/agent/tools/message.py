@@ -2,6 +2,8 @@
 
 from typing import Any, Awaitable, Callable
 
+from loguru import logger
+
 from hahobot.agent.tools.base import Tool, tool_parameters
 from hahobot.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema
 from hahobot.bus.events import OutboundMessage
@@ -28,22 +30,48 @@ class MessageTool(Tool):
         default_channel: str = "",
         default_chat_id: str = "",
         default_message_id: str | None = None,
+        record_callback: Callable[[OutboundMessage], Awaitable[None]] | None = None,
+        default_session_key: str | None = None,
     ):
         self._send_callback = send_callback
         self._default_channel = default_channel
         self._default_chat_id = default_chat_id
         self._default_message_id = default_message_id
+        self._record_callback = record_callback
+        self._default_session_key = default_session_key or self._target_session_key(
+            default_channel,
+            default_chat_id,
+        )
         self._sent_in_turn: bool = False
 
-    def set_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
+    def set_context(
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        session_key: str | None = None,
+    ) -> None:
         """Set the current message context."""
         self._default_channel = channel
         self._default_chat_id = chat_id
         self._default_message_id = message_id
+        self._default_session_key = session_key or self._target_session_key(channel, chat_id)
 
     def set_send_callback(self, callback: Callable[[OutboundMessage], Awaitable[None]]) -> None:
         """Set the callback for sending messages."""
         self._send_callback = callback
+
+    def set_record_callback(self, callback: Callable[[OutboundMessage], Awaitable[None]]) -> None:
+        """Set the callback for recording proactive deliveries."""
+        self._record_callback = callback
+
+    @staticmethod
+    def _target_session_key(channel: str, chat_id: str) -> str:
+        return f"{channel}:{chat_id}" if channel and chat_id else ""
+
+    def _should_record_delivery(self, channel: str, chat_id: str) -> bool:
+        target_key = self._target_session_key(channel, chat_id)
+        return bool(target_key and self._default_session_key and target_key != self._default_session_key)
 
     def start_turn(self) -> None:
         """Reset per-turn send tracking."""
@@ -132,6 +160,11 @@ class MessageTool(Tool):
 
         try:
             await self._send_callback(msg)
+            if self._record_callback and self._should_record_delivery(channel, chat_id):
+                try:
+                    await self._record_callback(msg)
+                except Exception as exc:
+                    logger.warning("Failed to record proactive message delivery: {}", exc)
             if channel == self._default_channel and chat_id == self._default_chat_id:
                 self._sent_in_turn = True
             media_info = f" with {len(media)} attachments" if media else ""
