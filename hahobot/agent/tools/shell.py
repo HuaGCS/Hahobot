@@ -119,7 +119,8 @@ class ExecTool(Tool):
             if _IS_WINDOWS:
                 env["PATH"] = env.get("PATH", "") + ";" + self.path_append
             else:
-                command = f'export PATH="$PATH:{self.path_append}"; {command}'
+                env["HAHOBOT_PATH_APPEND"] = self.path_append
+                command = f'export PATH="$PATH{os.pathsep}$HAHOBOT_PATH_APPEND"; {command}'
 
         try:
             process = await self._spawn(command, cwd, env)

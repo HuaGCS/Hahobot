@@ -1319,3 +1319,55 @@ async def test_microcompact_skips_non_compactable_tools():
 
     result = AgentRunner._microcompact(messages)
     assert result is messages  # no compactable tools found
+
+
+@pytest.mark.asyncio
+async def test_runner_times_out_hung_provider_request(monkeypatch):
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
+
+    async def chat_with_retry(**kwargs):
+        await asyncio.sleep(1)
+        return LLMResponse(content="late")
+
+    provider = MagicMock()
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "hi"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        llm_timeout_s=0.01,
+    ))
+
+    assert result.stop_reason == "error"
+    assert "timed out after" in (result.error or "")
+    assert "timed out after" in (result.final_content or "")
+
+
+@pytest.mark.asyncio
+async def test_runner_timeout_can_be_disabled(monkeypatch):
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
+
+    async def chat_with_retry(**kwargs):
+        await asyncio.sleep(0)
+        return LLMResponse(content="ok")
+
+    provider = MagicMock()
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "hi"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        llm_timeout_s=0,
+    ))
+
+    assert result.final_content == "ok"

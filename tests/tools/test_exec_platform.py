@@ -154,8 +154,8 @@ class TestSpawnWindows:
 class TestPathAppendPlatform:
 
     @pytest.mark.asyncio
-    async def test_unix_injects_export(self):
-        """On Unix, path_append is an export statement prepended to command."""
+    async def test_unix_uses_env_backed_path_append(self):
+        """On Unix, path_append is passed through env instead of interpolated directly."""
         mock_proc = AsyncMock()
         mock_proc.communicate.return_value = (b"ok", b"")
         mock_proc.returncode = 0
@@ -168,9 +168,30 @@ class TestPathAppendPlatform:
             tool = ExecTool(path_append="/opt/bin")
             await tool.execute(command="ls")
 
-        spawned_cmd = mock_spawn.call_args[0][0]
-        assert 'export PATH="$PATH:/opt/bin"' in spawned_cmd
+        spawned_cmd, _, spawned_env = mock_spawn.call_args[0]
+        assert 'export PATH="$PATH:' in spawned_cmd
+        assert "$HAHOBOT_PATH_APPEND" in spawned_cmd
+        assert "/opt/bin" not in spawned_cmd
         assert spawned_cmd.endswith("ls")
+        assert spawned_env["HAHOBOT_PATH_APPEND"] == "/opt/bin"
+
+    @pytest.mark.asyncio
+    async def test_unix_path_append_does_not_inject_shell_syntax(self):
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"ok", b"")
+        mock_proc.returncode = 0
+
+        with (
+            patch("hahobot.agent.tools.shell._IS_WINDOWS", False),
+            patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
+            patch.object(ExecTool, "_guard_command", return_value=None),
+        ):
+            tool = ExecTool(path_append='/safe/bin"; echo pwned; #')
+            await tool.execute(command="ls")
+
+        spawned_cmd, _, spawned_env = mock_spawn.call_args[0]
+        assert "pwned" not in spawned_cmd
+        assert spawned_env["HAHOBOT_PATH_APPEND"] == '/safe/bin"; echo pwned; #'
 
     @pytest.mark.asyncio
     async def test_windows_modifies_env(self):

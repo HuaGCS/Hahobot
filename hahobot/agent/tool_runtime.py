@@ -330,7 +330,12 @@ class ToolRuntimeManager:
             HistoryTimelineTool(workspace=self.workspace, index_backend=self.history_index_backend)
         )
         self.tools.register(HistoryExpandTool(workspace=self.workspace))
-        self.tools.register(MessageTool(send_callback=self.send_callback))
+        self.tools.register(
+            MessageTool(
+                send_callback=self.send_callback,
+                record_callback=self.loop._record_proactive_delivery,
+            )
+        )
         self.tools.register(SpawnTool(manager=self.subagents))
         self.tools.register(SelfInspectTool(loop=self.loop))
         self._sync_image_gen_tool()
@@ -355,7 +360,7 @@ class ToolRuntimeManager:
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     if name == "message":
-                        tool.set_context(channel, chat_id, message_id)
+                        tool.set_context(channel, chat_id, message_id, session_key)
                     elif name in ("history_search", "history_expand", "history_timeline"):
                         tool.set_context(channel, chat_id, persona)
                     elif name == "spawn":

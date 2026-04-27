@@ -125,7 +125,7 @@ class TurnRuntimeManager:
             return slash_response
 
         self._start_message_tool_turn()
-        history = turn_state.session.get_history(max_messages=0)
+        history = turn_state.session.get_history(max_messages=0, include_timestamps=True)
         user_persisted_early = self._persist_user_message_early(turn_state.session, msg)
         turn = await self.loop._prepare_turn_context(msg, turn_state, history=history)
         initial_messages = self.loop._build_turn_messages(

@@ -733,7 +733,7 @@ class Consolidator:
 
     def estimate_session_prompt_tokens(self, session: Session) -> tuple[int, str]:
         """Estimate current prompt size for the normal session history view."""
-        history = session.get_history(max_messages=0)
+        history = session.get_history(max_messages=0, include_timestamps=True)
         channel, chat_id = (session.key.split(":", 1) if ":" in session.key else (None, None))
         probe_messages = self._build_messages(
             history=history,

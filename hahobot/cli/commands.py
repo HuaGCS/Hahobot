@@ -1537,13 +1537,13 @@ def gateway(
             if should_notify:
                 from hahobot.bus.events import OutboundMessage
 
-                await bus.publish_outbound(
-                    OutboundMessage(
-                        channel=job.payload.channel or "cli",
-                        chat_id=job.payload.to,
-                        content=response,
-                    )
+                outbound = OutboundMessage(
+                    channel=job.payload.channel or "cli",
+                    chat_id=job.payload.to,
+                    content=response,
                 )
+                await bus.publish_outbound(outbound)
+                await agent._record_proactive_delivery(outbound)
         return response
 
     cron.on_job = on_cron_job
@@ -1616,7 +1616,9 @@ def gateway(
         channel, chat_id = _pick_heartbeat_target()
         if channel == "cli":
             return  # No external channel available to deliver to
-        await bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
+        outbound = OutboundMessage(channel=channel, chat_id=chat_id, content=response)
+        await bus.publish_outbound(outbound)
+        await agent._record_proactive_delivery(outbound)
 
     hb_cfg = config.gateway.heartbeat
     heartbeat = HeartbeatService(

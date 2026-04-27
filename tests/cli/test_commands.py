@@ -666,6 +666,9 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
         async def process_direct(self, *_args, **_kwargs):
             return OutboundMessage(channel="cli", chat_id="direct", content="ok")
 
+        async def _record_proactive_delivery(self, message) -> None:
+            seen["recorded_delivery"] = message
+
         async def close_mcp(self) -> None:
             return None
 
@@ -1115,6 +1118,9 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
                 content="Time to stretch.",
             )
 
+        async def _record_proactive_delivery(self, message) -> None:
+            seen["recorded_delivery"] = message
+
         async def close_mcp(self) -> None:
             return None
 
@@ -1177,13 +1183,13 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
         "Task 'stretch' has been triggered.\n"
         "Scheduled instruction: Remind me to stretch."
     )
-    bus.publish_outbound.assert_awaited_once_with(
-        OutboundMessage(
-            channel="telegram",
-            chat_id="user-1",
-            content="Time to stretch.",
-        )
+    outbound = OutboundMessage(
+        channel="telegram",
+        chat_id="user-1",
+        content="Time to stretch.",
     )
+    bus.publish_outbound.assert_awaited_once_with(outbound)
+    assert seen["recorded_delivery"] == outbound
 
 
 def test_gateway_workspace_override_does_not_migrate_legacy_cron(

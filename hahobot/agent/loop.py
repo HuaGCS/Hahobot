@@ -626,6 +626,19 @@ class AgentLoop:
         "Handle MCP inspection commands.",
     )
 
+    async def _record_proactive_delivery(self, msg: OutboundMessage) -> None:
+        """Persist delivered proactive output into the target channel session."""
+        if not msg.channel or not msg.chat_id or not isinstance(msg.content, str) or not msg.content.strip():
+            return
+        session = self.sessions.get_or_create(f"{msg.channel}:{msg.chat_id}")
+        session.add_message(
+            "assistant",
+            msg.content,
+            delivered_event="proactive_message",
+            media=list(msg.media or []),
+        )
+        self.sessions.save(session)
+
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
         self._runtime_config_manager().register_default_tools()
