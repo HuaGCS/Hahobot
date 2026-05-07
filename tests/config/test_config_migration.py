@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from hahobot.cli.commands import _resolve_channel_default_config, app
 from hahobot.config.loader import load_config, save_config
+from hahobot.config.schema import Config
 
 
 def _fake_resolve(host: str, results: list[str]):
@@ -67,6 +68,16 @@ def test_save_config_writes_context_window_tokens_but_not_memory_window(tmp_path
     assert defaults["maxTokens"] == 2222
     assert defaults["contextWindowTokens"] == 65_536
     assert "memoryWindow" not in defaults
+
+
+def test_agent_defaults_accept_tool_hint_max_length_alias() -> None:
+    config = Config.model_validate(
+        {"agents": {"defaults": {"toolHintMaxLength": 120}}},
+    )
+
+    assert config.agents.defaults.tool_hint_max_length == 120
+    dumped = config.model_dump(mode="json", by_alias=True)
+    assert dumped["agents"]["defaults"]["toolHintMaxLength"] == 120
 
 
 def test_load_config_auto_corrects_compat_keys_in_place(tmp_path) -> None:

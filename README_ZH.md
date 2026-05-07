@@ -968,6 +968,11 @@ ollama run llama3.2
 
 ```json
 {
+  "agents": {
+    "defaults": {
+      "toolHintMaxLength": 40
+    }
+  },
   "channels": {
     "sendProgress": true,
     "sendToolHints": false,
@@ -984,6 +989,8 @@ ollama run llama3.2
   是否把 agent 的文字进度流式发到渠道
 - `sendToolHints`
   是否把工具调用提示发到渠道
+- `agents.defaults.toolHintMaxLength`
+  当 `sendToolHints` 开启时，控制单条工具调用提示的最大显示长度；修改后会热重载
 - `sendMaxRetries`
   出站消息失败时的最大重试次数
 - `transcriptionProvider`
@@ -991,6 +998,8 @@ ollama run llama3.2
   `providers.groq` / `providers.openai` 读取，运行时重载配置后会直接更新到当前渠道实例
 - `transcriptionLanguage`
   可选 ISO-639 语言提示，例如 `zh`、`en`、`ja`；留空时由转写后端自动识别
+
+Groq/OpenAI Whisper 转写遇到 408/429/5xx 或瞬时网络错误时会自动重试；鉴权错误、坏文件或异常响应仍会快速返回空转写，避免渠道阻塞。
 
 ### MCP
 
@@ -1258,7 +1267,7 @@ hahobot 现在可以把 Mem0 作为真正的用户记忆后端使用。
 - Telegram / Discord 单实例卡片同时覆盖常用附加项，例如 `channels.telegram.streamEditInterval`，以及 Discord 的 `streaming`、`readReceiptEmoji`、`workingEmoji`、`workingEmojiDelay`、`proxy`、`proxyUsername`、`proxyPassword`
 - admin 内置专门的 Weixin 扫码登录页，可直接为当前实例申请并轮询个人微信登录二维码；扫码成功后，token 会保存到当前实例的 Weixin 状态文件
 - 可视化编辑 `tools.exec`，用于控制 shell 命令执行、超时时间、额外 PATH、`allowedEnvKeys` 和可选 `sandbox`
-- 可视化编辑渠道运行时分区，例如 `channels.sendProgress`、`channels.sendToolHints`、`channels.sendMaxRetries`、`channels.transcriptionProvider` 和 `channels.voiceReply.*`
+- 可视化编辑渠道运行时分区和工具提示长度，例如 `channels.sendProgress`、`channels.sendToolHints`、`channels.sendMaxRetries`、`channels.transcriptionProvider`、`agents.defaults.toolHintMaxLength` 和 `channels.voiceReply.*`
 - 可视化编辑专门的 `Memorix MCP` 分区，对应 `tools.mcpServers.memorix`
 - 可视化编辑 `Mem0 用户记忆` 分区，对应 `memory.user.backend`、`shadowWriteMem0` 和 `memory.user.mem0`
 - 独立的命令总览页，展示所有聊天 slash 命令、别名和用法

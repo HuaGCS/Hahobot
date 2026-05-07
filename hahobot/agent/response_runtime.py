@@ -82,11 +82,11 @@ class ResponseRuntimeManager:
         return self.filter_persona_response(clean, persona) or ""
 
     @staticmethod
-    def tool_hint(tool_calls: list) -> str:
+    def tool_hint(tool_calls: list, max_length: int = 40) -> str:
         """Format tool calls as concise hints with smart abbreviation."""
         from hahobot.utils.tool_hints import format_tool_hints
 
-        return format_tool_hints(tool_calls)
+        return format_tool_hints(tool_calls, max_length=max_length)
 
     @staticmethod
     def voice_reply_extension(response_format: str) -> str:

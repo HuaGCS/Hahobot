@@ -335,6 +335,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert 'name="agents_defaults_provider_pool_strategy"' in config_page.text
     assert 'name="agents_defaults_provider_pool_targets_provider"' in config_page.text
     assert 'name="agents_defaults_provider_pool_targets_model"' in config_page.text
+    assert 'name="agents_defaults_tool_hint_max_length"' in config_page.text
     assert 'name="providers_openrouter_api_key"' in config_page.text
     assert 'name="providers_custom_extra_headers"' in config_page.text
     assert 'name="providers_ollama_api_base"' in config_page.text
@@ -385,6 +386,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert 'name="channels_transcription_provider"' in config_page.text
     assert "tooltip-anchor" in config_page.text
     assert "默认工作区路径" in config_page.text
+    assert "工具调用提示的最大显示长度" in config_page.text
     assert "Mem0 用户记忆" in config_page.text
     assert "Memorix MCP" in config_page.text
     assert "Star Office 推送" in config_page.text
@@ -752,10 +754,12 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
     assert "/admin/commands" in config_page.text
     assert "Advanced JSON editor" in config_page.text
     assert "Default workspace path" in config_page.text
+    assert "Maximum visible length for one tool-call hint" in config_page.text
     assert "Common channel credentials" in config_page.text
     assert 'name="agents_defaults_provider_pool_strategy"' in config_page.text
     assert 'name="agents_defaults_provider_pool_targets_provider"' in config_page.text
     assert 'name="agents_defaults_provider_pool_targets_model"' in config_page.text
+    assert 'name="agents_defaults_tool_hint_max_length"' in config_page.text
     assert 'name="providers_openrouter_api_key"' in config_page.text
     assert 'name="providers_custom_extra_headers"' in config_page.text
     assert 'name="gateway_status_push_mode"' in config_page.text

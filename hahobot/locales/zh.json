@@ -460,6 +460,8 @@
     "admin_config_agents_temperature_tooltip": "采样随机性。更低时更稳定、更保守；更高时更发散、更有变化。大多数陪伴或工具场景通常适合较低值。",
     "admin_config_agents_max_tool_iterations_label": "agents.defaults.maxToolIterations",
     "admin_config_agents_max_tool_iterations_tooltip": "单轮任务里允许模型调用工具的最大迭代次数。用于防止循环调用或任务失控；值太低可能让复杂工作流提前终止。",
+    "admin_config_agents_tool_hint_max_length_label": "agents.defaults.toolHintMaxLength",
+    "admin_config_agents_tool_hint_max_length_tooltip": "进度消息中单条工具调用提示的最大显示长度。shell 命令或 MCP 参数被截得过短时可以调大；普通聊天渠道建议保持较短以减少噪音。",
     "admin_config_agents_reasoning_effort_label": "agents.defaults.reasoningEffort",
     "admin_config_agents_reasoning_effort_tooltip": "支持思维/推理强度的模型可读取这个设置。留空时跟随模型或 provider 默认值；设为更高档位通常会增加延迟和 token 消耗，但可能提升复杂任务稳定性。",
     "admin_config_agents_timezone_label": "agents.defaults.timezone",
