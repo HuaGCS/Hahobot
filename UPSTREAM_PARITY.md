@@ -47,18 +47,19 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `ca66dd8c` (`2026-04-27`), covering the
-  post-`3441d5f8` changes around `ask_user`, finite LLM request timeouts, session timestamp anchors,
-  safer `tools.exec.pathAppend`, local/LAN provider connection behavior, configurable consolidation
-  ratio, proactive delivery/thread context continuity, Feishu group-thread isolation, video/media
-  envelopes, lazy document parser imports, and provider factory ownership. No direct bulk merge was
-  taken in this audit; the concrete candidates are recorded below.
-- `GenericAgent`: re-checked against upstream `main` at `db6bf00d` (`2026-04-27`), with the new
-  delta mostly in file-read UX (`PARTIAL` hints), file paste/upload handling, inherited proxy-env
-  hygiene for WeChat-style long polling, SSE residual-block cleanup, ask-user display/prompt polish,
-  and reasoning/thinking conversion robustness rather than new skill-governance primitives.
-- `claude-mem`: re-checked from `thedotmack/claude-mem` at latest visible GitHub commit `49ab404`
-  (`2026-04-27`). The previously adopted private tags, structured observations, progressive recall,
+- `nanobot`: re-checked against upstream `main` at `536c456e` (`2026-05-07`), covering the
+  post-`ca66dd8c` changes around configurable tool-hint length, per-channel progress overrides,
+  Whisper transcription retry/validation, soft workspace/SSRF boundaries, max-message replay caps,
+  OpenAI-compatible `extraBody`, provider additions, MCP connection sequencing, WebUI LAN auth,
+  and broader channel delivery/logging polish. No direct bulk merge was taken; the concrete local
+  adoptions in this pass are `agents.defaults.toolHintMaxLength` and transient Whisper
+  transcription retry/response validation.
+- `GenericAgent`: re-checked against upstream `main` at `71914044` (`2026-05-07`), with the new
+  delta mostly in ACP bridge/frontends, agent-team/BBS experiments, persistent typing indicators,
+  reconnect backoff, peer-hint/history-folding prompts, and SOP wording. These remain ideas
+  watchlist material rather than direct structural parity targets.
+- `claude-mem`: re-checked from `thedotmack/claude-mem` at latest visible GitHub commit `9a2818f`
+  (`2026-05-05`). The previously adopted private tags, structured observations, progressive recall,
   and optional rebuildable SQLite FTS archive index remain the relevant local borrow points; the
   service/Chroma/vector-memory architecture remains an intentional divergence.
 
@@ -78,7 +79,7 @@ This file therefore records both:
 | Provider thinking toggles | `synced` | `ProviderSpec.thinking_style` now owns DashScope, DeepSeek, VolcEngine/BytePlus, and MiniMax thinking wire formats; legacy assistant turns receive empty `reasoning_content` when thinking mode is enabled mid-session. |
 | Anthropic adaptive / Opus reasoning | `synced` | `reasoningEffort=adaptive` maps to Anthropic `thinking={"type":"adaptive"}`, Opus 4.7 requests omit deprecated `temperature`, and tool-result image blocks are normalized before Anthropic submission. |
 | Anthropic message alternation recovery | `synced` | Anthropic request normalization now also enforces leading-user, strips trailing assistant prefill, and recovers the empty-array edge case without rerouting `tool_use`-carrying assistant blocks into invalid user turns. |
-| Tool hint formatting | `synced` | Exec hints handle quoted paths, path abbreviation, and duplicate collapse in one formatter. |
+| Tool hint formatting / length control | `synced` | Exec hints handle quoted paths, path abbreviation, duplicate collapse, and hot-reloadable `agents.defaults.toolHintMaxLength` for channels that expose tool-call hints. |
 | Exec `pathAppend` safety | `synced` | Local POSIX `tools.exec.pathAppend` now passes the appended path through `HAHOBOT_PATH_APPEND` instead of interpolating the raw config value into shell syntax, while Windows still appends through the subprocess env. |
 | Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
 | Session timestamp anchors in model context | `synced` | `Session.get_history(..., include_timestamps=True)` can annotate user/assistant text with `[Message Time: ...]`, and normal prompt assembly plus compaction probes use that timestamped view while persisted session format stays unchanged. |
@@ -98,7 +99,7 @@ This file therefore records both:
 | Legacy rename compatibility | `synced` | `nanobot` CLI/module/import compatibility stays live, and default config fallback is preserved. |
 | Config fallback behavior | `intentional_divergence` | When no config path is passed, hahobot checks `~/.hahobot/config.json` first, then copies `~/.nanobot/config.json` into the hahobot location instead of migrating in place. |
 | Web search backend mix | `synced` | Built-in web search now supports Brave, SearXNG, and DuckDuckGo; DuckDuckGo runs as an exclusive tool so concurrent tool batches do not group multiple searches together. |
-| Search provider breadth | `watchlist` | Upstream now also carries Kagi search support; local runtime still intentionally limits `tools.web.search.provider` to Brave, SearXNG, and DuckDuckGo until there is real demand for another paid backend plus matching config/admin/docs wiring. |
+| Search provider breadth | `watchlist` | Upstream now also carries additional search backends such as Kagi/Olostep; local runtime still intentionally limits `tools.web.search.provider` to Brave, SearXNG, and DuckDuckGo until there is real demand for another backend plus matching config/admin/docs wiring. |
 | MCP transient reconnect retry | `watchlist` | Upstream now retries one connection-class MCP failure after a short backoff; local MCP wrappers already distinguish true task cancellation from server-side `CancelledError`, but they still surface the first broken-pipe/closed-resource failure directly. Re-check if bridge restarts or transient MCP reconnects become noisy in practice. |
 | OpenAI-compatible API file inputs | `synced` | `hahobot serve` now accepts both JSON and `multipart/form-data`, extracts text-like uploaded or inline base64 file payloads into the prompt, and emits stable placeholders for binary/image attachments while keeping the direct API path single-message and non-streaming. |
 | OpenAI-compatible API streaming | `intentional_divergence` | Upstream now supports SSE when `stream=true`; local `hahobot serve` intentionally stays non-streaming until the API contract is deliberately expanded across docs, tests, and client expectations together. |
@@ -109,7 +110,7 @@ This file therefore records both:
 | Document read support | `synced` | `read_file` extracts text from `.docx`, `.xlsx`, and `.pptx` files through a small local OOXML parser while keeping images and text files on the existing path. |
 | Lazy document parser imports | `watchlist` | Upstream lazy-loads heavier document parser dependencies. Local OOXML parsing is already small, but startup/import cost should be checked before adding more document formats. |
 | Video/media envelope parity | `watchlist` | Upstream added Telegram/WebSocket video and WebUI media rendering. Local QQ already handles local `.mp4` uploads and image/voice paths; Telegram/WebSocket/video parity should be considered only with channel-specific delivery tests. |
-| Transcription language hints | `synced` | `channels.transcriptionLanguage` validates ISO-639-like language hints, hot-reloads into running channels, and is passed to Groq/OpenAI transcription requests. |
+| Transcription language hints / retry | `synced` | `channels.transcriptionLanguage` validates ISO-639-like language hints, hot-reloads into running channels, is passed to Groq/OpenAI transcription requests, and transient Whisper failures retry before returning an empty transcription. |
 | Mid-turn follow-up injection | `watchlist` | Local dispatch stays per-session serialized and crash-safe, but it does not splice new user turns into an already running session; upstream-style active-turn injection would touch locks, checkpoints, streaming, `/stop`, and compaction semantics together. |
 | Dream skill discovery automation | `intentional_divergence` | Upstream lets Dream discover/write reusable skills automatically; local skill accumulation stays operator-visible and reviewable through `/skill derive` instead of unattended Dream promotion. |
 | GenericAgent-style SOP workflow | `synced` | Hahobot now ships built-in workflow skills (`workflow-core`, `plan`, `verify`), subagent execution modes (`explore` / `implement` / `verify`), and persisted `working_checkpoint` state across session/admin/status surfaces. |
@@ -183,6 +184,29 @@ Lower-priority / deliberate caution:
 - **Provider factory refactor**: borrow only if it materially reduces local provider-pool/runtime
   duplication; avoid churn that makes hahobot's richer hot-reload paths harder to reason about.
 
+## Borrow Candidates From 2026-05-07 Audit
+
+Implemented locally in this pass:
+
+- **Tool-hint length control**: adopted upstream's `agents.defaults.toolHintMaxLength` so operators
+  can widen or shorten tool-call progress hints without disabling `channels.sendToolHints`.
+- **Whisper transcription retry and validation**: Groq/OpenAI audio transcription now retries
+  transient HTTP/network failures, preserves `language` across attempts, and turns malformed
+  successful responses into safe empty transcriptions.
+
+Still worth re-checking before porting:
+
+- **Per-channel progress overrides**: local runtime has global `channels.sendProgress` /
+  `channels.sendToolHints`; borrow per-channel overrides only if a concrete channel needs a quieter
+  or noisier default than the global setting.
+- **Soft workspace / SSRF boundaries**: upstream now favors recoverable boundary failures in more
+  places; local security errors are stricter and should be softened only where the agent can safely
+  continue.
+- **Provider/search additions**: Bedrock, Hugging Face, LongCat, OpenAI-compatible `extraBody`, and
+  Olostep-style search need schema/provider/docs/admin treatment before becoming local features.
+- **GenericAgent ACP/BBS/worker experiments**: watch for stable protocol ideas, but do not import
+  another frontend or team-worker architecture into hahobot without a matching local ops need.
+
 ## GenericAgent Adoption Notes
 
 - Hahobot now covers the two previously open GenericAgent gaps that motivated adding it as an
@@ -219,7 +243,10 @@ as "do not re-port unless upstream changes again":
   dropping manual/external execution context on reload.
 - Hook composition supports explicit `reraise` semantics while preserving compatibility behavior.
 - Direct OpenAI reasoning requests use Responses-first routing with compatibility fallback.
-- Runtime tool hints format shell commands more robustly, including quoted paths and repeated calls.
+- Runtime tool hints format shell commands more robustly, including quoted paths, repeated calls, and
+  configurable visible length through `agents.defaults.toolHintMaxLength`.
+- Groq/OpenAI Whisper transcription retries transient failures and validates malformed responses
+  before channel adapters fall back to an empty transcription.
 - The main agent now has a read-only `self_inspect` tool that exposes runtime/session/tool/subagent state without allowing in-band self-mutation.
 - Shell exec passthrough remains explicit through `tools.exec.allowedEnvKeys`, and local admin/docs
   surfaces expose that knob instead of hiding it in raw JSON only.

@@ -229,6 +229,12 @@ _CONFIG_FIELDS = (
         "admin_config_agents_max_tool_iterations_label",
     ),
     ConfigFieldSpec(
+        "agents_defaults_tool_hint_max_length",
+        ("agents", "defaults", "toolHintMaxLength"),
+        "int",
+        "admin_config_agents_tool_hint_max_length_label",
+    ),
+    ConfigFieldSpec(
         "agents_defaults_reasoning_effort",
         ("agents", "defaults", "reasoningEffort"),
         "select",
@@ -1510,6 +1516,7 @@ _CONFIG_SECTIONS = (
             "agents_defaults_context_window_tokens",
             "agents_defaults_temperature",
             "agents_defaults_max_tool_iterations",
+            "agents_defaults_tool_hint_max_length",
             "agents_defaults_reasoning_effort",
             "agents_defaults_timezone",
         ),
@@ -3284,6 +3291,7 @@ def _config_form_values(config: Config) -> dict[str, Any]:
         "agents_defaults_context_window_tokens": str(config.agents.defaults.context_window_tokens),
         "agents_defaults_temperature": str(config.agents.defaults.temperature),
         "agents_defaults_max_tool_iterations": str(config.agents.defaults.max_tool_iterations),
+        "agents_defaults_tool_hint_max_length": str(config.agents.defaults.tool_hint_max_length),
         "agents_defaults_reasoning_effort": config.agents.defaults.reasoning_effort or "",
         "agents_defaults_timezone": config.agents.defaults.timezone,
         "providers_openrouter_api_key": config.providers.openrouter.api_key,

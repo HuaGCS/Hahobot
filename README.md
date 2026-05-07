@@ -490,7 +490,8 @@ Recent upstream nanobot syncs already included here:
 - `read_file` can extract text from Office Open XML documents (`.docx`, `.xlsx`, `.pptx`) without
   adding a second document service.
 - Channel audio transcription can pass an optional `channels.transcriptionLanguage` ISO-639 hint to
-  the configured Groq/OpenAI transcription backend.
+  the configured Groq/OpenAI transcription backend, and transient Whisper upload failures now retry
+  before the channel falls back to an empty transcription.
 - Discord supports progressive streamed replies when `channels.discord.streaming` is enabled; the
   same config block also exposes `readReceiptEmoji`, `workingEmoji`, and
   `workingEmojiDelay`. Discord can also connect through `channels.discord.proxy`, with optional
@@ -500,6 +501,8 @@ Recent upstream nanobot syncs already included here:
   surfaces.
 - `tools.exec.allowedEnvKeys` lets you pass specific parent environment variables such as
   `JAVA_HOME` or `GOPATH` into shell tool subprocesses without exposing the whole parent env.
+- `agents.defaults.toolHintMaxLength` controls how much of each tool-call hint is shown when
+  `channels.sendToolHints` is enabled; it hot-reloads with the rest of the safe agent defaults.
 - A built-in `websocket` channel can expose hahobot as a local WebSocket server; see
   [`docs/WEBSOCKET.md`](docs/WEBSOCKET.md) for the handshake and frame contract.
 - Direct OpenAI requests for GPT-5 / o1 / o3 / o4 models, or requests with
@@ -521,7 +524,8 @@ Notable gateway features:
   second SPA runtime
 - read-only sessions, skills, and cron pages in the admin UI for the active runtime workspace
 - visual config coverage for `tools.exec.*`, channel runtime controls such as
-  `channels.transcriptionProvider` / `channels.transcriptionLanguage`, and the common
+  `channels.transcriptionProvider` / `channels.transcriptionLanguage`,
+  `agents.defaults.toolHintMaxLength`, and the common
   Telegram/Discord single-instance extras (`channels.telegram.streamEditInterval`,
   `channels.telegram.inlineKeyboards`, Discord streaming/emoji/proxy fields)
 - built-in slash-command reference in the admin page

@@ -460,6 +460,8 @@
     "admin_config_agents_temperature_tooltip": "Sampling randomness. Lower values are more stable and conservative; higher values are more varied and less predictable. Tool-heavy or companion flows usually prefer lower settings.",
     "admin_config_agents_max_tool_iterations_label": "agents.defaults.maxToolIterations",
     "admin_config_agents_max_tool_iterations_tooltip": "Maximum number of tool-call rounds allowed in a single task. This prevents runaway loops; setting it too low can make complex workflows stop before they finish.",
+    "admin_config_agents_tool_hint_max_length_label": "agents.defaults.toolHintMaxLength",
+    "admin_config_agents_tool_hint_max_length_tooltip": "Maximum visible length for one tool-call hint in progress updates. Increase it when shell commands or MCP arguments are being shortened too aggressively; keep it modest for quiet chat channels.",
     "admin_config_agents_reasoning_effort_label": "agents.defaults.reasoningEffort",
     "admin_config_agents_reasoning_effort_tooltip": "Thinking intensity for models that support reasoning effort. Leave it blank to follow the model or provider default; higher levels usually cost more latency and tokens but may improve complex-task stability.",
     "admin_config_agents_timezone_label": "agents.defaults.timezone",

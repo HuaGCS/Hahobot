@@ -77,6 +77,7 @@ class Hahobot:
             model=defaults.model,
             max_iterations=defaults.max_tool_iterations,
             context_window_tokens=defaults.context_window_tokens,
+            tool_hint_max_length=defaults.tool_hint_max_length,
             brave_api_key=config.tools.web.search.api_key or None,
             web_proxy=config.tools.web.proxy or None,
             web_search_provider=config.tools.web.search.provider,

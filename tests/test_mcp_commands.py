@@ -379,6 +379,7 @@ async def test_runtime_config_reload_updates_agent_and_tool_settings(tmp_path: P
                         "maxTokens": 2222,
                         "temperature": 0.7,
                         "reasoningEffort": "high",
+                        "toolHintMaxLength": 120,
                     }
                 },
                 "tools": {
@@ -419,6 +420,7 @@ async def test_runtime_config_reload_updates_agent_and_tool_settings(tmp_path: P
     assert loop.memory_consolidator.model == "reloaded-model"
     assert loop.memory_consolidator.context_window_tokens == 8192
     assert loop.memory_consolidator.max_completion_tokens == 2222
+    assert loop.tool_hint_max_length == 120
     assert loop.channels_config.send_progress is False
     assert loop.channels_config.send_tool_hints is True
     loop.subagents.apply_runtime_config.assert_called_once_with(

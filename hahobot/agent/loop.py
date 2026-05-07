@@ -195,6 +195,7 @@ class AgentLoop:
         context_block_limit: int | None = None,
         max_tool_result_chars: int = _TOOL_RESULT_MAX_CHARS,
         provider_retry_mode: str = "standard",
+        tool_hint_max_length: int = 40,
         web_config: Any | None = None,
         web_search_config: Any | None = None,
         brave_api_key: str | None = None,
@@ -248,6 +249,7 @@ class AgentLoop:
         self.context_block_limit = context_block_limit
         self.max_tool_result_chars = max_tool_result_chars
         self.provider_retry_mode = provider_retry_mode
+        self.tool_hint_max_length = tool_hint_max_length
         self.brave_api_key = brave_api_key
         self.web_proxy = web_proxy
         self.web_search_provider = web_search_provider
@@ -671,10 +673,12 @@ class AgentLoop:
         """Return the user-visible version of a model response."""
         return self._response_runtime_manager().visible_response_text(text, persona)
 
-    @staticmethod
-    def _tool_hint(tool_calls: list) -> str:
+    def _tool_hint(self, tool_calls: list) -> str:
         """Format tool calls as concise hints with smart abbreviation."""
-        return ResponseRuntimeManager.tool_hint(tool_calls)
+        return ResponseRuntimeManager.tool_hint(
+            tool_calls,
+            max_length=self.tool_hint_max_length,
+        )
 
     @staticmethod
     def _voice_reply_extension(response_format: str) -> str:
