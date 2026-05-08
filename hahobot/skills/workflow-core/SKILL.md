@@ -35,6 +35,8 @@ Use a short explicit workflow for non-trivial tasks.
 - Use `spawn(..., mode="explore")` for investigation.
 - Use `spawn(..., mode="implement")` for bounded implementation work.
 - Use `spawn(..., mode="verify")` for independent review or validation.
+- If you create or revise a plan/TODO list for future autonomous work, treat independent review as required before executing it.
+- Do not substitute self-review for independent review. If independent review is unavailable, mark the plan as a draft, report the verification gap, and stop before executing planned follow-up work.
 
 ## Recovery Rules
 

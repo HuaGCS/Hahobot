@@ -617,6 +617,10 @@ available as opt-in built-ins for planning, validation, and turning repeatable w
 workspace skills. Subagents can also be spawned in explicit `explore`, `implement`, or `verify`
 mode so their available tools match the job.
 
+Plans that create or reorder future tasks/TODOs are treated as drafts until an independent
+verification pass reviews them. The built-in workflow skills prefer `spawn(..., mode="verify")`
+for that review and explicitly avoid using self-review as permission to execute follow-up work.
+
 `/skill derive <name> [brief] [--force]` can turn the current session's recent workflow and
 `working_checkpoint` into a local draft skill under `workspace/skills/<name>/SKILL.md`. Existing
 drafts are left untouched unless you pass `--force`. Derived drafts now seed a `metadata` block
