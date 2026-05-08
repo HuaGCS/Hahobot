@@ -47,19 +47,17 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `536c456e` (`2026-05-07`), covering the
-  post-`ca66dd8c` changes around configurable tool-hint length, per-channel progress overrides,
-  Whisper transcription retry/validation, soft workspace/SSRF boundaries, max-message replay caps,
-  OpenAI-compatible `extraBody`, provider additions, MCP connection sequencing, WebUI LAN auth,
-  and broader channel delivery/logging polish. No direct bulk merge was taken; the concrete local
-  adoptions in this pass are `agents.defaults.toolHintMaxLength` and transient Whisper
-  transcription retry/response validation.
-- `GenericAgent`: re-checked against upstream `main` at `71914044` (`2026-05-07`), with the new
-  delta mostly in ACP bridge/frontends, agent-team/BBS experiments, persistent typing indicators,
-  reconnect backoff, peer-hint/history-folding prompts, and SOP wording. These remain ideas
-  watchlist material rather than direct structural parity targets.
-- `claude-mem`: re-checked from `thedotmack/claude-mem` at latest visible GitHub commit `9a2818f`
-  (`2026-05-05`). The previously adopted private tags, structured observations, progressive recall,
+- `nanobot`: re-checked against upstream `main` at `6a306951` (`2026-05-07`), covering the
+  post-`536c456e` SSE compression fix for upstream's streaming OpenAI-compatible API. Local
+  `hahobot serve` still intentionally rejects `stream=true`, so no API behavior was ported.
+- `GenericAgent`: re-checked against upstream `main` at `7b515990` (`2026-05-08`), with the new
+  delta mostly in Textual TUI frontend work, client-init refactors, panel caching, and a planning
+  SOP hardening that prevents future-task planning from bypassing independent subagent review.
+  The local adoption in this pass is the matching independent-review gate in `workflow-core`,
+  `plan`, and `verify`.
+- `claude-mem`: re-checked from `thedotmack/claude-mem` at `0a43ab7` (`2026-05-06`). The new
+  visible delta is changelog-only; the previously adopted private tags, structured observations,
+  progressive recall,
   and optional rebuildable SQLite FTS archive index remain the relevant local borrow points; the
   service/Chroma/vector-memory architecture remains an intentional divergence.
 
@@ -113,7 +111,7 @@ This file therefore records both:
 | Transcription language hints / retry | `synced` | `channels.transcriptionLanguage` validates ISO-639-like language hints, hot-reloads into running channels, is passed to Groq/OpenAI transcription requests, and transient Whisper failures retry before returning an empty transcription. |
 | Mid-turn follow-up injection | `watchlist` | Local dispatch stays per-session serialized and crash-safe, but it does not splice new user turns into an already running session; upstream-style active-turn injection would touch locks, checkpoints, streaming, `/stop`, and compaction semantics together. |
 | Dream skill discovery automation | `intentional_divergence` | Upstream lets Dream discover/write reusable skills automatically; local skill accumulation stays operator-visible and reviewable through `/skill derive` instead of unattended Dream promotion. |
-| GenericAgent-style SOP workflow | `synced` | Hahobot now ships built-in workflow skills (`workflow-core`, `plan`, `verify`), subagent execution modes (`explore` / `implement` / `verify`), and persisted `working_checkpoint` state across session/admin/status surfaces. |
+| GenericAgent-style SOP workflow | `synced` | Hahobot now ships built-in workflow skills (`workflow-core`, `plan`, `verify`), subagent execution modes (`explore` / `implement` / `verify`), persisted `working_checkpoint` state across session/admin/status surfaces, and an independent-review gate for plans/TODOs that create future autonomous work. |
 | GenericAgent-style skill accumulation | `synced` | Hahobot now supports local skill derivation through `/skill derive <name> [brief] [--force]`, turning recent successful session workflow into a reusable workspace skill draft. |
 | Skill lifecycle hygiene / prompt budget control | `local_extension` | Runtime skill summaries are now query-aware top-k views, `supersedes` can hide replaced skills from the shared summary, `/skill supersede` plus `remove` / `clear` maintain that metadata explicitly, and `/skill lint` reports overlap or missing supersedes targets before local skill growth turns chaotic. |
 | Skill usage writeback | `local_extension` | Workspace skill `last_used` / `success_count` now update from real runtime `read_file` usage instead of staying frozen at derive-time defaults. |
@@ -136,7 +134,7 @@ already productized locally and which ones are still only partially reflected in
 
 | GenericAgent Theme | Status | Local Surface | Remaining Gap / Notes |
 | --- | --- | --- | --- |
-| Workflow SOP packaged as built-in guidance | `synced` | Bundled `workflow-core`, `plan`, `verify`, and `skill-derive` skills under `hahobot/skills/` | Hahobot keeps SOPs as skills instead of hard-wiring a GenericAgent-style monolithic agent loop. |
+| Workflow SOP packaged as built-in guidance | `synced` | Bundled `workflow-core`, `plan`, `verify`, and `skill-derive` skills under `hahobot/skills/`, including independent review before executing generated future-task plans/TODOs | Hahobot keeps SOPs as skills instead of hard-wiring a GenericAgent-style monolithic agent loop. |
 | Explicit plan / verify execution roles | `synced` | `spawn(mode="explore" \| "implement" \| "verify")`, mode-aware subagent tool registry, and mode-specific subagent prompt sections | Hahobot enforces the boundary through tool availability, not only prompt wording. |
 | Working-state checkpoint during long turns | `synced` | `working_checkpoint` metadata persisted by runner/checkpoint runtime and rendered in CLI sessions, admin sessions, and browser `/status` | The checkpoint is intentionally lightweight runtime metadata, not a second long-term memory store. |
 | User-visible "current step / next step" runtime visibility | `synced` | Browser `/status` recent-task card, admin session list, and `hahobot sessions show` output | GenericAgent keeps this mostly inside loop state; hahobot surfaces it to local ops pages as well. |
@@ -207,10 +205,32 @@ Still worth re-checking before porting:
 - **GenericAgent ACP/BBS/worker experiments**: watch for stable protocol ideas, but do not import
   another frontend or team-worker architecture into hahobot without a matching local ops need.
 
+## Borrow Candidates From 2026-05-08 Audit
+
+Implemented locally in this pass:
+
+- **Future-task plan review gate**: mapped GenericAgent's subagent-review hardening onto
+  hahobot's built-in workflow skills. `workflow-core`, `plan`, and `verify` now require
+  independent review before executing generated future-task plans/TODOs and explicitly reject
+  self-review as sufficient approval.
+
+Intentionally skipped / watchlist:
+
+- **OpenAI-compatible API SSE compression fix**: upstream removed aiohttp compression for real SSE
+  streaming. Local `hahobot serve` still returns 400 for `stream=true`, so this remains covered by
+  the existing non-streaming API divergence.
+- **GenericAgent Textual TUI and ACP/frontend churn**: useful upstream product direction, but
+  hahobot keeps runtime surfaces in CLI/gateway/admin/status and should not import another frontend
+  stack without a local operator need.
+- **claude-mem changelog-only update**: no new memory architecture idea to adopt.
+
 ## GenericAgent Adoption Notes
 
 - Hahobot now covers the two previously open GenericAgent gaps that motivated adding it as an
   upstream here: first-class workflow SOP skills and local skill derivation from successful runs.
+- The workflow skills now also include a guardrail from the 2026-05-08 GenericAgent audit:
+  generated future-task plans/TODOs remain drafts until independently reviewed, preferably through
+  `spawn(..., mode="verify")`, and self-review must not be treated as permission to execute them.
 - Local follow-up work on skill accumulation now intentionally adds lifecycle guardrails instead of
   pushing further toward Hermes-style unattended self-growth:
   - derived skills seed explicit lifecycle metadata

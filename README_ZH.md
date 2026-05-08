@@ -1110,6 +1110,10 @@ hahobot 现在额外内置了一组偏工作流的 skills：
 - `implement`：正常实现模式，可读写文件并按配置使用 shell
 - `verify`：独立验证模式，可读文件和执行检查命令，但不允许写文件
 
+如果某个 plan 会创建或重排未来任务/TODO，它会被视为草稿，直到经过独立验证。
+内置 workflow skills 会优先使用 `spawn(..., mode="verify")` 做逐项复核，并明确禁止把
+自评审当作继续执行后续任务的依据。
+
 另外，`/skill derive <name> [brief] [--force]` 可以把当前会话最近一次成功流程和
 `working_checkpoint` 提炼成当前 workspace 下的本地 skill 草稿
 `workspace/skills/<name>/SKILL.md`，方便后续再人工收紧和复用。默认不会覆盖已有草稿，
