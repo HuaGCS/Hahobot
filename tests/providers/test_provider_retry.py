@@ -37,6 +37,43 @@ def test_error_response_keeps_nested_connection_cause() -> None:
     assert "OSError: [Errno 111] Connection refused" in response.content
 
 
+def test_sanitize_empty_content_drops_whitespace_only_text_blocks() -> None:
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": " \n\t "},
+                {"type": "text", "text": "keep me"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,abc"},
+                    "_meta": {"path": "/tmp/demo.png"},
+                },
+            ],
+        }
+    ]
+
+    sanitized = LLMProvider._sanitize_empty_content(messages)
+
+    assert sanitized == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "keep me"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            ],
+        }
+    ]
+
+
+def test_sanitize_empty_content_replaces_all_blank_text_blocks() -> None:
+    messages = [{"role": "user", "content": [{"type": "text", "text": "   "}]}]
+
+    sanitized = LLMProvider._sanitize_empty_content(messages)
+
+    assert sanitized == [{"role": "user", "content": "(empty)"}]
+
+
 @pytest.mark.asyncio
 async def test_chat_with_retry_retries_transient_error_then_succeeds(monkeypatch) -> None:
     provider = ScriptedProvider([
@@ -463,4 +500,3 @@ async def test_persistent_retry_aborts_after_ten_identical_transient_errors(monk
     assert response.content == "429 rate limit"
     assert provider.calls == 10
     assert delays == [1, 2, 4, 4, 4, 4, 4, 4, 4]
-

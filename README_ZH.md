@@ -683,6 +683,8 @@ hahobot channels login whatsapp
 }
 ```
 
+飞书话题内的回复会把拆分后的每一段出站消息都保持在同一个话题线程里，而不只让第一段走回复接口。
+
 ### QQ
 
 当前支持：
@@ -1474,6 +1476,8 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 
 交互式 CLI 输入还会为 slash 命令提供补全，覆盖内置命令、常见子命令，以及当前
 workspace 里的 persona、scene 名称，以及内置 `/update` 与本地 `/session ...`、`/repo ...`、`/review ...`、`/compact` 候选。
+交互式输入和历史文件写入会在进入消息总线前清理异常 Unicode surrogate 码点，同时保留合法
+emoji 和其他 Unicode 文本。
 
 其中 `/repo diff` 只看 tracked changes；如果还想确认 untracked 文件数量，用 `/repo status`。
 `/review` 则会把当前 diff 交给已配置模型做 findings-first 的代码审查，不会直接改动仓库文件。

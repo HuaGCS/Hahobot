@@ -49,6 +49,14 @@ from hahobot.utils.restart import (
 )
 
 
+def _sanitize_surrogates(text: str) -> str:
+    """Replace malformed surrogate code points while preserving valid pairs."""
+    return text.encode("utf-16-le", errors="surrogatepass").decode(
+        "utf-16-le",
+        errors="replace",
+    )
+
+
 class SafeFileHistory(FileHistory):
     """FileHistory subclass that sanitizes surrogate characters on write.
 
@@ -58,8 +66,7 @@ class SafeFileHistory(FileHistory):
     """
 
     def store_string(self, string: str) -> None:
-        safe = string.encode("utf-8", errors="surrogateescape").decode("utf-8", errors="replace")
-        super().store_string(safe)
+        super().store_string(_sanitize_surrogates(string))
 
 app = typer.Typer(
     name="hahobot",
@@ -1936,7 +1943,9 @@ def agent(
                         # Stop spinner before user input to avoid prompt_toolkit conflicts
                         if renderer:
                             renderer.stop_for_input()
-                        user_input = await _read_interactive_input_async(multiline=multiline)
+                        user_input = _sanitize_surrogates(
+                            await _read_interactive_input_async(multiline=multiline)
+                        )
                         command = user_input.strip()
                         if not command:
                             continue
