@@ -37,6 +37,11 @@ def _make_feishu_channel(reply_to_message: bool = False) -> FeishuChannel:
     channel._client = MagicMock()
     # _loop is only used by the WebSocket thread bridge; not needed for unit tests
     channel._loop = None
+    # Keep unit tests deterministic: MagicMock calls can hang when wrapped in asyncio.to_thread.
+    async def _run_inline(func, /, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    channel._run_blocking = _run_inline  # type: ignore[method-assign]
     return channel
 
 
@@ -343,6 +348,51 @@ async def test_send_fallback_to_create_when_reply_fails() -> None:
     # reply attempted first, then falls back to create
     channel._client.im.v1.message.reply.assert_called_once()
     channel._client.im.v1.message.create.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_send_replies_every_part_in_topic_thread() -> None:
+    channel = _make_feishu_channel(reply_to_message=False)
+
+    reply_calls: list[tuple[str, str, str]] = []
+    create_calls: list[tuple[str, str, str, str]] = []
+
+    def _record_reply(parent_message_id: str, msg_type: str, content: str) -> bool:
+        reply_calls.append((parent_message_id, msg_type, content))
+        return True
+
+    def _record_create(
+        receive_id_type: str, receive_id: str, msg_type: str, content: str
+    ) -> None:
+        create_calls.append((receive_id_type, receive_id, msg_type, content))
+
+    content = "\n\n".join(
+        [
+            "| A |\n| --- |\n| 1 |",
+            "| B |\n| --- |\n| 2 |",
+        ]
+    )
+
+    with patch.object(channel, "_reply_message_sync", side_effect=_record_reply), patch.object(
+        channel, "_send_message_sync", side_effect=_record_create
+    ):
+        await channel.send(
+            OutboundMessage(
+                channel="feishu",
+                chat_id="oc_abc",
+                content=content,
+                metadata={
+                    "message_id": "om_child",
+                    "root_id": "om_root",
+                    "thread_id": "omt_topic",
+                },
+            )
+        )
+
+    assert len(reply_calls) == 2
+    assert {parent for parent, _, _ in reply_calls} == {"om_root"}
+    assert [msg_type for _, msg_type, _ in reply_calls] == ["interactive", "interactive"]
+    assert create_calls == []
 
 
 # ---------------------------------------------------------------------------

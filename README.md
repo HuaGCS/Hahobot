@@ -344,6 +344,8 @@ hahobot companion doctor --persona Aria --json
 - `hahobot agent`: interactive slash completion for built-in commands such as `/status`,
   `/update`, `/skill ...`, `/persona ...`, `/dream ...`, workspace persona / scene names, and the local
   `/session ...` / `/repo ...` / `/review ...` / `/compact` controls
+- Interactive CLI input and history writes sanitize malformed Unicode surrogate code points before
+  dispatch, while preserving valid emoji and other Unicode text.
 
 Inside `hahobot agent`, the local interactive shell also supports commands that do not go through
 the model:
@@ -487,6 +489,8 @@ Recent upstream nanobot syncs already included here:
 - Telegram can render `OutboundMessage.buttons` as native inline keyboards when
   `channels.telegram.inlineKeyboards` is enabled; otherwise button labels are preserved as inline
   text fallback.
+- Feishu topic replies keep every split outbound part in the same thread instead of only replying
+  with the first segment.
 - `read_file` can extract text from Office Open XML documents (`.docx`, `.xlsx`, `.pptx`) without
   adding a second document service.
 - Channel audio transcription can pass an optional `channels.transcriptionLanguage` ISO-639 hint to

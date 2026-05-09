@@ -171,7 +171,10 @@ class LLMProvider(ABC):
                     if (
                         isinstance(item, dict)
                         and item.get("type") in ("text", "input_text", "output_text")
-                        and not item.get("text")
+                        and (
+                            not isinstance(item.get("text"), str)
+                            or not item.get("text", "").strip()
+                        )
                     ):
                         changed = True
                         continue

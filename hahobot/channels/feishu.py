@@ -1324,10 +1324,11 @@ class FeishuChannel(BaseChannel):
                 )
 
             first_send = True
+            reply_every_part = bool(msg.metadata.get("thread_id"))
 
             def _do_send(m_type: str, content: str) -> None:
                 nonlocal first_send
-                if reply_message_id and first_send:
+                if reply_message_id and (first_send or reply_every_part):
                     first_send = False
                     if self._reply_message_sync(reply_message_id, m_type, content):
                         return

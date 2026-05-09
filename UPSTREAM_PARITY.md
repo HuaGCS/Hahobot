@@ -47,19 +47,19 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `6a306951` (`2026-05-07`), covering the
-  post-`536c456e` SSE compression fix for upstream's streaming OpenAI-compatible API. Local
-  `hahobot serve` still intentionally rejects `stream=true`, so no API behavior was ported.
-- `GenericAgent`: re-checked against upstream `main` at `7b515990` (`2026-05-08`), with the new
-  delta mostly in Textual TUI frontend work, client-init refactors, panel caching, and a planning
-  SOP hardening that prevents future-task planning from bypassing independent subagent review.
-  The local adoption in this pass is the matching independent-review gate in `workflow-core`,
-  `plan`, and `verify`.
-- `claude-mem`: re-checked from `thedotmack/claude-mem` at `0a43ab7` (`2026-05-06`). The new
-  visible delta is changelog-only; the previously adopted private tags, structured observations,
-  progressive recall,
-  and optional rebuildable SQLite FTS archive index remain the relevant local borrow points; the
-  service/Chroma/vector-memory architecture remains an intentional divergence.
+- `nanobot`: re-checked against upstream `main` at `4d168c57` (`2026-05-09`). This pass adopted
+  CLI surrogate-code-point sanitization and Feishu topic multipart reply routing. The memory
+  replay-window fix was reviewed against local token/persona archive paths and remains covered by
+  local full-tail archive behavior; the WebUI/settings/image-generation churn is still not a local
+  parity target.
+- `GenericAgent`: re-checked against upstream `main` at `cde16207` (`2026-05-09`). The useful
+  runtime borrow is filtering whitespace-only text blocks before strict provider APIs see merged
+  user/tool content; other deltas are frontend/configure/goal-mode churn and stay on watch.
+- `claude-mem`: re-checked from `thedotmack/claude-mem` at `13d5fa7` (`2026-05-08`). The visible
+  delta only corrects project homepage metadata; the previously adopted private tags, structured
+  observations, progressive recall, and optional rebuildable SQLite FTS archive index remain the
+  relevant local borrow points; the service/Chroma/vector-memory architecture remains an
+  intentional divergence.
 
 ## Current Snapshot
 
@@ -82,7 +82,8 @@ This file therefore records both:
 | Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
 | Session timestamp anchors in model context | `synced` | `Session.get_history(..., include_timestamps=True)` can annotate user/assistant text with `[Message Time: ...]`, and normal prompt assembly plus compaction probes use that timestamped view while persisted session format stays unchanged. |
 | Ask-user clarification tool | `watchlist` | Upstream added an `ask_user` tool plus CLI/WebUI choice rendering. Local hahobot should only adopt this after mapping the UX across CLI, gateway channels, buttons, and session-lock semantics. |
-| Provider request sanitization | `synced` | Role alternation repair now recovers a trailing assistant message as `user` when otherwise only `system` content would remain, preventing empty/invalid provider requests after assistant-scoped injections. |
+| CLI input Unicode sanitization | `synced` | Interactive CLI input and prompt history writes replace malformed surrogate code points before dispatch/persistence while preserving valid surrogate pairs as normal Unicode characters. |
+| Provider request sanitization | `synced` | Role alternation repair now recovers a trailing assistant message as `user` when otherwise only `system` content would remain, and multimodal content sanitization drops whitespace-only text blocks before strict provider APIs see them. |
 | Local/LAN provider transport behavior | `watchlist` | Upstream tightened local endpoint detection and disables HTTP keepalive for local/LAN endpoints to avoid stale socket failures. Local provider error reporting is strong, but transport pooling policy should be rechecked for Ollama/vLLM/custom LAN endpoints. |
 | Provider factory ownership | `watchlist` | Upstream moved provider snapshot/refresh creation into a factory layer and subsystem owners. Local provider pool/runtime config code is richer; borrow only if it reduces duplication without weakening hot reload. |
 | On-demand context microcompact | `synced` | Older tool results are compacted before the next model call when a long tool-heavy turn would otherwise crowd out system prompt memory or the freshest working context. |
@@ -93,6 +94,7 @@ This file therefore records both:
 | Configurable consolidation ratio | `watchlist` | Upstream exposes a bounded `consolidationRatio` for token compaction targets. Local compaction has richer archive/Dream behavior; adding the knob may help large-context users if docs/admin make the tradeoff clear. |
 | Telegram / Discord streaming | `synced` | Telegram uses configurable `channels.telegram.streamEditInterval`; Discord keeps edit-based streaming enabled by default, and the related runtime knobs are exposed in local schema/docs/admin surfaces. |
 | Telegram inline buttons | `synced` | `channels.telegram.inlineKeyboards` can render `OutboundMessage.buttons` as Telegram inline keyboards, caps callback payload bytes, and falls back to inline text when native keyboards are disabled. |
+| Feishu topic reply routing | `synced` | Topic/thread replies keep every split outbound part on the Reply API path using the root/message id, so card/table chunks do not fall out of the active topic after the first segment. |
 | WebSocket server channel | `synced` | Local runtime already ships `channels.websocket`, including tokenless local mode, optional `tokenIssuePath` / `tokenIssueSecret`, and the simple `ready` / `message` / `delta` / `stream_end` frame contract. |
 | Legacy rename compatibility | `synced` | `nanobot` CLI/module/import compatibility stays live, and default config fallback is preserved. |
 | Config fallback behavior | `intentional_divergence` | When no config path is passed, hahobot checks `~/.hahobot/config.json` first, then copies `~/.nanobot/config.json` into the hahobot location instead of migrating in place. |
@@ -223,6 +225,33 @@ Intentionally skipped / watchlist:
   hahobot keeps runtime surfaces in CLI/gateway/admin/status and should not import another frontend
   stack without a local operator need.
 - **claude-mem changelog-only update**: no new memory architecture idea to adopt.
+
+## Borrow Candidates From 2026-05-09 Audit
+
+Implemented locally in this pass:
+
+- **CLI surrogate sanitization**: mapped nanobot's Windows/prompt_toolkit history hardening onto
+  hahobot's `SafeFileHistory` and interactive CLI dispatch path, preserving valid emoji while
+  replacing malformed surrogate code points before persistence or message-bus entry.
+- **Feishu topic multipart replies**: when Feishu metadata indicates a topic/thread, every split
+  outbound part now uses the Reply API with the topic root/message id instead of only the first
+  segment.
+- **Whitespace-only provider text blocks**: adopted GenericAgent's stricter request cleanup by
+  dropping blank multimodal text blocks before OpenAI-compatible/Anthropic/Responses conversion
+  sees the request.
+
+Reviewed and intentionally skipped / left on watch:
+
+- **nanobot replay-window consolidation fix**: local token consolidation and persona rollover
+  archive from the full unconsolidated tail (`session.messages[last_consolidated:]`) rather than
+  from a replay-window slice, so there is no matching local replay-window gap to port.
+- **nanobot WebUI/settings/image-generation churn**: useful upstream direction, but hahobot keeps
+  local ops in the existing gateway/admin/status runtime and already has its own image-gen tool
+  contract.
+- **GenericAgent configure wizard, goal mode, and frontend churn**: no direct local parity target;
+  revisit only if the ideas become runtime contracts rather than frontend implementation detail.
+- **claude-mem homepage metadata fix**: tracked for audit freshness; no memory architecture change
+  to adopt.
 
 ## GenericAgent Adoption Notes
 
