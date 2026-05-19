@@ -133,7 +133,7 @@ This file therefore records both:
 | Memory architecture | `local_extension` | Dream maintenance, archive sidecars, Mem0 backend/shadow-write, and structured profile/insight hygiene go beyond upstream nanobot. |
 | claude-mem SQLite FTS archive index | `synced` | Hahobot now supports `memory.archive.indexBackend="sqlite"` as a persona-local derived FTS cache for `history_search` / `history_timeline`, rebuildable with `hahobot memory index rebuild` from JSON sidecars. |
 | claude-mem Chroma/service backend | `intentional_divergence` | Hahobot keeps markdown/archive JSON sidecars as the source of truth plus optional Mem0 instead of adopting a separate Chroma/vector memory service; local recall remains inspectable and persona-scoped. |
-| nocturne patch-only memory writes | `synced` | The Consolidator `save_memory` tool no longer takes a full `memory_update` rewrite of `MEMORY.md`. It now takes an optional `new_facts` fragment that is *appended* via `MemoryStore.append_memory` (capped, private-stripped); deduplication/compaction is left to Dream's incremental edits. `write_memory` is also atomic now. A truncated or lossy LLM response can no longer overwrite existing long-term memory. |
+| nocturne patch-only memory writes | `synced` | The Consolidator `save_memory` tool no longer takes a full `memory_update` rewrite of `MEMORY.md`. It now takes an optional `new_facts` fragment that is *appended* via `MemoryStore.append_memory` (capped, private-stripped); `write_memory` is atomic. Deduplication/compaction is handled by Dream — `dream_phase1.md` / `dream_phase2.md` were updated to explicitly flag and merge append-accumulated MEMORY.md redundancy. A truncated or lossy LLM response can no longer overwrite existing long-term memory. |
 | nocturne disclosure triggers | `watchlist` | nocturne attaches a "recall when X" condition to each memory unit. hahobot loads core memory files always-on and uses query-aware top-k for skills; per-entry recall triggers for `PROFILE.md` / `INSIGHTS.md` bullets could help prompt budget but add a retrieval step and complexity. Low priority. |
 | nocturne graph memory backend | `intentional_divergence` | nocturne stores memory in a graph DB (Node/Memory/Edge/Path) behind a FastAPI/MCP service. hahobot keeps human-readable, git-diffable Markdown as the source of truth; a graph/DB backend is rejected for the same source-first reason as the claude-mem Chroma divergence. |
 | nocturne boot protocol / active recall | `intentional_divergence` | nocturne requires every session to call `read_memory("system://boot")` and depends on the agent reliably invoking recall tools. hahobot loads identity/relationship/profile layers into the system prompt always-on, which does not depend on model recall discipline. |
@@ -350,7 +350,11 @@ Decisions from this review:
   `save_memory` now takes an optional `new_facts` fragment appended via `MemoryStore.append_memory`
   (length-capped, private-stripped), and `MemoryStore.write_memory` is atomic. The Consolidator
   path is fast append-only archival; deduplication and compaction stay with Dream's incremental
-  edits. Implemented 2026-05-19.
+  edits. Because that division of labor depends on Dream actually compacting the append-grown
+  file, the `dream_phase1.md` / `dream_phase2.md` prompts were also updated to explicitly flag
+  overlapping/near-duplicate MEMORY.md bullets and repeated headers and merge them into a coherent
+  structure — making "Consolidator appends, Dream compacts" an explicit guarantee rather than
+  implicit best-effort. Implemented 2026-05-19.
 - **Consider later (watchlist): addressable memory entries.** Making each `PROFILE.md` /
   `INSIGHTS.md` bullet a unit with a stable id + metadata (extending the existing `hahobot-meta`
   comment) would enable per-entry versioning, ranked recall, and optional disclosure triggers
