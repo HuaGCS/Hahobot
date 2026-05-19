@@ -12,22 +12,22 @@ from hahobot.config.schema import EmailConfig
 
 
 def _make_config(**overrides) -> EmailConfig:
-    defaults = dict(
-        enabled=True,
-        consent_granted=True,
-        imap_host="imap.example.com",
-        imap_port=993,
-        imap_username="bot@example.com",
-        imap_password="secret",
-        smtp_host="smtp.example.com",
-        smtp_port=587,
-        smtp_username="bot@example.com",
-        smtp_password="secret",
-        mark_seen=True,
+    defaults = {
+        "enabled": True,
+        "consent_granted": True,
+        "imap_host": "imap.example.com",
+        "imap_port": 993,
+        "imap_username": "bot@example.com",
+        "imap_password": "secret",
+        "smtp_host": "smtp.example.com",
+        "smtp_port": 587,
+        "smtp_username": "bot@example.com",
+        "smtp_password": "secret",
+        "mark_seen": True,
         # Disable auth verification by default so existing tests are unaffected
-        verify_dkim=False,
-        verify_spf=False,
-    )
+        "verify_dkim": False,
+        "verify_spf": False,
+    }
     defaults.update(overrides)
     return EmailConfig(**defaults)
 

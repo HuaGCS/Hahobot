@@ -8,8 +8,9 @@ import os
 import tempfile
 import time
 import weakref
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from hahobot.agent.autocompact import AutoCompact
 from hahobot.agent.background_runtime import BackgroundRuntimeManager

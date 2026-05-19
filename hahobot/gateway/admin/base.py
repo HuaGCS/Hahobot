@@ -95,7 +95,7 @@ def _require_admin_enabled(request: web.Request) -> None:
 
 
 def _session_signature(auth_key: str, expires_at: int, nonce: str) -> str:
-    payload = f"{expires_at}:{nonce}".encode("utf-8")
+    payload = f"{expires_at}:{nonce}".encode()
     return hmac.new(auth_key.encode("utf-8"), payload, hashlib.sha256).hexdigest()
 
 

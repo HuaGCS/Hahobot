@@ -103,6 +103,7 @@ async def _post_transcription_with_retry(
                 )
                 return ""
             return payload.get("text", "")
+    return None
 
 
 class OpenAITranscriptionProvider:

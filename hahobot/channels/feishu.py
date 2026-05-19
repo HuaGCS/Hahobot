@@ -520,9 +520,8 @@ class FeishuChannel(BaseChannel):
                     "Failed to add reaction: code={}, msg={}", response.code, response.msg
                 )
                 return None
-            else:
-                logger.debug("Added {} reaction to message {}", emoji_type, message_id)
-                return response.data.reaction_id if response.data else None
+            logger.debug("Added {} reaction to message {}", emoji_type, message_id)
+            return response.data.reaction_id if response.data else None
         except Exception as e:
             logger.warning("Error adding reaction: {}", e)
             return None
@@ -601,8 +600,7 @@ class FeishuChannel(BaseChannel):
         # Remove italic markers
         text = cls._MD_ITALIC_RE.sub(r"\1", text)
         # Remove strikethrough markers
-        text = cls._MD_STRIKE_RE.sub(r"\1", text)
-        return text
+        return cls._MD_STRIKE_RE.sub(r"\1", text)
 
     @classmethod
     def _parse_md_table(cls, table_text: str) -> dict | None:
@@ -862,11 +860,8 @@ class FeishuChannel(BaseChannel):
                     image_key = response.data.image_key
                     logger.debug("Uploaded image {}: {}", os.path.basename(file_path), image_key)
                     return image_key
-                else:
-                    logger.error(
-                        "Failed to upload image: code={}, msg={}", response.code, response.msg
-                    )
-                    return None
+                logger.error("Failed to upload image: code={}, msg={}", response.code, response.msg)
+                return None
         except Exception as e:
             logger.error("Error uploading image {}: {}", file_path, e)
             return None
@@ -896,11 +891,8 @@ class FeishuChannel(BaseChannel):
                     file_key = response.data.file_key
                     logger.debug("Uploaded file {}: {}", file_name, file_key)
                     return file_key
-                else:
-                    logger.error(
-                        "Failed to upload file: code={}, msg={}", response.code, response.msg
-                    )
-                    return None
+                logger.error("Failed to upload file: code={}, msg={}", response.code, response.msg)
+                return None
         except Exception as e:
             logger.error("Error uploading file {}: {}", file_path, e)
             return None
@@ -926,11 +918,8 @@ class FeishuChannel(BaseChannel):
                 if hasattr(file_data, "read"):
                     file_data = file_data.read()
                 return file_data, response.file_name
-            else:
-                logger.error(
-                    "Failed to download image: code={}, msg={}", response.code, response.msg
-                )
-                return None, None
+            logger.error("Failed to download image: code={}, msg={}", response.code, response.msg)
+            return None, None
         except Exception as e:
             logger.error("Error downloading image {}: {}", image_key, e)
             return None, None
@@ -960,14 +949,13 @@ class FeishuChannel(BaseChannel):
                 if hasattr(file_data, "read"):
                     file_data = file_data.read()
                 return file_data, response.file_name
-            else:
-                logger.error(
-                    "Failed to download {}: code={}, msg={}",
-                    resource_type,
-                    response.code,
-                    response.msg,
-                )
-                return None, None
+            logger.error(
+                "Failed to download {}: code={}, msg={}",
+                resource_type,
+                response.code,
+                response.msg,
+            )
+            return None, None
         except Exception:
             logger.exception("Error downloading {} {}", resource_type, file_key)
             return None, None
@@ -1546,20 +1534,16 @@ class FeishuChannel(BaseChannel):
 
     def _on_reaction_created(self, data: Any) -> None:
         """Ignore reaction events so they do not generate SDK noise."""
-        pass
 
     def _on_reaction_deleted(self, data: Any) -> None:
         """Ignore reaction deleted events so they do not generate SDK noise."""
-        pass
 
     def _on_message_read(self, data: Any) -> None:
         """Ignore read events so they do not generate SDK noise."""
-        pass
 
     def _on_bot_p2p_chat_entered(self, data: Any) -> None:
         """Ignore p2p-enter events when a user opens a bot chat."""
         logger.debug("Bot entered p2p chat (user opened chat window)")
-        pass
 
     @staticmethod
     def _format_tool_hint_lines(tool_hint: str) -> str:

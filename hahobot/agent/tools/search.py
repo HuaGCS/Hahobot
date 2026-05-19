@@ -5,8 +5,9 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, TypeVar
+from typing import Any, TypeVar
 
 from hahobot.agent.tools.filesystem import ListDirTool, _FsTool
 

@@ -467,7 +467,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                         )
                         response_text = fallback
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return _error_json(504, f"Request timed out after {timeout_s}s")
             except Exception:
                 logger.exception("Error processing request for session {}", session_key)

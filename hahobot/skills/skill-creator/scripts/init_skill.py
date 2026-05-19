@@ -196,8 +196,7 @@ def normalize_skill_name(skill_name):
     normalized = skill_name.strip().lower()
     normalized = re.sub(r"[^a-z0-9]+", "-", normalized)
     normalized = normalized.strip("-")
-    normalized = re.sub(r"-{2,}", "-", normalized)
-    return normalized
+    return re.sub(r"-{2,}", "-", normalized)
 
 
 def title_case_skill_name(skill_name):

@@ -79,12 +79,12 @@ async def _cmd_compact(ctx: CommandContext):
 
 async def _cmd_stop_priority(ctx: CommandContext):
     await ctx.loop._handle_stop(ctx.msg)
-    return None
+    return
 
 
 async def _cmd_restart_priority(ctx: CommandContext):
     await ctx.loop._handle_restart(ctx.msg)
-    return None
+    return
 
 
 def build_agent_command_router() -> CommandRouter:

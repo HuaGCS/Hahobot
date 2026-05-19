@@ -769,7 +769,6 @@ def main(
     version: bool = typer.Option(None, "--version", "-v", callback=version_callback, is_eager=True),
 ):
     """hahobot - Personal AI Assistant."""
-    pass
 
 
 persona_app = typer.Typer(help="Manage personas")
@@ -1941,7 +1940,7 @@ def agent(
                                 metadata=msg.metadata,
                             )
 
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         continue
                     except asyncio.CancelledError:
                         break

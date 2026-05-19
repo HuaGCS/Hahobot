@@ -383,15 +383,12 @@ class WeixinChannel(BaseChannel):
                             user_id,
                         )
                         return True
-                    else:
-                        logger.error("Login confirmed but no bot_token in response")
-                        return False
-                elif status == "scaned_but_redirect":
+                    logger.error("Login confirmed but no bot_token in response")
+                    return False
+                if status == "scaned_but_redirect":
                     redirect_host = str(status_data.get("redirect_host", "") or "").strip()
                     if redirect_host:
-                        if redirect_host.startswith("http://") or redirect_host.startswith(
-                            "https://"
-                        ):
+                        if redirect_host.startswith(("http://", "https://")):
                             redirected_base = redirect_host
                         else:
                             redirected_base = f"https://{redirect_host}"

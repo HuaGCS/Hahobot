@@ -257,8 +257,7 @@ class ExternalHookBridge(AgentHook):
         return subprocess.run(
             self._command,
             input=encoded,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             cwd=self._cwd,
             env=env,
             shell=self._shell,

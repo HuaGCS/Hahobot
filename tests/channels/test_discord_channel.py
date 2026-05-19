@@ -21,7 +21,7 @@ from hahobot.command.builtin import build_help_text  # noqa: E402
 
 # Minimal Discord client test double used to control startup/readiness behavior.
 class _FakeDiscordClient:
-    instances: list["_FakeDiscordClient"] = []
+    instances: list[_FakeDiscordClient] = []
     start_error: Exception | None = None
 
     def __init__(self, owner, *, intents, proxy=None, proxy_auth=None) -> None:

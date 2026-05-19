@@ -84,7 +84,7 @@ class TestDeltaCoalescing:
                 channel = manager.channels.get(m.channel)
                 if channel:
                     await channel.send_delta(m.chat_id, m.content, m.metadata)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         await process_one()

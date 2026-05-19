@@ -35,7 +35,7 @@ class DispatchRuntimeManager:
         while self.loop._running:
             try:
                 msg = await asyncio.wait_for(self.loop.bus.consume_inbound(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self.loop.auto_compact.check_expired(
                     self.loop._schedule_background,
                     active_session_keys=self.active_session_keys(),

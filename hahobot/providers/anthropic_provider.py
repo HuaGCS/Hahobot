@@ -589,7 +589,7 @@ class AnthropicProvider(LLMProvider):
                     timeout=idle_timeout_s,
                 )
             return self._parse_response(response)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return LLMResponse(
                 content=(
                     f"Error calling LLM: stream stalled for more than {idle_timeout_s} seconds"

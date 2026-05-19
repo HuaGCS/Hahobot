@@ -533,6 +533,7 @@ class TelegramChannel(BaseChannel):
                     delay,
                 )
                 await asyncio.sleep(delay)
+        return None
 
     async def _send_text(
         self,
@@ -745,12 +746,11 @@ class TelegramChannel(BaseChannel):
 
         if bot_id and reply_user and getattr(reply_user, "id", None) == bot_id:
             return f"[Reply to bot: {text}]"
-        elif reply_user and getattr(reply_user, "username", None):
+        if reply_user and getattr(reply_user, "username", None):
             return f"[Reply to @{reply_user.username}: {text}]"
-        elif reply_user and getattr(reply_user, "first_name", None):
+        if reply_user and getattr(reply_user, "first_name", None):
             return f"[Reply to {reply_user.first_name}: {text}]"
-        else:
-            return f"[Reply to: {text}]"
+        return f"[Reply to: {text}]"
 
     async def _download_message_media(
         self, msg, *, add_failure_content: bool = False

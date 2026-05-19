@@ -104,7 +104,7 @@ class MCPToolWrapper(Tool):
                 self._session.call_tool(self._original_name, arguments=kwargs),
                 timeout=self._tool_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("MCP tool '{}' timed out after {}s", self._name, self._tool_timeout)
             return f"(MCP tool call timed out after {self._tool_timeout}s)"
         except asyncio.CancelledError:
@@ -173,7 +173,7 @@ class MCPResourceWrapper(Tool):
                 self._session.read_resource(self._uri),
                 timeout=self._resource_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "MCP resource '{}' timed out after {}s", self._name, self._resource_timeout
             )
@@ -259,7 +259,7 @@ class MCPPromptWrapper(Tool):
                 self._session.get_prompt(self._prompt_name, arguments=kwargs),
                 timeout=self._prompt_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("MCP prompt '{}' timed out after {}s", self._name, self._prompt_timeout)
             return f"(MCP prompt call timed out after {self._prompt_timeout}s)"
         except asyncio.CancelledError:
