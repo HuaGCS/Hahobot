@@ -23,7 +23,7 @@ def _make_messages(message_count: int = 30):
     ]
 
 
-def _make_tool_response(history_entry, memory_update):
+def _make_tool_response(history_entry, new_facts):
     """Create an LLMResponse with a save_memory tool call."""
     return LLMResponse(
         content=None,
@@ -33,7 +33,7 @@ def _make_tool_response(history_entry, memory_update):
                 name="save_memory",
                 arguments={
                     "history_entry": history_entry,
-                    "memory_update": memory_update,
+                    "new_facts": new_facts,
                 },
             )
         ],
@@ -67,7 +67,7 @@ class TestMemoryConsolidationTypeHandling:
         provider.chat = AsyncMock(
             return_value=_make_tool_response(
                 history_entry="[2026-01-01] User discussed testing.",
-                memory_update="# Memory\nUser likes testing.",
+                new_facts="# Memory\nUser likes testing.",
             )
         )
         provider.chat_with_retry = provider.chat
@@ -88,7 +88,7 @@ class TestMemoryConsolidationTypeHandling:
         provider.chat = AsyncMock(
             return_value=_make_tool_response(
                 history_entry={"timestamp": "2026-01-01", "summary": "User discussed testing."},
-                memory_update={"facts": ["User likes testing"], "topics": ["testing"]},
+                new_facts={"facts": ["User likes testing"], "topics": ["testing"]},
             )
         )
         provider.chat_with_retry = provider.chat
@@ -121,7 +121,7 @@ class TestMemoryConsolidationTypeHandling:
                     name="save_memory",
                     arguments=json.dumps({
                         "history_entry": "[2026-01-01] User discussed testing.",
-                        "memory_update": "# Memory\nUser likes testing.",
+                        "new_facts": "# Memory\nUser likes testing.",
                     }),
                 )
             ],
@@ -179,7 +179,7 @@ class TestMemoryConsolidationTypeHandling:
                     name="save_memory",
                     arguments=[{
                         "history_entry": "[2026-01-01] User discussed testing.",
-                        "memory_update": "# Memory\nUser likes testing.",
+                        "new_facts": "# Memory\nUser likes testing.",
                     }],
                 )
             ],
@@ -249,7 +249,7 @@ class TestMemoryConsolidationTypeHandling:
             LLMResponse(content="503 server error", finish_reason="error"),
             _make_tool_response(
                 history_entry="[2026-01-01] User discussed testing.",
-                memory_update="# Memory\nUser likes testing.",
+                new_facts="# Memory\nUser likes testing.",
             ),
         ])
         messages = _make_messages(message_count=60)
@@ -274,7 +274,7 @@ class TestMemoryConsolidationTypeHandling:
         provider.chat_with_retry = AsyncMock(
             return_value=_make_tool_response(
                 history_entry="[2026-01-01] User discussed testing.",
-                memory_update="# Memory\nUser likes testing.",
+                new_facts="# Memory\nUser likes testing.",
             )
         )
         messages = _make_messages(message_count=60)
@@ -301,7 +301,7 @@ class TestMemoryConsolidationTypeHandling:
         )
         ok_resp = _make_tool_response(
             history_entry="[2026-01-01] Fallback worked.",
-            memory_update="# Memory\nFallback OK.",
+            new_facts="# Memory\nFallback OK.",
         )
 
         call_log: list[dict] = []

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import json
+import os
 import re
 import weakref
 from datetime import datetime
@@ -49,13 +50,15 @@ _SAVE_MEMORY_TOOL = [
                         "description": "A paragraph summarizing key events/decisions/topics. "
                         "Start with [YYYY-MM-DD HH:MM]. Include detail useful for grep search.",
                     },
-                    "memory_update": {
+                    "new_facts": {
                         "type": "string",
-                        "description": "Full updated long-term memory as markdown. Include all existing "
-                        "facts plus new ones. Return unchanged if nothing new.",
+                        "description": "Only durable facts newly learned in this conversation, as "
+                        "short markdown bullets — or an empty string if nothing new. Do NOT restate "
+                        "or rewrite existing memory; deduplication and cleanup happen later during "
+                        "Dream reflection.",
                     },
                 },
-                "required": ["history_entry", "memory_update"],
+                "required": ["history_entry"],
             },
         },
     }
@@ -86,12 +89,20 @@ _TOOL_CHOICE_ERROR_MARKERS = (
 _RAW_ARCHIVE_MAX_CHARS = 16_000
 _ARCHIVE_SUMMARY_MAX_CHARS = 8_000
 _HISTORY_ENTRY_HARD_CAP = 64_000
+_MEMORY_APPEND_MAX_CHARS = 4_000
 
 
 def _is_tool_choice_unsupported(content: str | None) -> bool:
     """Detect provider errors caused by forced tool_choice being unsupported."""
     text = (content or "").lower()
     return any(marker in text for marker in _TOOL_CHOICE_ERROR_MARKERS)
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write *content* to *path* atomically: write a temp sibling, then os.replace."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 # ---------------------------------------------------------------------------
@@ -273,15 +284,31 @@ class MemoryStore:
         return self.read_file(self.memory_file)
 
     def write_memory(self, content: str) -> None:
-        self.memory_file.write_text(content, encoding="utf-8")
+        _atomic_write_text(self.memory_file, content)
+
+    def append_memory(self, fragment: str, *, max_chars: int = _MEMORY_APPEND_MAX_CHARS) -> None:
+        """Append newly learned facts to MEMORY.md.
+
+        Append-only by design: a malformed or truncated consolidation can never
+        overwrite existing memory. Deduplication and compaction are left to Dream
+        reflection, which edits the file incrementally.
+        """
+        fragment = strip_private_text(fragment.strip())
+        if not fragment:
+            return
+        if len(fragment) > max_chars:
+            logger.warning(
+                "Memory append fragment exceeded {} chars ({}); truncating",
+                max_chars, len(fragment),
+            )
+            fragment = truncate_text(fragment, max_chars)
+        current = self.read_memory().rstrip()
+        combined = (current + "\n\n" + fragment + "\n") if current else (fragment + "\n")
+        self.write_memory(combined)
 
     def read_long_term(self) -> str:
         """Backward-compatible alias for older callers."""
         return self.read_memory()
-
-    def write_long_term(self, content: str) -> None:
-        """Backward-compatible alias for older callers."""
-        self.write_memory(content)
 
     # -- SOUL.md -------------------------------------------------------------
 
@@ -458,6 +485,10 @@ class MemoryStore:
         current_memory = self.read_long_term()
         prompt = f"""Process this conversation and call the save_memory tool with your consolidation.
 
+Write `history_entry` summarizing what happened. In `new_facts`, list ONLY durable facts newly
+learned in this conversation that are not already in current memory below — leave it empty if
+there is nothing new. Do not restate or rewrite existing memory.
+
 ## Current Long-term Memory
 {current_memory or "(empty)"}
 
@@ -504,15 +535,13 @@ class MemoryStore:
                 logger.warning("Memory consolidation: unexpected save_memory arguments")
                 return self._fail_or_raw_archive(messages, on_archive=on_archive)
 
-            if "history_entry" not in args or "memory_update" not in args:
-                logger.warning("Memory consolidation: save_memory payload missing required fields")
+            if "history_entry" not in args:
+                logger.warning("Memory consolidation: save_memory payload missing history_entry")
                 return self._fail_or_raw_archive(messages, on_archive=on_archive)
 
             entry = args["history_entry"]
-            update = args["memory_update"]
-
-            if entry is None or update is None:
-                logger.warning("Memory consolidation: save_memory payload contains null required fields")
+            if entry is None:
+                logger.warning("Memory consolidation: save_memory payload has null history_entry")
                 return self._fail_or_raw_archive(messages, on_archive=on_archive)
 
             entry = _ensure_text(entry).strip()
@@ -521,15 +550,15 @@ class MemoryStore:
                 return self._fail_or_raw_archive(messages, on_archive=on_archive)
 
             self.append_history(entry, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
-            update = _ensure_text(update)
-            if update != current_memory:
-                self.write_long_term(update)
+            new_facts = _ensure_text(args.get("new_facts") or "").strip()
+            if new_facts:
+                self.append_memory(new_facts)
             if on_archive is not None:
                 try:
                     on_archive(
                         {
                             "history_entry": entry,
-                            "memory_update": update,
+                            "new_facts": new_facts,
                             "raw_archive": False,
                         }
                     )
@@ -576,7 +605,7 @@ class MemoryStore:
                 on_archive(
                     {
                         "history_entry": entry,
-                        "memory_update": self.read_long_term(),
+                        "new_facts": "",
                         "raw_archive": True,
                     }
                 )
