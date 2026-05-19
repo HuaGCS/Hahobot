@@ -482,13 +482,13 @@ async def test_github_copilot_provider_refreshes_client_api_key_before_chat():
     )
 
     with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI", return_value=mock_client):
-        provider = GitHubCopilotProvider(default_model="github-copilot/gpt-5.1")
+        provider = GitHubCopilotProvider(default_model="github-copilot/gpt-4o")
 
     provider._get_copilot_access_token = AsyncMock(return_value="copilot-access-token")
 
     response = await provider.chat(
         messages=[{"role": "user", "content": "hi"}],
-        model="github-copilot/gpt-5.1",
+        model="github-copilot/gpt-4o",
         max_tokens=16,
         temperature=0.1,
     )
