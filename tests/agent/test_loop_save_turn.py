@@ -366,13 +366,15 @@ async def test_process_system_subagent_persists_followup_without_prompt_duplicat
     assistant_messages = [
         message
         for message in captured["messages"]
-        if message.get("role") == "assistant" and message.get("content") == "background task"
+        # Prompt history is timestamp-annotated, so match on substring.
+        if message.get("role") == "assistant"
+        and "background task" in str(message.get("content") or "")
     ]
     assert len(assistant_messages) == 1
     user_messages = [
         message
         for message in captured["messages"]
-        if message.get("role") == "user" and message.get("content") == "background task"
+        if message.get("role") == "user" and "background task" in str(message.get("content") or "")
     ]
     assert user_messages == []
 
@@ -434,7 +436,9 @@ async def test_process_system_subagent_followup_dedupes_same_task_id(tmp_path: P
     assistant_messages = [
         message
         for message in captured["messages"]
-        if message.get("role") == "assistant" and message.get("content") == "background task"
+        # Prompt history is timestamp-annotated, so match on substring.
+        if message.get("role") == "assistant"
+        and "background task" in str(message.get("content") or "")
     ]
     assert len(assistant_messages) == 1
 

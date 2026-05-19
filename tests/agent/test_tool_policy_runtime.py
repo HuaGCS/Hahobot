@@ -235,7 +235,7 @@ def test_set_tool_context_updates_message_history_and_image_tools(tmp_path) -> N
 
     loop._set_tool_context("telegram/main", "chat-1", "msg-1", "alice", "unified:default")
 
-    assert message_tool.calls == [("telegram/main", "chat-1", "msg-1")]
+    assert message_tool.calls == [("telegram/main", "chat-1", "msg-1", "unified:default")]
     assert spawn_tool.calls == [("telegram/main", "chat-1", "unified:default")]
     assert cron_tool.calls == [("telegram/main", "chat-1")]
     assert history_search_tool.calls == [("telegram/main", "chat-1", "alice")]
