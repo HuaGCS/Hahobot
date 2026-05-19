@@ -161,7 +161,9 @@ async def test_gateway_status_route_returns_404_when_disabled(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
-async def test_gateway_status_route_returns_tracker_snapshot_and_requires_auth(tmp_path: Path) -> None:
+async def test_gateway_status_route_returns_tracker_snapshot_and_requires_auth(
+    tmp_path: Path,
+) -> None:
     from hahobot.star_office import StarOfficeStatusTracker
 
     config_path = tmp_path / "config.json"
@@ -280,7 +282,9 @@ async def test_gateway_status_route_renders_html_status_page_for_browser_request
 
 
 @pytest.mark.asyncio
-async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(tmp_path: Path) -> None:
+async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
+    tmp_path: Path,
+) -> None:
     config_path = tmp_path / "config.json"
     workspace = tmp_path / "workspace"
     config = Config()
@@ -375,9 +379,9 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert 'name="tools_exec_sandbox"' in config_page.text
     assert 'data-provider-group="openrouter"' in config_page.text
     assert 'data-provider-group="custom"' in config_page.text
-    assert 'data-provider-pool-editor' in config_page.text
-    assert 'data-provider-pool-move-up' in config_page.text
-    assert 'data-provider-pool-move-down' in config_page.text
+    assert "data-provider-pool-editor" in config_page.text
+    assert "data-provider-pool-move-up" in config_page.text
+    assert "data-provider-pool-move-down" in config_page.text
     assert 'name="memory_user_backend"' in config_page.text
     assert 'name="memory_user_mem0_llm_api_key"' in config_page.text
     assert 'name="memory_user_mem0_llm_headers"' in config_page.text
@@ -393,8 +397,13 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert "Shell 执行" in config_page.text
     assert "可热重载" in config_page.text
     assert "需重启" in config_page.text
-    assert 'agents.defaults.workspace</span><span class="pill hot">可热重载</span>' in config_page.text
-    assert 'agents.defaults.provider</span><span class="pill restart">需重启</span>' in config_page.text
+    assert (
+        'agents.defaults.workspace</span><span class="pill hot">可热重载</span>' in config_page.text
+    )
+    assert (
+        'agents.defaults.provider</span><span class="pill restart">需重启</span>'
+        in config_page.text
+    )
     assert "color-scheme: light dark" in config_page.text
     assert "@media (prefers-color-scheme: dark)" in config_page.text
 
@@ -415,7 +424,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert "/skill update" in commands_page.text
     assert "/restart" in commands_page.text
     assert "/update" in commands_page.text
-    assert 'data-command-browser' in commands_page.text
+    assert "data-command-browser" in commands_page.text
     assert 'data-command-target="command-help"' in commands_page.text
     assert 'data-command-panel="command-help"' in commands_page.text
 
@@ -537,9 +546,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(t
     assert saved["memory"]["user"]["mem0"]["vectorStore"]["provider"] == "qdrant"
     assert saved["memory"]["user"]["mem0"]["vectorStore"]["apiKey"] == "mem0-vs-key"
     assert saved["memory"]["user"]["mem0"]["vectorStore"]["url"] == "https://qdrant.mem0.ai"
-    assert saved["memory"]["user"]["mem0"]["vectorStore"]["headers"] == {
-        "api-key": "vector-header"
-    }
+    assert saved["memory"]["user"]["mem0"]["vectorStore"]["headers"] == {"api-key": "vector-header"}
     assert saved["memory"]["user"]["mem0"]["vectorStore"]["config"] == {
         "collectionName": "hahobot_user_memory"
     }
@@ -769,8 +776,8 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
     assert 'data-channel-group="weixin"' in config_page.text
     assert 'name="channels_telegram_token"' in config_page.text
     assert 'name="channels_weixin_allow_from"' in config_page.text
-    assert 'data-provider-pool-move-up' in config_page.text
-    assert 'data-provider-pool-move-down' in config_page.text
+    assert "data-provider-pool-move-up" in config_page.text
+    assert "data-provider-pool-move-down" in config_page.text
     assert 'name="memory_user_backend"' in config_page.text
     assert "Mem0 User Memory" in config_page.text
     assert 'name="memory_user_mem0_llm_api_key"' in config_page.text
@@ -780,8 +787,14 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
     assert 'name="tools_mcp_memorix_enabled"' in config_page.text
     assert "Hot reload" in config_page.text
     assert "Requires restart" in config_page.text
-    assert 'agents.defaults.workspace</span><span class="pill hot">Hot reload</span>' in config_page.text
-    assert 'agents.defaults.provider</span><span class="pill restart">Requires restart</span>' in config_page.text
+    assert (
+        'agents.defaults.workspace</span><span class="pill hot">Hot reload</span>'
+        in config_page.text
+    )
+    assert (
+        'agents.defaults.provider</span><span class="pill restart">Requires restart</span>'
+        in config_page.text
+    )
 
     commands_page = await _call_route(
         app,
@@ -795,7 +808,7 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
     assert "/language" in commands_page.text
     assert "/mcp list" in commands_page.text
     assert "Supported forms" in commands_page.text
-    assert 'data-command-browser' in commands_page.text
+    assert "data-command-browser" in commands_page.text
     assert 'data-command-target="command-help"' in commands_page.text
     assert 'data-command-panel="command-help"' in commands_page.text
 
@@ -1193,8 +1206,8 @@ async def test_gateway_admin_weixin_login_page_starts_and_renders_pending_sessio
     async def _fake_advance(_request, session):
         return session
 
-    monkeypatch.setattr(admin_mod, "_start_weixin_login_session", _fake_start)
-    monkeypatch.setattr(admin_mod, "_advance_weixin_login_session", _fake_advance)
+    monkeypatch.setattr(admin_mod.weixin, "_start_weixin_login_session", _fake_start)
+    monkeypatch.setattr(admin_mod.weixin, "_advance_weixin_login_session", _fake_advance)
 
     app = create_http_app(config_path=config_path, workspace=workspace)
     login = await _call_route(
@@ -1249,7 +1262,7 @@ async def test_gateway_admin_weixin_login_page_handles_confirm_and_cancel(
         session.user_id = "wx-user"
         return session
 
-    monkeypatch.setattr(admin_mod, "_advance_weixin_login_session", _fake_advance)
+    monkeypatch.setattr(admin_mod.weixin, "_advance_weixin_login_session", _fake_advance)
 
     app = create_http_app(config_path=config_path, workspace=workspace)
     app[admin_mod._ADMIN_WEIXIN_LOGIN_SESSIONS_KEY] = {
@@ -1375,7 +1388,9 @@ async def test_gateway_admin_persona_editor_updates_files(tmp_path: Path) -> Non
     assert save_resp.headers["Location"] == "/admin/personas/Aria?saved=updated"
 
     persona_dir = workspace / "personas" / "Aria"
-    assert (persona_dir / "SOUL.md").read_text(encoding="utf-8") == "# Soul\n\nCalm and observant.\n"
+    assert (persona_dir / "SOUL.md").read_text(
+        encoding="utf-8"
+    ) == "# Soul\n\nCalm and observant.\n"
     assert (persona_dir / "USER.md").read_text(encoding="utf-8") == "# User\n\nStay close.\n"
     assert (persona_dir / "PROFILE.md").read_text(encoding="utf-8") == (
         "# Profile\n\nPrefers concise technical collaboration.\n"
@@ -1385,7 +1400,9 @@ async def test_gateway_admin_persona_editor_updates_files(tmp_path: Path) -> Non
     )
     assert (persona_dir / "STYLE.md").read_text(encoding="utf-8") == "# Style\n\nShort replies.\n"
     assert not (persona_dir / "LORE.md").exists()
-    assert json.loads((persona_dir / "VOICE.json").read_text(encoding="utf-8"))["provider"] == "edge"
+    assert (
+        json.loads((persona_dir / "VOICE.json").read_text(encoding="utf-8"))["provider"] == "edge"
+    )
     manifest_path = persona_dir / ".hahobot" / "st_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["reference_image"] == "assets/avatar.png"
@@ -1400,7 +1417,9 @@ async def test_gateway_admin_persona_editor_updates_files(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_gateway_admin_persona_scene_editor_shows_validation_error_and_preserves_input(tmp_path: Path) -> None:
+async def test_gateway_admin_persona_scene_editor_shows_validation_error_and_preserves_input(
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "workspace"
     config_path = tmp_path / "config.json"
 
@@ -1728,7 +1747,9 @@ async def test_gateway_admin_persona_migrates_legacy_user_md(tmp_path: Path) -> 
         cookies={"hahobot_admin_session": cookie},
     )
     assert migrate_resp.status == 302
-    assert migrate_resp.headers["Location"] == "/admin/personas/Aria?migrated=1&profile=2&insights=1"
+    assert (
+        migrate_resp.headers["Location"] == "/admin/personas/Aria?migrated=1&profile=2&insights=1"
+    )
 
     assert (persona_dir / "PROFILE.md").read_text(encoding="utf-8") == (
         "# Profile\n\n"
@@ -1741,12 +1762,10 @@ async def test_gateway_admin_persona_migrates_legacy_user_md(tmp_path: Path) -> 
         "- [x] Technical\n"
     )
     assert (persona_dir / "INSIGHTS.md").read_text(encoding="utf-8") == (
-        "## Special Instructions\n\n"
-        "- Prefer short iterative review loops.\n"
+        "## Special Instructions\n\n- Prefer short iterative review loops.\n"
     )
     assert (persona_dir / "USER.md").read_text(encoding="utf-8") == (
-        "# Relationship\n\n"
-        "- Stay collaborative.\n"
+        "# Relationship\n\n- Stay collaborative.\n"
     )
 
     migrated_page = await _call_route(

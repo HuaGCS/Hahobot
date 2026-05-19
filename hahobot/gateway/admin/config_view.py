@@ -1,0 +1,1261 @@
+"""Visual configuration editor pages and form parsing."""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Awaitable, Callable
+from html import escape
+from typing import Any
+from urllib.parse import urlsplit
+
+from aiohttp import web
+
+from hahobot.config.loader import _migrate_config, load_config
+from hahobot.config.schema import Config
+from hahobot.gateway.admin.base import (
+    _current_config_path,
+    _load_current_config,
+    _load_raw_config_data,
+    _markup,
+    _page,
+    _pretty_json,
+    _redirect,
+    _require_admin_auth,
+    _save_raw_config_data,
+    _t,
+    _th,
+)
+from hahobot.gateway.admin.constants import (
+    _ADMIN_RELOAD_RUNTIME_KEY,
+    _MEMORIX_MCP_DEFAULT_ARGS,
+    _MEMORIX_MCP_DEFAULT_COMMAND,
+    _MEMORIX_MCP_DEFAULT_TIMEOUT,
+    _MEMORIX_MCP_SERVER_NAME,
+)
+from hahobot.gateway.admin.field_specs import (
+    _BLANK_AS_NONE_FIELDS,
+    _CHANNEL_CONFIG_FIELD_TO_GROUP,
+    _CHANNEL_CONFIG_GROUPS,
+    _CHANNEL_GROUP_SUMMARY_URL_FIELDS,
+    _CONFIG_FIELD_MAP,
+    _CONFIG_FIELDS,
+    _CONFIG_SECTIONS,
+    _MEMORIX_CONFIG_FIELD_NAMES,
+    _PROVIDER_CONFIG_GROUPS,
+    _PROVIDER_POOL_CONFIG_FIELD_NAMES,
+    ConfigFieldSpec,
+)
+
+
+def _snake_case_key(name: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def _resolve_nested_key(data: dict[str, Any], segment: str) -> str:
+    if segment in data:
+        return segment
+    snake = _snake_case_key(segment)
+    if snake in data:
+        return snake
+    return segment
+
+
+def _set_nested_value(data: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
+    node = data
+    for segment in path[:-1]:
+        key = _resolve_nested_key(node, segment)
+        child = node.get(key)
+        if not isinstance(child, dict):
+            child = {}
+            node[key] = child
+        node = child
+    node[_resolve_nested_key(node, path[-1])] = value
+
+
+def _config_form_values(config: Config) -> dict[str, Any]:
+    voice = config.channels.voice_reply
+    memorix = config.tools.mcp_servers.get(_MEMORIX_MCP_SERVER_NAME)
+    provider_pool = config.agents.defaults.provider_pool
+    memorix_args = (
+        list(memorix.args) if memorix and memorix.args else list(_MEMORIX_MCP_DEFAULT_ARGS)
+    )
+    channel_group_modes: dict[str, str] = {}
+    channel_group_enabled: dict[str, bool] = {}
+    channel_group_instances: dict[str, int] = {}
+    channel_values: dict[str, Any] = {}
+    for _, _, _, field_names in _CHANNEL_CONFIG_GROUPS:
+        for field_name in field_names:
+            field = _CONFIG_FIELD_MAP[field_name]
+            channel_values[field_name] = False if field.kind == "bool" else ""
+
+    for group_key, _, _, _ in _CHANNEL_CONFIG_GROUPS:
+        channel_config = getattr(config.channels, group_key)
+        is_multi = hasattr(channel_config, "instances")
+        channel_group_modes[group_key] = "multi" if is_multi else "single"
+        channel_group_enabled[group_key] = bool(getattr(channel_config, "enabled", False))
+        channel_group_instances[group_key] = (
+            len(getattr(channel_config, "instances", [])) if is_multi else 0
+        )
+        if is_multi:
+            continue
+        if group_key == "whatsapp":
+            channel_values.update(
+                {
+                    "channels_whatsapp_enabled": channel_config.enabled,
+                    "channels_whatsapp_bridge_url": channel_config.bridge_url,
+                    "channels_whatsapp_bridge_token": channel_config.bridge_token,
+                }
+            )
+        elif group_key == "telegram":
+            channel_values.update(
+                {
+                    "channels_telegram_enabled": channel_config.enabled,
+                    "channels_telegram_token": channel_config.token,
+                    "channels_telegram_proxy": channel_config.proxy or "",
+                    "channels_telegram_stream_edit_interval": str(
+                        channel_config.stream_edit_interval
+                    ),
+                }
+            )
+        elif group_key == "discord":
+            channel_values.update(
+                {
+                    "channels_discord_enabled": channel_config.enabled,
+                    "channels_discord_token": channel_config.token,
+                    "channels_discord_gateway_url": channel_config.gateway_url,
+                    "channels_discord_intents": str(channel_config.intents),
+                    "channels_discord_proxy": channel_config.proxy or "",
+                    "channels_discord_proxy_username": channel_config.proxy_username or "",
+                    "channels_discord_proxy_password": channel_config.proxy_password or "",
+                    "channels_discord_streaming": channel_config.streaming,
+                    "channels_discord_read_receipt_emoji": channel_config.read_receipt_emoji,
+                    "channels_discord_working_emoji": channel_config.working_emoji,
+                    "channels_discord_working_emoji_delay": str(channel_config.working_emoji_delay),
+                }
+            )
+        elif group_key == "feishu":
+            channel_values.update(
+                {
+                    "channels_feishu_enabled": channel_config.enabled,
+                    "channels_feishu_app_id": channel_config.app_id,
+                    "channels_feishu_app_secret": channel_config.app_secret,
+                    "channels_feishu_encrypt_key": channel_config.encrypt_key,
+                    "channels_feishu_verification_token": channel_config.verification_token,
+                }
+            )
+        elif group_key == "dingtalk":
+            channel_values.update(
+                {
+                    "channels_dingtalk_enabled": channel_config.enabled,
+                    "channels_dingtalk_client_id": channel_config.client_id,
+                    "channels_dingtalk_client_secret": channel_config.client_secret,
+                }
+            )
+        elif group_key == "slack":
+            channel_values.update(
+                {
+                    "channels_slack_enabled": channel_config.enabled,
+                    "channels_slack_bot_token": channel_config.bot_token,
+                    "channels_slack_app_token": channel_config.app_token,
+                }
+            )
+        elif group_key == "qq":
+            channel_values.update(
+                {
+                    "channels_qq_enabled": channel_config.enabled,
+                    "channels_qq_app_id": channel_config.app_id,
+                    "channels_qq_secret": channel_config.secret,
+                }
+            )
+        elif group_key == "matrix":
+            channel_values.update(
+                {
+                    "channels_matrix_enabled": channel_config.enabled,
+                    "channels_matrix_homeserver": channel_config.homeserver,
+                    "channels_matrix_access_token": channel_config.access_token,
+                    "channels_matrix_user_id": channel_config.user_id,
+                    "channels_matrix_device_id": channel_config.device_id,
+                }
+            )
+        elif group_key == "weixin":
+            channel_values.update(
+                {
+                    "channels_weixin_enabled": channel_config.enabled,
+                    "channels_weixin_allow_from": ", ".join(channel_config.allow_from),
+                    "channels_weixin_token": channel_config.token,
+                    "channels_weixin_route_tag": (
+                        "" if channel_config.route_tag is None else str(channel_config.route_tag)
+                    ),
+                    "channels_weixin_state_dir": channel_config.state_dir or "",
+                    "channels_weixin_poll_timeout": str(channel_config.poll_timeout),
+                }
+            )
+        elif group_key == "wecom":
+            channel_values.update(
+                {
+                    "channels_wecom_enabled": channel_config.enabled,
+                    "channels_wecom_bot_id": channel_config.bot_id,
+                    "channels_wecom_secret": channel_config.secret,
+                }
+            )
+
+    return {
+        "agents_defaults_workspace": config.agents.defaults.workspace,
+        "agents_defaults_model": config.agents.defaults.model,
+        "agents_defaults_provider": config.agents.defaults.provider,
+        "agents_defaults_provider_pool_strategy": (
+            provider_pool.strategy if provider_pool and provider_pool.targets else "failover"
+        ),
+        "agents_defaults_provider_pool_targets": [
+            target.model_dump(mode="json", by_alias=True)
+            for target in (provider_pool.targets if provider_pool else [])
+        ],
+        "agents_defaults_max_tokens": str(config.agents.defaults.max_tokens),
+        "agents_defaults_context_window_tokens": str(config.agents.defaults.context_window_tokens),
+        "agents_defaults_temperature": str(config.agents.defaults.temperature),
+        "agents_defaults_max_tool_iterations": str(config.agents.defaults.max_tool_iterations),
+        "agents_defaults_tool_hint_max_length": str(config.agents.defaults.tool_hint_max_length),
+        "agents_defaults_reasoning_effort": config.agents.defaults.reasoning_effort or "",
+        "agents_defaults_timezone": config.agents.defaults.timezone,
+        "providers_openrouter_api_key": config.providers.openrouter.api_key,
+        "providers_openrouter_api_base": config.providers.openrouter.api_base or "",
+        "providers_openai_api_key": config.providers.openai.api_key,
+        "providers_openai_api_base": config.providers.openai.api_base or "",
+        "providers_anthropic_api_key": config.providers.anthropic.api_key,
+        "providers_anthropic_api_base": config.providers.anthropic.api_base or "",
+        "providers_deepseek_api_key": config.providers.deepseek.api_key,
+        "providers_deepseek_api_base": config.providers.deepseek.api_base or "",
+        "providers_custom_api_key": config.providers.custom.api_key,
+        "providers_custom_api_base": config.providers.custom.api_base or "",
+        "providers_custom_extra_headers": _pretty_json(config.providers.custom.extra_headers or {}),
+        "providers_ollama_api_base": config.providers.ollama.api_base or "",
+        "providers_vllm_api_base": config.providers.vllm.api_base or "",
+        "gateway_host": config.gateway.host,
+        "gateway_port": str(config.gateway.port),
+        "gateway_heartbeat_enabled": config.gateway.heartbeat.enabled,
+        "gateway_heartbeat_interval_s": str(config.gateway.heartbeat.interval_s),
+        "gateway_heartbeat_keep_recent_messages": str(
+            config.gateway.heartbeat.keep_recent_messages
+        ),
+        "gateway_cron_max_sleep_ms": str(config.gateway.cron.max_sleep_ms),
+        "gateway_admin_enabled": config.gateway.admin.enabled,
+        "gateway_admin_auth_key": config.gateway.admin.auth_key,
+        "gateway_status_enabled": config.gateway.status.enabled,
+        "gateway_status_auth_key": config.gateway.status.auth_key,
+        "gateway_status_push_enabled": config.gateway.status.push.enabled,
+        "gateway_status_push_mode": config.gateway.status.push.mode,
+        "gateway_status_push_office_url": config.gateway.status.push.office_url,
+        "gateway_status_push_join_key": config.gateway.status.push.join_key,
+        "gateway_status_push_agent_name": config.gateway.status.push.agent_name,
+        "gateway_status_push_timeout": str(config.gateway.status.push.timeout),
+        **channel_values,
+        "__channel_group_modes": channel_group_modes,
+        "__channel_group_enabled": channel_group_enabled,
+        "__channel_group_instances": channel_group_instances,
+        "tools_restrict_to_workspace": config.tools.restrict_to_workspace,
+        "tools_web_proxy": config.tools.web.proxy or "",
+        "tools_web_search_provider": config.tools.web.search.provider,
+        "tools_web_search_api_key": config.tools.web.search.api_key,
+        "tools_web_search_base_url": config.tools.web.search.base_url,
+        "tools_web_search_max_results": str(config.tools.web.search.max_results),
+        "tools_exec_enable": config.tools.exec.enable,
+        "tools_exec_timeout": str(config.tools.exec.timeout),
+        "tools_exec_path_append": config.tools.exec.path_append,
+        "tools_exec_allowed_env_keys": ", ".join(config.tools.exec.allowed_env_keys),
+        "tools_exec_sandbox": config.tools.exec.sandbox,
+        "tools_image_gen_enabled": config.tools.image_gen.enabled,
+        "tools_image_gen_api_key": config.tools.image_gen.api_key,
+        "tools_image_gen_base_url": config.tools.image_gen.base_url,
+        "tools_image_gen_model": config.tools.image_gen.model,
+        "tools_image_gen_proxy": config.tools.image_gen.proxy or "",
+        "tools_image_gen_timeout": str(config.tools.image_gen.timeout),
+        "tools_image_gen_reference_image": config.tools.image_gen.reference_image,
+        "memory_user_backend": config.memory.user.backend,
+        "memory_user_shadow_write_mem0": config.memory.user.shadow_write_mem0,
+        "memory_user_mem0_mode": config.memory.user.mem0.mode,
+        "memory_user_mem0_llm_provider": config.memory.user.mem0.llm.provider,
+        "memory_user_mem0_llm_api_key": config.memory.user.mem0.llm.api_key,
+        "memory_user_mem0_llm_url": config.memory.user.mem0.llm.url,
+        "memory_user_mem0_llm_model": config.memory.user.mem0.llm.model,
+        "memory_user_mem0_llm_headers": _pretty_json(config.memory.user.mem0.llm.headers),
+        "memory_user_mem0_llm_config": _pretty_json(config.memory.user.mem0.llm.config),
+        "memory_user_mem0_embedder_provider": config.memory.user.mem0.embedder.provider,
+        "memory_user_mem0_embedder_api_key": config.memory.user.mem0.embedder.api_key,
+        "memory_user_mem0_embedder_url": config.memory.user.mem0.embedder.url,
+        "memory_user_mem0_embedder_model": config.memory.user.mem0.embedder.model,
+        "memory_user_mem0_embedder_headers": _pretty_json(config.memory.user.mem0.embedder.headers),
+        "memory_user_mem0_embedder_config": _pretty_json(config.memory.user.mem0.embedder.config),
+        "memory_user_mem0_vector_store_provider": config.memory.user.mem0.vector_store.provider,
+        "memory_user_mem0_vector_store_api_key": config.memory.user.mem0.vector_store.api_key,
+        "memory_user_mem0_vector_store_url": config.memory.user.mem0.vector_store.url,
+        "memory_user_mem0_vector_store_model": config.memory.user.mem0.vector_store.model,
+        "memory_user_mem0_vector_store_headers": _pretty_json(
+            config.memory.user.mem0.vector_store.headers
+        ),
+        "memory_user_mem0_vector_store_config": _pretty_json(
+            config.memory.user.mem0.vector_store.config
+        ),
+        "memory_user_mem0_metadata": _pretty_json(config.memory.user.mem0.metadata),
+        "tools_mcp_memorix_enabled": memorix is not None,
+        "tools_mcp_memorix_type": memorix.type if memorix and memorix.type else "",
+        "tools_mcp_memorix_command": (
+            memorix.command if memorix and memorix.command else _MEMORIX_MCP_DEFAULT_COMMAND
+        ),
+        "tools_mcp_memorix_args": ", ".join(memorix_args),
+        "tools_mcp_memorix_url": memorix.url if memorix else "",
+        "tools_mcp_memorix_tool_timeout": str(
+            memorix.tool_timeout if memorix else _MEMORIX_MCP_DEFAULT_TIMEOUT
+        ),
+        "channels_send_progress": config.channels.send_progress,
+        "channels_send_tool_hints": config.channels.send_tool_hints,
+        "channels_send_max_retries": str(config.channels.send_max_retries),
+        "channels_transcription_provider": config.channels.transcription_provider,
+        "channels_transcription_language": config.channels.transcription_language or "",
+        "channels_voice_reply_enabled": voice.enabled,
+        "channels_voice_reply_channels": ", ".join(voice.channels),
+        "channels_voice_reply_provider": voice.provider,
+        "channels_voice_reply_model": voice.model,
+        "channels_voice_reply_voice": voice.voice,
+        "channels_voice_reply_instructions": voice.instructions,
+        "channels_voice_reply_speed": "" if voice.speed is None else str(voice.speed),
+        "channels_voice_reply_response_format": voice.response_format,
+        "channels_voice_reply_api_key": voice.api_key,
+        "channels_voice_reply_api_base": voice.api_base,
+        "channels_voice_reply_edge_voice": voice.edge_voice,
+        "channels_voice_reply_edge_rate": voice.edge_rate,
+        "channels_voice_reply_edge_volume": voice.edge_volume,
+        "channels_voice_reply_sovits_api_url": voice.sovits_api_url,
+        "channels_voice_reply_sovits_refer_wav_path": voice.sovits_refer_wav_path,
+        "channels_voice_reply_sovits_prompt_text": voice.sovits_prompt_text,
+        "channels_voice_reply_sovits_prompt_language": voice.sovits_prompt_language,
+        "channels_voice_reply_sovits_text_language": voice.sovits_text_language,
+        "channels_voice_reply_sovits_cut_punc": voice.sovits_cut_punc,
+        "channels_voice_reply_sovits_top_k": str(voice.sovits_top_k),
+        "channels_voice_reply_sovits_top_p": str(voice.sovits_top_p),
+        "channels_voice_reply_sovits_temperature": str(voice.sovits_temperature),
+    }
+
+
+def _extract_visual_values(
+    form: Any,
+    *,
+    baseline: dict[str, Any],
+) -> dict[str, Any]:
+    values = dict(baseline)
+    bool_fields = {str(value) for value in form.getall("__bool_fields", [])}
+    for field in _CONFIG_FIELDS:
+        if field.kind == "bool":
+            if field.name in bool_fields:
+                values[field.name] = str(form.get(field.name, "")).lower() in {
+                    "1",
+                    "true",
+                    "on",
+                    "yes",
+                }
+            continue
+        if field.kind == "provider_pool_targets":
+            providers = [str(value) for value in form.getall(f"{field.name}_provider", [])]
+            models = [str(value) for value in form.getall(f"{field.name}_model", [])]
+            row_count = max(len(providers), len(models))
+            values[field.name] = [
+                {
+                    "provider": providers[index] if index < len(providers) else "",
+                    "model": models[index] if index < len(models) else "",
+                }
+                for index in range(row_count)
+            ]
+            continue
+        if field.name in form:
+            values[field.name] = str(form.get(field.name, ""))
+    return values
+
+
+def _parse_visual_value(request: web.Request, field: ConfigFieldSpec, raw_value: Any) -> Any:
+    if field.kind == "bool":
+        return bool(raw_value)
+
+    if field.kind == "csv":
+        return [part.strip() for part in re.split(r"[\n,]", str(raw_value)) if part.strip()]
+
+    text_value = str(raw_value)
+    stripped = text_value.strip()
+
+    if field.kind == "json":
+        if not stripped:
+            return {}
+        try:
+            data = json.loads(text_value)
+        except ValueError as exc:
+            raise ValueError(_t(request, "admin_error_invalid_json", error=exc)) from exc
+        if not isinstance(data, dict):
+            raise ValueError(_t(request, "admin_json_object_required"))
+        return data
+
+    if field.kind == "provider_pool_targets":
+        rows = raw_value if isinstance(raw_value, list) else []
+        normalized_rows: list[dict[str, str]] = []
+        for item in rows:
+            provider = ""
+            model = ""
+            if isinstance(item, dict):
+                provider = str(item.get("provider", "")).strip()
+                model = str(item.get("model", "")).strip()
+            if not provider and not model:
+                continue
+            if not provider:
+                raise ValueError(_t(request, "admin_error_provider_pool_target_provider_required"))
+            row = {"provider": provider}
+            if model:
+                row["model"] = model
+            normalized_rows.append(row)
+        return normalized_rows
+
+    if field.kind == "int":
+        if not stripped:
+            raise ValueError(
+                _t(request, "admin_error_invalid_integer", field=_t(request, field.label_key))
+            )
+        try:
+            return int(stripped)
+        except ValueError as exc:
+            raise ValueError(
+                _t(request, "admin_error_invalid_integer", field=_t(request, field.label_key))
+            ) from exc
+
+    if field.kind == "float":
+        if not stripped and field.name in _BLANK_AS_NONE_FIELDS:
+            return None
+        if not stripped:
+            raise ValueError(
+                _t(request, "admin_error_invalid_number", field=_t(request, field.label_key))
+            )
+        try:
+            return float(stripped)
+        except ValueError as exc:
+            raise ValueError(
+                _t(request, "admin_error_invalid_number", field=_t(request, field.label_key))
+            ) from exc
+
+    if field.name in _BLANK_AS_NONE_FIELDS and not stripped:
+        return None
+
+    if field.kind == "textarea":
+        return text_value.replace("\r\n", "\n")
+    return stripped
+
+
+def _apply_visual_config_values(
+    request: web.Request,
+    *,
+    raw_data: dict[str, Any],
+    visual_values: dict[str, Any],
+) -> dict[str, Any]:
+    updated = json.loads(json.dumps(raw_data))
+    memorix_enabled = bool(visual_values["tools_mcp_memorix_enabled"])
+    tools_node = updated.setdefault("tools", {})
+    if not isinstance(tools_node, dict):
+        tools_node = {}
+        updated["tools"] = tools_node
+    servers_node = tools_node.get("mcpServers")
+    if not isinstance(servers_node, dict):
+        servers_node = {}
+        tools_node["mcpServers"] = servers_node
+
+    if memorix_enabled:
+        memorix_values = {
+            "type": _parse_visual_value(
+                request,
+                _CONFIG_FIELD_MAP["tools_mcp_memorix_type"],
+                visual_values["tools_mcp_memorix_type"],
+            ),
+            "command": _parse_visual_value(
+                request,
+                _CONFIG_FIELD_MAP["tools_mcp_memorix_command"],
+                visual_values["tools_mcp_memorix_command"],
+            ),
+            "args": _parse_visual_value(
+                request,
+                _CONFIG_FIELD_MAP["tools_mcp_memorix_args"],
+                visual_values["tools_mcp_memorix_args"],
+            ),
+            "url": _parse_visual_value(
+                request,
+                _CONFIG_FIELD_MAP["tools_mcp_memorix_url"],
+                visual_values["tools_mcp_memorix_url"],
+            ),
+            "toolTimeout": _parse_visual_value(
+                request,
+                _CONFIG_FIELD_MAP["tools_mcp_memorix_tool_timeout"],
+                visual_values["tools_mcp_memorix_tool_timeout"],
+            ),
+        }
+        servers_node[_MEMORIX_MCP_SERVER_NAME] = memorix_values
+    else:
+        servers_node.pop(_MEMORIX_MCP_SERVER_NAME, None)
+        if not servers_node:
+            tools_node.pop("mcpServers", None)
+
+    provider_pool_targets = _parse_visual_value(
+        request,
+        _CONFIG_FIELD_MAP["agents_defaults_provider_pool_targets"],
+        visual_values["agents_defaults_provider_pool_targets"],
+    )
+    agents_node = updated.setdefault("agents", {})
+    if not isinstance(agents_node, dict):
+        agents_node = {}
+        updated["agents"] = agents_node
+    defaults_node = agents_node.get("defaults")
+    if not isinstance(defaults_node, dict):
+        defaults_node = {}
+        agents_node["defaults"] = defaults_node
+
+    if provider_pool_targets:
+        provider_pool_strategy = _parse_visual_value(
+            request,
+            _CONFIG_FIELD_MAP["agents_defaults_provider_pool_strategy"],
+            visual_values["agents_defaults_provider_pool_strategy"],
+        )
+        _set_nested_value(
+            updated, ("agents", "defaults", "providerPool", "strategy"), provider_pool_strategy
+        )
+        _set_nested_value(
+            updated, ("agents", "defaults", "providerPool", "targets"), provider_pool_targets
+        )
+    else:
+        defaults_node.pop(_resolve_nested_key(defaults_node, "providerPool"), None)
+
+    for field in _CONFIG_FIELDS:
+        if (
+            field.name in _MEMORIX_CONFIG_FIELD_NAMES
+            or field.name in _PROVIDER_POOL_CONFIG_FIELD_NAMES
+        ):
+            continue
+        channel_group = _CHANNEL_CONFIG_FIELD_TO_GROUP.get(field.name)
+        if channel_group and _channel_group_mode(visual_values, channel_group) == "multi":
+            continue
+        value = _parse_visual_value(request, field, visual_values[field.name])
+        _set_nested_value(updated, field.path, value)
+    return updated
+
+
+def _validate_config_data(request: web.Request, data: dict[str, Any]) -> Config:
+    try:
+        config = Config.model_validate(data).bind_config_path(_current_config_path(request))
+    except Exception as exc:
+        raise ValueError(_t(request, "admin_error_config_validation", error=exc)) from exc
+    if config.gateway.admin.enabled and not config.gateway.admin.auth_key.strip():
+        raise ValueError(_t(request, "admin_error_admin_auth_required"))
+    return config
+
+
+def _reload_runtime_callback(request: web.Request) -> Callable[[], Awaitable[None]] | None:
+    try:
+        callback = request.app[_ADMIN_RELOAD_RUNTIME_KEY]
+    except KeyError:
+        return None
+    return callback if callable(callback) else None
+
+
+def _config_section_id(title_key: str) -> str:
+    slug = title_key.removeprefix("admin_config_section_").removesuffix("_title")
+    return f"section-{slug}"
+
+
+def _render_field_chrome(request: web.Request, field: ConfigFieldSpec) -> tuple[str, str]:
+    label = escape(_t(request, field.label_key))
+    tooltip_key = field.label_key.removesuffix("_label") + "_tooltip"
+    badge_class = "restart" if field.restart_required else "hot"
+    badge_key = (
+        "admin_badge_restart_required" if field.restart_required else "admin_badge_hot_reload"
+    )
+    runtime_badge = f'<span class="pill {badge_class}">{escape(_t(request, badge_key))}</span>'
+    label_row = (
+        '<span class="label-row tooltip-anchor" tabindex="0">'
+        f'<span class="label">{label}</span>'
+        f"{runtime_badge}"
+        '<span class="tooltip-trigger" aria-hidden="true">?</span>'
+        f'<span class="tooltip-card">{_th(request, tooltip_key)}</span>'
+        "</span>"
+    )
+    hint = ""
+    if field.hint_key:
+        hint = f'<div class="hint">{_th(request, field.hint_key)}</div>'
+    return label_row, hint
+
+
+def _provider_pool_rows(value: Any) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            rows.append(
+                {
+                    "provider": str(item.get("provider", "") or ""),
+                    "model": str(item.get("model", "") or ""),
+                }
+            )
+    return rows or [{"provider": "", "model": ""}]
+
+
+def _provider_pool_options_html(request: web.Request, selected: str) -> str:
+    from hahobot.providers.registry import PROVIDERS
+
+    options = [f'<option value="">{escape(_t(request, "admin_option_select_provider"))}</option>']
+    for spec in PROVIDERS:
+        is_selected = " selected" if spec.name == selected else ""
+        options.append(
+            f'<option value="{escape(spec.name)}"{is_selected}>{escape(spec.name)}</option>'
+        )
+    return "".join(options)
+
+
+def _render_provider_pool_row(
+    request: web.Request,
+    *,
+    field_name: str,
+    row: dict[str, str],
+) -> str:
+    provider_options = _provider_pool_options_html(request, row.get("provider", ""))
+    model_value = escape(row.get("model", ""))
+    return (
+        '<div class="provider-pool-row" data-provider-pool-row>'
+        f'<select name="{escape(field_name)}_provider">{provider_options}</select>'
+        f'<input type="text" name="{escape(field_name)}_model" value="{model_value}">'
+        '<div class="provider-pool-row-actions">'
+        f'<button type="button" class="ghost provider-pool-move" data-provider-pool-move-up>'
+        f"{escape(_t(request, 'admin_provider_pool_move_up'))}</button>"
+        f'<button type="button" class="ghost provider-pool-move" data-provider-pool-move-down>'
+        f"{escape(_t(request, 'admin_provider_pool_move_down'))}</button>"
+        f'<button type="button" class="ghost provider-pool-remove" data-provider-pool-remove>'
+        f"{escape(_t(request, 'admin_provider_pool_remove'))}</button>"
+        "</div>"
+        "</div>"
+    )
+
+
+def _render_provider_pool_targets_field(
+    request: web.Request,
+    field: ConfigFieldSpec,
+    value: Any,
+) -> str:
+    label_row, hint = _render_field_chrome(request, field)
+    rows_html = "".join(
+        _render_provider_pool_row(request, field_name=field.name, row=row)
+        for row in _provider_pool_rows(value)
+    )
+    template_row = _render_provider_pool_row(
+        request,
+        field_name=field.name,
+        row={"provider": "", "model": ""},
+    )
+    return f"""
+        <div class="field full">
+          {label_row}
+          <div class="provider-pool-editor" data-provider-pool-editor>
+            <div class="provider-pool-head">
+              <span>{escape(_t(request, "admin_provider_pool_column_provider"))}</span>
+              <span>{escape(_t(request, "admin_provider_pool_column_model"))}</span>
+              <span>{escape(_t(request, "admin_provider_pool_column_actions"))}</span>
+            </div>
+            <div class="provider-pool-rows" data-provider-pool-rows>
+              {rows_html}
+            </div>
+            <template data-provider-pool-template>{template_row}</template>
+            <div class="actions provider-pool-actions">
+              <button type="button" class="ghost" data-provider-pool-add>
+                {escape(_t(request, "admin_provider_pool_add"))}
+              </button>
+            </div>
+          </div>
+          {hint}
+        </div>
+    """
+
+
+def _visual_value_present(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return bool(value)
+    if isinstance(value, list):
+        return bool(value)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return bool(value)
+
+
+def _provider_group_is_configured(values: dict[str, Any], field_names: tuple[str, ...]) -> bool:
+    return any(_visual_value_present(values.get(field_name)) for field_name in field_names)
+
+
+def _provider_group_configured_count(values: dict[str, Any], field_names: tuple[str, ...]) -> int:
+    return sum(1 for field_name in field_names if _visual_value_present(values.get(field_name)))
+
+
+def _channel_group_mode(values: dict[str, Any], group_key: str) -> str:
+    raw = values.get("__channel_group_modes")
+    if isinstance(raw, dict):
+        mode = raw.get(group_key)
+        if mode in {"single", "multi"}:
+            return mode
+    return "single"
+
+
+def _channel_group_enabled(values: dict[str, Any], group_key: str) -> bool:
+    raw = values.get("__channel_group_enabled")
+    if isinstance(raw, dict):
+        return bool(raw.get(group_key))
+    return False
+
+
+def _channel_group_instance_count(values: dict[str, Any], group_key: str) -> int:
+    raw = values.get("__channel_group_instances")
+    if isinstance(raw, dict):
+        try:
+            return max(int(raw.get(group_key, 0)), 0)
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _channel_group_is_configured(
+    values: dict[str, Any],
+    *,
+    group_key: str,
+    field_names: tuple[str, ...],
+) -> bool:
+    if _channel_group_enabled(values, group_key):
+        return True
+    if _channel_group_mode(values, group_key) == "multi":
+        return _channel_group_instance_count(values, group_key) > 0
+    return any(
+        _visual_value_present(values.get(field_name))
+        for field_name in field_names
+        if field_name not in _CHANNEL_GROUP_SUMMARY_URL_FIELDS
+        and not field_name.endswith("_enabled")
+    ) or any(
+        _visual_value_present(values.get(field_name))
+        for field_name in field_names
+        if field_name in _CHANNEL_GROUP_SUMMARY_URL_FIELDS
+    )
+
+
+def _compact_provider_url(value: str) -> str:
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+    parsed = urlsplit(trimmed)
+    if parsed.scheme and parsed.netloc:
+        compact = f"{parsed.netloc}{parsed.path}".rstrip("/")
+        if parsed.query:
+            compact = f"{compact}?{parsed.query}" if compact else parsed.query
+        return compact or parsed.netloc
+    return trimmed
+
+
+def _provider_header_count(raw_value: Any) -> int | None:
+    text = str(raw_value).strip()
+    if not text or text == "{}":
+        return 0
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    if isinstance(parsed, dict):
+        return len(parsed)
+    return None
+
+
+def _render_provider_group_chip(
+    text: str,
+    *,
+    code: bool = False,
+    title: str | None = None,
+) -> str:
+    css_class = "provider-group-chip code" if code else "provider-group-chip"
+    title_attr = f' title="{escape(title)}"' if title else ""
+    content = f"<code>{escape(text)}</code>" if code else escape(text)
+    return f'<span class="{css_class}"{title_attr}>{content}</span>'
+
+
+def _render_provider_group_summary(
+    request: web.Request,
+    *,
+    group_key: str,
+    field_names: tuple[str, ...],
+    values: dict[str, Any],
+) -> str:
+    items: list[str] = []
+    api_key_name = f"providers_{group_key}_api_key"
+    api_base_name = f"providers_{group_key}_api_base"
+
+    if api_key_name in field_names and _visual_value_present(values.get(api_key_name)):
+        items.append(_render_provider_group_chip(_t(request, "admin_provider_group_meta_api_key")))
+
+    api_base_value = str(values.get(api_base_name, "")).strip()
+    if api_base_name in field_names and api_base_value:
+        items.append(
+            _render_provider_group_chip(
+                _compact_provider_url(api_base_value),
+                code=True,
+                title=api_base_value,
+            )
+        )
+
+    if "providers_custom_extra_headers" in field_names:
+        header_count = _provider_header_count(values.get("providers_custom_extra_headers", ""))
+        if header_count:
+            items.append(
+                _render_provider_group_chip(
+                    _t(request, "admin_provider_group_meta_headers", count=header_count)
+                )
+            )
+        elif header_count is None and _visual_value_present(
+            values.get("providers_custom_extra_headers")
+        ):
+            items.append(
+                _render_provider_group_chip(
+                    _t(request, "admin_provider_group_meta_headers_present")
+                )
+            )
+
+    if not items:
+        configured_count = _provider_group_configured_count(values, field_names)
+        if configured_count:
+            items.append(
+                _render_provider_group_chip(
+                    _t(request, "admin_provider_group_meta_fields", count=configured_count)
+                )
+            )
+
+    if not items:
+        return ""
+    return (
+        f'<div class="provider-group-meta" data-provider-group-meta="{escape(group_key)}">'
+        f"{''.join(items)}"
+        "</div>"
+    )
+
+
+def _render_provider_groups_section(
+    request: web.Request,
+    *,
+    values: dict[str, Any],
+) -> str:
+    groups = []
+    for group_key, title_key, desc_key, field_names in _PROVIDER_CONFIG_GROUPS:
+        configured = _provider_group_is_configured(values, field_names)
+        open_attr = " open" if configured else ""
+        status_key = (
+            "admin_provider_group_configured" if configured else "admin_provider_group_empty"
+        )
+        status_class = "pill hot" if configured else "pill"
+        fields = "".join(
+            _render_config_field(request, _CONFIG_FIELD_MAP[field_name], values[field_name])
+            for field_name in field_names
+        )
+        summary = _render_provider_group_summary(
+            request,
+            group_key=group_key,
+            field_names=field_names,
+            values=values,
+        )
+        groups.append(
+            f'<details class="provider-group" data-provider-group="{escape(group_key)}"{open_attr}>'
+            "<summary>"
+            '<div class="provider-group-top">'
+            f'<h3 class="provider-group-title">{escape(_t(request, title_key))}</h3>'
+            f'<span class="{status_class}">{escape(_t(request, status_key))}</span>'
+            "</div>"
+            f'<div class="provider-group-desc">{_th(request, desc_key)}</div>'
+            f"{summary}"
+            "</summary>"
+            '<div class="provider-group-body">'
+            f'<div class="provider-group-fields">{fields}</div>'
+            "</div>"
+            "</details>"
+        )
+    return f'<div class="provider-groups">{"".join(groups)}</div>'
+
+
+def _render_channel_group_summary(
+    request: web.Request,
+    *,
+    group_key: str,
+    field_names: tuple[str, ...],
+    values: dict[str, Any],
+) -> str:
+    items = [
+        _render_provider_group_chip(
+            _t(
+                request,
+                "admin_channel_group_meta_enabled"
+                if _channel_group_enabled(values, group_key)
+                else "admin_channel_group_meta_disabled",
+            )
+        )
+    ]
+    if _channel_group_mode(values, group_key) == "multi":
+        items.append(
+            _render_provider_group_chip(
+                _t(
+                    request,
+                    "admin_channel_group_meta_instances",
+                    count=_channel_group_instance_count(values, group_key),
+                )
+            )
+        )
+    else:
+        for field_name in field_names:
+            if field_name not in _CHANNEL_GROUP_SUMMARY_URL_FIELDS:
+                continue
+            raw_value = str(values.get(field_name, "")).strip()
+            if not raw_value:
+                continue
+            items.append(
+                _render_provider_group_chip(
+                    _compact_provider_url(raw_value),
+                    code=True,
+                    title=raw_value,
+                )
+            )
+        configured_count = sum(
+            1
+            for field_name in field_names
+            if field_name not in _CHANNEL_GROUP_SUMMARY_URL_FIELDS
+            and not field_name.endswith("_enabled")
+            and _visual_value_present(values.get(field_name))
+        )
+        if configured_count:
+            items.append(
+                _render_provider_group_chip(
+                    _t(request, "admin_channel_group_meta_fields", count=configured_count)
+                )
+            )
+    return (
+        f'<div class="provider-group-meta" data-channel-group-meta="{escape(group_key)}">'
+        f"{''.join(items)}"
+        "</div>"
+    )
+
+
+def _render_channel_groups_section(
+    request: web.Request,
+    *,
+    values: dict[str, Any],
+) -> str:
+    groups = []
+    for group_key, title_key, desc_key, field_names in _CHANNEL_CONFIG_GROUPS:
+        is_multi = _channel_group_mode(values, group_key) == "multi"
+        configured = _channel_group_is_configured(
+            values,
+            group_key=group_key,
+            field_names=field_names,
+        )
+        open_attr = " open" if configured or is_multi else ""
+        status_key = (
+            "admin_channel_group_multi_instance"
+            if is_multi
+            else "admin_channel_group_single_instance"
+        )
+        status_class = "pill restart" if is_multi else "pill"
+        if is_multi:
+            fields = f'<div class="notice">{_th(request, "admin_channel_group_multi_instance_notice", path=f"channels.{group_key}.instances")}</div>'
+        else:
+            fields = (
+                '<div class="provider-group-fields">'
+                + "".join(
+                    _render_config_field(request, _CONFIG_FIELD_MAP[field_name], values[field_name])
+                    for field_name in field_names
+                )
+                + "</div>"
+            )
+            if group_key == "weixin":
+                fields += (
+                    '<div class="actions">'
+                    f'<a class="nav-link active" href="/admin/weixin">{escape(_t(request, "admin_weixin_open_from_config"))}</a>'
+                    "</div>"
+                )
+        summary = _render_channel_group_summary(
+            request,
+            group_key=group_key,
+            field_names=field_names,
+            values=values,
+        )
+        groups.append(
+            f'<details class="provider-group" data-channel-group="{escape(group_key)}"{open_attr}>'
+            "<summary>"
+            '<div class="provider-group-top">'
+            f'<h3 class="provider-group-title">{escape(_t(request, title_key))}</h3>'
+            f'<span class="{status_class}">{escape(_t(request, status_key))}</span>'
+            "</div>"
+            f'<div class="provider-group-desc">{_th(request, desc_key)}</div>'
+            f"{summary}"
+            "</summary>"
+            '<div class="provider-group-body">'
+            f"{fields}"
+            "</div>"
+            "</details>"
+        )
+    return f'<div class="provider-groups">{"".join(groups)}</div>'
+
+
+def _render_config_field(request: web.Request, field: ConfigFieldSpec, value: Any) -> str:
+    label_row, hint = _render_field_chrome(request, field)
+
+    if field.kind == "bool":
+        checked = " checked" if bool(value) else ""
+        return (
+            '<div class="field">'
+            f'<input type="hidden" name="__bool_fields" value="{escape(field.name)}">'
+            f'<label class="toggle"><input type="checkbox" name="{escape(field.name)}" value="1"{checked}>'
+            f"{label_row}</label>{hint}</div>"
+        )
+
+    if field.kind == "provider_pool_targets":
+        return _render_provider_pool_targets_field(request, field, value)
+
+    if field.kind in {"textarea", "json"}:
+        rows = max(field.rows, 3)
+        css_class = "field full"
+        return (
+            f'<label class="{css_class}">{label_row}'
+            f'<textarea name="{escape(field.name)}" rows="{rows}" spellcheck="false">'
+            f"{escape(str(value))}</textarea>{hint}</label>"
+        )
+
+    if field.kind == "select":
+        options = []
+        for option in field.options:
+            selected = " selected" if str(value) == option else ""
+            text = _t(request, "admin_option_default") if option == "" else option
+            options.append(f'<option value="{escape(option)}"{selected}>{escape(text)}</option>')
+        control = f'<select name="{escape(field.name)}">{"".join(options)}</select>'
+    else:
+        input_type = "number" if field.kind in {"int", "float"} else "text"
+        step = ' step="any"' if field.kind == "float" else ""
+        placeholder = f' placeholder="{escape(field.placeholder)}"' if field.placeholder else ""
+        control = (
+            f'<input type="{input_type}" name="{escape(field.name)}" value="{escape(str(value))}"'
+            f"{step}{placeholder}>"
+        )
+
+    return f'<label class="field">{label_row}{control}{hint}</label>'
+
+
+def _render_config_section(
+    request: web.Request,
+    *,
+    index: int,
+    title_key: str,
+    desc_key: str,
+    field_names: tuple[str, ...],
+    values: dict[str, Any],
+) -> str:
+    section_id = _config_section_id(title_key)
+    if title_key == "admin_config_section_providers_title":
+        fields = _render_provider_groups_section(request, values=values)
+    elif title_key == "admin_config_section_channels_title":
+        fields = _render_channel_groups_section(request, values=values)
+    else:
+        fields = "".join(
+            _render_config_field(request, _CONFIG_FIELD_MAP[field_name], values[field_name])
+            for field_name in field_names
+        )
+    return (
+        f'<section id="{section_id}" class="card stack section-card">'
+        '<div class="section-topline">'
+        '<div class="section-head">'
+        f"<h2>{escape(_t(request, title_key))}</h2>"
+        f'<div class="muted">{_th(request, desc_key)}</div>'
+        "</div>"
+        f'<span class="section-index">{index:02d}</span>'
+        "</div>"
+        f'<div class="field-grid">{fields}</div>'
+        "</section>"
+    )
+
+
+def _render_config_page(
+    request: web.Request,
+    *,
+    visual_values: dict[str, Any],
+    raw_text: str,
+    flash: str | None = None,
+    error: str | None = None,
+    active_mode: str = "visual",
+) -> web.Response:
+    sections_parts: list[str] = []
+    jump_links: list[str] = []
+    for index, (title_key, desc_key, field_names) in enumerate(_CONFIG_SECTIONS, start=1):
+        section_id = _config_section_id(title_key)
+        sections_parts.append(
+            _render_config_section(
+                request,
+                index=index,
+                title_key=title_key,
+                desc_key=desc_key,
+                field_names=field_names,
+                values=visual_values,
+            )
+        )
+        jump_links.append(
+            f'<a class="jump-link" href="#{section_id}">'
+            '<div class="jump-link-top">'
+            f'<span class="jump-link-index">{index:02d}</span>'
+            f"<strong>{escape(_t(request, title_key))}</strong>"
+            "</div>"
+            f'<div class="jump-link-meta">{len(field_names)} {escape(_t(request, "admin_label_fields"))}</div>'
+            "</a>"
+        )
+    sections = "".join(sections_parts)
+    return _page(
+        template_name="gateway/admin/config.html",
+        title=_t(request, "admin_config_title"),
+        heading=_t(request, "admin_config_heading"),
+        request=request,
+        flash=flash,
+        error=error,
+        config_nav_label=_t(request, "admin_nav_config"),
+        config_intro_html=_markup(
+            _th(request, "admin_config_intro", config_path=_current_config_path(request))
+        ),
+        config_reload_notice_html=_markup(_th(request, "admin_config_reload_notice")),
+        hot_reload_label=_t(request, "admin_badge_hot_reload"),
+        restart_required_label=_t(request, "admin_badge_restart_required"),
+        sections_label=_t(request, "admin_label_sections"),
+        sections_count=len(_CONFIG_SECTIONS),
+        fields_label=_t(request, "admin_label_fields"),
+        fields_count=len(_CONFIG_FIELDS),
+        jump_title=_t(request, "admin_config_jump_title"),
+        jump_desc=_t(request, "admin_config_jump_desc"),
+        jump_links_html=_markup("".join(jump_links)),
+        sections_html=_markup(sections),
+        save_visual_label=_t(request, "admin_config_save_visual"),
+        advanced_title=_t(request, "admin_config_advanced_title"),
+        advanced_desc_html=_markup(_th(request, "admin_config_advanced_desc")),
+        raw_label=_t(request, "admin_config_raw_label"),
+        raw_text=raw_text,
+        save_raw_label=_t(request, "admin_config_save_raw"),
+        raw_open=active_mode == "raw",
+    )
+
+
+async def _admin_config_page(request: web.Request) -> web.Response:
+    _require_admin_auth(request)
+    config = _load_current_config(request)
+    try:
+        raw_data = _load_raw_config_data(request)
+    except Exception:
+        raw_data = config.model_dump(mode="json", by_alias=True)
+    flash = None
+    if request.query.get("saved") == "1":
+        flash = (
+            _t(request, "admin_config_saved_reloaded")
+            if request.query.get("reloaded") == "1"
+            else _t(request, "admin_config_saved")
+        )
+    return _render_config_page(
+        request,
+        visual_values=_config_form_values(config),
+        raw_text=_pretty_json(raw_data),
+        flash=flash,
+    )
+
+
+async def _admin_config_submit(request: web.Request) -> web.Response:
+    _require_admin_auth(request)
+    form = await request.post()
+    mode = str(form.get("mode", "visual"))
+    current_config = _load_current_config(request)
+    baseline_values = _config_form_values(current_config)
+    try:
+        current_raw = _load_raw_config_data(request)
+    except Exception:
+        current_raw = current_config.model_dump(mode="json", by_alias=True)
+
+    if mode == "raw":
+        raw_text = str(form.get("config_json", ""))
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            return _render_config_page(
+                request,
+                visual_values=baseline_values,
+                raw_text=raw_text,
+                error=_t(request, "admin_error_invalid_json", error=exc),
+                active_mode="raw",
+            )
+        if not isinstance(data, dict):
+            return _render_config_page(
+                request,
+                visual_values=baseline_values,
+                raw_text=raw_text,
+                error=_t(
+                    request,
+                    "admin_error_config_validation",
+                    error=_t(request, "admin_json_object_required"),
+                ),
+                active_mode="raw",
+            )
+        data = _migrate_config(data)
+        try:
+            _validate_config_data(request, data)
+        except ValueError as exc:
+            return _render_config_page(
+                request,
+                visual_values=_config_form_values(current_config),
+                raw_text=raw_text,
+                error=str(exc),
+                active_mode="raw",
+            )
+        _save_raw_config_data(request, data)
+        reload_runtime = _reload_runtime_callback(request)
+        if reload_runtime is not None:
+            try:
+                await reload_runtime()
+            except Exception as exc:
+                return _render_config_page(
+                    request,
+                    visual_values=_config_form_values(load_config(_current_config_path(request))),
+                    raw_text=_pretty_json(_load_raw_config_data(request)),
+                    error=_t(request, "admin_error_runtime_reload_failed", error=exc),
+                    active_mode="raw",
+                )
+            raise _redirect(request, "/admin/config?saved=1&reloaded=1")
+        raise _redirect(request, "/admin/config?saved=1")
+
+    visual_values = _extract_visual_values(form, baseline=baseline_values)
+    try:
+        updated = _apply_visual_config_values(
+            request,
+            raw_data=current_raw,
+            visual_values=visual_values,
+        )
+        _validate_config_data(request, updated)
+    except ValueError as exc:
+        return _render_config_page(
+            request,
+            visual_values=visual_values,
+            raw_text=_pretty_json(current_raw),
+            error=str(exc),
+        )
+
+    _save_raw_config_data(request, updated)
+    reload_runtime = _reload_runtime_callback(request)
+    if reload_runtime is not None:
+        try:
+            await reload_runtime()
+        except Exception as exc:
+            return _render_config_page(
+                request,
+                visual_values=_config_form_values(load_config(_current_config_path(request))),
+                raw_text=_pretty_json(_load_raw_config_data(request)),
+                error=_t(request, "admin_error_runtime_reload_failed", error=exc),
+            )
+        raise _redirect(request, "/admin/config?saved=1&reloaded=1")
+    raise _redirect(request, "/admin/config?saved=1")
