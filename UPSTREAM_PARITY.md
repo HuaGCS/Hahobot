@@ -47,19 +47,16 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `4d168c57` (`2026-05-09`). This pass adopted
-  CLI surrogate-code-point sanitization and Feishu topic multipart reply routing. The memory
-  replay-window fix was reviewed against local token/persona archive paths and remains covered by
-  local full-tail archive behavior; the WebUI/settings/image-generation churn is still not a local
-  parity target.
-- `GenericAgent`: re-checked against upstream `main` at `cde16207` (`2026-05-09`). The useful
-  runtime borrow is filtering whitespace-only text blocks before strict provider APIs see merged
-  user/tool content; other deltas are frontend/configure/goal-mode churn and stay on watch.
-- `claude-mem`: re-checked from `thedotmack/claude-mem` at `13d5fa7` (`2026-05-08`). The visible
-  delta only corrects project homepage metadata; the previously adopted private tags, structured
-  observations, progressive recall, and optional rebuildable SQLite FTS archive index remain the
-  relevant local borrow points; the service/Chroma/vector-memory architecture remains an
-  intentional divergence.
+- `nanobot`: re-checked against upstream `main` at `7411afa` (`2026-05-18`). This pass adopted the
+  Chinese rate-limit transient error markers (`访问量过大`, `速率限制`) and the Consolidator
+  session-refresh guard that prevents AutoCompact/consolidator race conditions. The WebUI streaming
+  refactor, live file-edit activity, and Ant Ling provider are still not local parity targets.
+- `GenericAgent`: re-checked against upstream `main` at `e95bc5c` (`2026-05-19`). All visible
+  deltas are TUI v2, ACP/BBS, and hive-worker frontend churn — no new runtime or memory ideas to
+  adopt this pass.
+- `claude-mem`: upstream GitHub response returned unrelated content during this audit pass; re-check
+  deferred. Previously adopted behaviors (private tags, structured observations, progressive recall,
+  SQLite FTS index) remain unchanged locally.
 
 ## Current Snapshot
 
@@ -126,6 +123,10 @@ This file therefore records both:
 | Gateway/admin/runtime ops | `local_extension` | Admin UI, `/status`, Star-Office push, companion doctor, runtime doctor, session inspection, and gateway-backed `/session` / `/repo` / `/review` / `/compact` controls are local operational surfaces. |
 | Standalone browser WebUI | `intentional_divergence` | Upstream now ships a separate browser chat SPA over WebSocket; local web surfaces still stay in the existing gateway admin and `/status` shell rather than adopting a second chat frontend stack. |
 | Extension model | `local_extension` | Skills, MCP, built-in companion helpers, and `ExternalHookBridge` are the main extension surfaces; there is no separate plugin framework today. |
+| Chinese rate-limit transient error markers | `synced` | `providers/base.py` now recognizes `"访问量过大"` as a general transient error and `"速率限制"` as a retryable 429 signal, matching nanobot's Chinese-provider retry handling. |
+| Consolidator session-refresh guard | `synced` | `maybe_consolidate_by_tokens` now refreshes the session reference with `get_or_create` after acquiring the consolidation lock, preventing stale-reference overwrites when AutoCompact truncates concurrently. |
+| Background task LLM runtime resolver | `watchlist` | nanobot introduced `LLMRuntime`/`LLMRuntimeResolver` so heartbeat/background tasks fetch a fresh provider+model at call time. hahobot's `apply_runtime_config` covers model hot-reload; pool-provider rotation benefit remains. |
+| Ant Ling provider | `watchlist` | Upstream added `ant_ling` as an OpenAI-compatible provider (`https://api.ant-ling.com/v1`, models `Ling-2.6-flash`, `Ling-2.6-1T`). Add when there is real demand with schema/docs/admin wiring. |
 | Future upstream channel/provider churn | `watchlist` | Re-audit `channels/`, `providers/`, `cron/`, `agent/hook.py`, `config/schema.py`, and runtime doctor whenever upstream lands new runtime toggles or transport behavior. |
 
 ## GenericAgent Detailed Matrix
@@ -225,6 +226,42 @@ Intentionally skipped / watchlist:
   hahobot keeps runtime surfaces in CLI/gateway/admin/status and should not import another frontend
   stack without a local operator need.
 - **claude-mem changelog-only update**: no new memory architecture idea to adopt.
+
+## Borrow Candidates From 2026-05-19 Audit
+
+Implemented locally in this pass:
+
+- **Chinese rate-limit transient error markers**: nanobot added `"访问量过大"` (traffic overload) to
+  its transient error marker list. Local `providers/base.py` now includes it in
+  `_TRANSIENT_ERROR_MARKERS`, and the matching Chinese rate-limit phrase `"速率限制"` in
+  `_RETRYABLE_429_TEXT_MARKERS`, so Chinese-endpoint rate-limit responses trigger retry instead of
+  surfacing as hard failures.
+- **Consolidator session-refresh guard**: nanobot fixed a race condition where
+  `maybe_consolidate_by_tokens` could proceed with a stale session reference after AutoCompact
+  truncated the session while the consolidation lock was being acquired. Local
+  `agent/memory.py:maybe_consolidate_by_tokens` now refreshes the session via
+  `self.sessions.get_or_create(session.key)` immediately after acquiring the lock.
+
+Reviewed and intentionally skipped:
+
+- **WebUI streaming / live file-edit activity / session-title polish**: WebUI-only changes; hahobot
+  keeps runtime surfaces in the existing gateway/admin/status shell.
+- **Ant Ling provider** (`ant_ling`, `https://api.ant-ling.com/v1`): new OpenAI-compatible provider
+  (Ling-2.6-flash, Ling-2.6-1T). Add when there is real demand; requires schema/docs/admin wiring.
+- **Model Preset wizard in onboard**: CLI onboarding wizard for selecting a model preset. hahobot
+  has its own onboarding flow; revisit only if the interactive selection UX has concrete adoption
+  pressure.
+- **CLI reasoning token buffering**: nanobot buffers streaming reasoning tokens and flushes on
+  newlines / sentence punctuation / 60+ chars to avoid one-token-per-line display. hahobot's CLI
+  uses `_print_cli_progress_line` which does not yet have per-token reasoning streaming; revisit
+  when reasoning streaming is added to the interactive CLI.
+- **Background task LLM runtime resolver** (`LLMRuntime` + `LLMRuntimeResolver`): nanobot
+  introduced a resolver abstraction so heartbeat and background tasks always fetch a fresh
+  provider/model snapshot at call time instead of holding a static startup reference. hahobot's
+  `HeartbeatService.apply_runtime_config` already handles model hot-reload; the resolver would
+  additionally benefit pool-provider rotation. Port as part of a broader hot-reload or pool-provider
+  improvement rather than in isolation.
+- **GenericAgent TUI v2, ACP/BBS, hive-worker changes**: no runtime or memory ideas to adopt.
 
 ## Borrow Candidates From 2026-05-09 Audit
 
@@ -354,6 +391,11 @@ as "do not re-port unless upstream changes again":
 - Version resolution prefers `importlib.metadata` and falls back to `pyproject.toml` in source trees.
 - Workspace/runtime behavior keeps the rename compatibility layer alive for `nanobot` entrypoints and
   imports.
+- Chinese rate-limit responses from providers that return `"访问量过大"` or `"速率限制"` are now
+  treated as transient/retryable errors rather than hard failures.
+- `maybe_consolidate_by_tokens` refreshes its session reference after acquiring the consolidation
+  lock, preventing AutoCompact from being silently undone by a concurrent consolidation run holding
+  a stale session object.
 
 ## Intentional Local Differences
 
@@ -389,6 +431,12 @@ These are local choices. When upstream behaves differently, that is not automati
 
 ## Watchlist For Next Upstream Sync
 
+- The 2026-05-19 pass synced Chinese rate-limit markers and the Consolidator session-refresh guard;
+  next pass should track the background-task LLM runtime resolver (pool-provider rotation benefit),
+  Ant Ling provider (when demand arises), and CLI reasoning token buffering (when reasoning
+  streaming is added to the interactive CLI).
+- Re-check `thedotmack/claude-mem` directly on the next pass; the 2026-05-19 audit could not
+  fetch reliable content and was deferred.
 - The 2026-04-27 high-priority nanobot candidates (`pathAppend` hardening, finite LLM request
   timeout, session timestamp anchors, proactive delivery continuity) are now synced; next pass should
   focus on optional consolidation-ratio/media/provider-factory polish.

@@ -91,6 +91,7 @@ class LLMProvider(ABC):
         "503",
         "504",
         "overloaded",
+        "访问量过大",
         "timeout",
         "timed out",
         "connection",
@@ -136,6 +137,7 @@ class LLMProvider(ABC):
     _RETRYABLE_429_TEXT_MARKERS = (
         "rate limit",
         "rate_limit",
+        "速率限制",
         "too many requests",
         "retry after",
         "try again in",

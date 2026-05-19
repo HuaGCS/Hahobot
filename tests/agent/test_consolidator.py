@@ -72,6 +72,7 @@ class TestConsolidatorTokenBudget:
         session.last_consolidated = 0
         session.messages = [{"role": "user", "content": "hi"}]
         session.key = "test:key"
+        consolidator.sessions.get_or_create.return_value = session
         consolidator.estimate_session_prompt_tokens = MagicMock(return_value=(100, "tiktoken"))
         consolidator.archive = AsyncMock(return_value=True)
         await consolidator.maybe_consolidate_by_tokens(session)
