@@ -38,7 +38,9 @@ def _write_manifest(tmp_path: Path, *, persona: str, tags: list[str]) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_agent_loop_filters_visible_output_but_preserves_history_content(tmp_path: Path) -> None:
+async def test_run_agent_loop_filters_visible_output_but_preserves_history_content(
+    tmp_path: Path,
+) -> None:
     loop = _make_loop(tmp_path)
     _write_manifest(tmp_path, persona="coder", tags=["inner"])
     loop.provider.chat_with_retry = AsyncMock(

@@ -35,10 +35,29 @@ class SkillCommandHandler:
     _SKILL_NAME_LIMIT = 64
     _SUMMARY_LIMIT = 240
     _DERIVE_TRIGGER_LIMIT = 8
-    _TRIGGER_STOPWORDS = frozenset({
-        "a", "an", "and", "are", "but", "for", "from", "into", "now", "that", "the",
-        "then", "this", "use", "with", "when", "your", "status", "workflow",
-    })
+    _TRIGGER_STOPWORDS = frozenset(
+        {
+            "a",
+            "an",
+            "and",
+            "are",
+            "but",
+            "for",
+            "from",
+            "into",
+            "now",
+            "that",
+            "the",
+            "then",
+            "this",
+            "use",
+            "with",
+            "when",
+            "your",
+            "status",
+            "workflow",
+        }
+    )
 
     def __init__(self, loop: AgentLoop) -> None:
         self.loop = loop
@@ -63,7 +82,9 @@ class SkillCommandHandler:
 
     @staticmethod
     def _clawhub_search_headers(language: str) -> dict[str, str]:
-        accept_language = "zh-CN,zh;q=0.9,en;q=0.8" if language.startswith("zh") else "en-US,en;q=0.9"
+        accept_language = (
+            "zh-CN,zh;q=0.9,en;q=0.8" if language.startswith("zh") else "en-US,en;q=0.9"
+        )
         return {
             "accept": "*/*",
             "accept-language": accept_language,
@@ -96,7 +117,10 @@ class SkillCommandHandler:
             stars = str(skill.get("stars") or 0)
             version = str(skill.get("version") or "-")
             description = str(
-                skill.get(description_key) or skill.get("description") or skill.get("description_zh") or ""
+                skill.get(description_key)
+                or skill.get("description")
+                or skill.get("description_zh")
+                or ""
             ).strip()
             homepage = str(skill.get("homepage") or "").strip()
             lines = [
@@ -147,7 +171,9 @@ class SkillCommandHandler:
         except httpx.HTTPStatusError as exc:
             details = exc.response.text.strip()
             message = text(language, "skill_search_failed_status", status=exc.response.status_code)
-            return exc.response.status_code, "\n\n".join(part for part in [message, details] if part)
+            return exc.response.status_code, "\n\n".join(
+                part for part in [message, details] if part
+            )
         except httpx.RequestError as exc:
             return 1, "\n\n".join([text(language, "skill_search_request_failed"), str(exc)])
 
@@ -292,7 +318,10 @@ class SkillCommandHandler:
                 for item in skills
                 if not (
                     item == slug
-                    or (isinstance(item, dict) and (item.get("slug") == slug or item.get("name") == slug))
+                    or (
+                        isinstance(item, dict)
+                        and (item.get("slug") == slug or item.get("name") == slug)
+                    )
                 )
             ]
             if len(filtered) != len(skills):
@@ -300,11 +329,16 @@ class SkillCommandHandler:
                 changed = True
 
         if changed:
-            lock_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            lock_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
         return changed
 
     async def _run_clawhub(
-        self, language: str, *args: str, timeout_seconds: int | None = None,
+        self,
+        language: str,
+        *args: str,
+        timeout_seconds: int | None = None,
     ) -> tuple[int, str]:
         """Run the ClawHub CLI and return (exit_code, combined_output)."""
         npx = shutil.which("npx")
@@ -353,8 +387,14 @@ class SkillCommandHandler:
         if output:
             notes.append(output)
         if include_workspace_note:
-            notes.append(text(language, "skill_applied_to_workspace", workspace=self.loop.workspace))
-        return "\n\n".join(notes) if notes else text(language, "skill_command_completed", command=subcommand)
+            notes.append(
+                text(language, "skill_applied_to_workspace", workspace=self.loop.workspace)
+            )
+        return (
+            "\n\n".join(notes)
+            if notes
+            else text(language, "skill_command_completed", command=subcommand)
+        )
 
     @classmethod
     def _normalize_skill_slug(cls, raw: str) -> str:
@@ -458,14 +498,20 @@ class SkillCommandHandler:
         response_preview = self._trim_preview(str(checkpoint.get("response_preview") or ""))
         assistant_preview = self._latest_role_preview(session, "assistant")
         tool_list = list(checkpoint.get("recent_tools") or []) or self._recent_tool_names(session)
-        tool_line = ", ".join(tool_list) if tool_list else "TODO: capture the key tools or commands for this flow"
+        tool_line = (
+            ", ".join(tool_list)
+            if tool_list
+            else "TODO: capture the key tools or commands for this flow"
+        )
         title = self._skill_title(slug) or slug
         today = datetime.now(tz=UTC).date().isoformat()
         description = self._derive_skill_description(goal=goal, brief=brief)
         triggers = self._derive_skill_triggers(goal=goal, brief=brief, slug=slug)
         metadata = self._derive_skill_metadata(triggers=triggers, tool_list=tool_list, today=today)
-        summary_line = response_preview or assistant_preview or (
-            "TODO: replace this with a tighter summary after one more successful run."
+        summary_line = (
+            response_preview
+            or assistant_preview
+            or ("TODO: replace this with a tighter summary after one more successful run.")
         )
         focus_line = self._trim_preview(brief)
         lines = [
@@ -533,48 +579,54 @@ class SkillCommandHandler:
         clean = True
         if report["superseded"]:
             clean = False
-            lines.extend([
-                "",
-                text(language, "skill_lint_superseded_header"),
-                *[
-                    text(language, "skill_lint_superseded_item", name=name)
-                    for name in report["superseded"]
-                ],
-            ])
+            lines.extend(
+                [
+                    "",
+                    text(language, "skill_lint_superseded_header"),
+                    *[
+                        text(language, "skill_lint_superseded_item", name=name)
+                        for name in report["superseded"]
+                    ],
+                ]
+            )
 
         if report["missing_supersedes_targets"]:
             clean = False
-            lines.extend([
-                "",
-                text(language, "skill_lint_missing_header"),
-                *[
-                    text(
-                        language,
-                        "skill_lint_missing_item",
-                        name=item["name"],
-                        targets=", ".join(item["targets"]),
-                    )
-                    for item in report["missing_supersedes_targets"]
-                ],
-            ])
+            lines.extend(
+                [
+                    "",
+                    text(language, "skill_lint_missing_header"),
+                    *[
+                        text(
+                            language,
+                            "skill_lint_missing_item",
+                            name=item["name"],
+                            targets=", ".join(item["targets"]),
+                        )
+                        for item in report["missing_supersedes_targets"]
+                    ],
+                ]
+            )
 
         if report["overlaps"]:
             clean = False
-            lines.extend([
-                "",
-                text(language, "skill_lint_overlap_header"),
-                *[
-                    text(
-                        language,
-                        "skill_lint_overlap_item",
-                        left=item["left"],
-                        right=item["right"],
-                        triggers=", ".join(item["shared_triggers"]) or "-",
-                        tools=", ".join(item["shared_tools"]) or "-",
-                    )
-                    for item in report["overlaps"][:10]
-                ],
-            ])
+            lines.extend(
+                [
+                    "",
+                    text(language, "skill_lint_overlap_header"),
+                    *[
+                        text(
+                            language,
+                            "skill_lint_overlap_item",
+                            left=item["left"],
+                            right=item["right"],
+                            triggers=", ".join(item["shared_triggers"]) or "-",
+                            tools=", ".join(item["shared_tools"]) or "-",
+                        )
+                        for item in report["overlaps"][:10]
+                    ],
+                ]
+            )
 
         if clean:
             lines.extend(["", text(language, "skill_lint_clean")])
@@ -712,7 +764,9 @@ class SkillCommandHandler:
                 [
                     text(
                         language,
-                        "skill_derive_overwritten" if force and existed_before else "skill_derive_created",
+                        "skill_derive_overwritten"
+                        if force and existed_before
+                        else "skill_derive_created",
                         slug=slug,
                         path=skill_path,
                     ),

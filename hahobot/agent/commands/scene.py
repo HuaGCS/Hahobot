@@ -215,7 +215,9 @@ class SceneCommandHandler:
     def list(self, msg: InboundMessage, session: Session) -> OutboundMessage:
         language = self.loop._get_session_language(session)
         persona = self.loop._get_session_persona(session)
-        items = "\n".join(f"- {name}" for name in available_scene_names(self.loop.workspace, persona))
+        items = "\n".join(
+            f"- {name}" for name in available_scene_names(self.loop.workspace, persona)
+        )
         return self._response(
             msg,
             text(
@@ -231,8 +233,12 @@ class SceneCommandHandler:
             return persona
         return text(language, "scene_persona_fallback")
 
-    def unknown_scene(self, msg: InboundMessage, language: str, persona: str | None, name: str) -> OutboundMessage:
-        items = "\n".join(f"- {scene}" for scene in available_scene_names(self.loop.workspace, persona))
+    def unknown_scene(
+        self, msg: InboundMessage, language: str, persona: str | None, name: str
+    ) -> OutboundMessage:
+        items = "\n".join(
+            f"- {scene}" for scene in available_scene_names(self.loop.workspace, persona)
+        )
         return self._response(
             msg,
             text(language, "scene_unknown", name=name, items=items),

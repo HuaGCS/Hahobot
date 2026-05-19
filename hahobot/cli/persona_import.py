@@ -277,7 +277,9 @@ def parse_sillytavern_world_info_object(obj: Any) -> SillyTavernWorldInfo:
     entries: list[SillyTavernWorldInfoEntry] = []
     for entry in entry_items:
         content = _string_value(entry.get("content"))
-        title = _string_value(entry.get("comment")) or _string_value(entry.get("name")) or "Lore Entry"
+        title = (
+            _string_value(entry.get("comment")) or _string_value(entry.get("name")) or "Lore Entry"
+        )
         entries.append(
             SillyTavernWorldInfoEntry(
                 title=title,
@@ -360,7 +362,9 @@ def _ensure_managed_target(path: Path, *, force: bool, description: str) -> None
         )
 
 
-def _build_manifest(card: SillyTavernCharacterCard, source_path: Path, persona_name: str) -> dict[str, Any]:
+def _build_manifest(
+    card: SillyTavernCharacterCard, source_path: Path, persona_name: str
+) -> dict[str, Any]:
     ext = _project_extensions(card.extensions)
     reference_images = ext.get("reference_images")
     if not isinstance(reference_images, dict):

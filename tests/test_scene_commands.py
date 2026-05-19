@@ -132,7 +132,9 @@ async def test_scene_uses_persona_manifest_prompt_and_caption_overrides(tmp_path
     (metadata_dir / "st_manifest.json").write_text(
         json.dumps(
             {
-                "scene_prompts": {"comfort": "Prefer a quiet sofa corner, blanket, and gentle posture."},
+                "scene_prompts": {
+                    "comfort": "Prefer a quiet sofa corner, blanket, and gentle posture."
+                },
                 "scene_captions": {"comfort": "{persona} stayed with you on the sofa."},
             }
         ),
@@ -231,7 +233,9 @@ async def test_scene_custom_scene_name_uses_manifest_guidance(tmp_path: Path) ->
     loop.sessions.save(session)
 
     response = await loop._process_message(
-        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/scene rainy_walk")
+        InboundMessage(
+            channel="cli", sender_id="user", chat_id="direct", content="/scene rainy_walk"
+        )
     )
 
     assert response is not None
@@ -247,7 +251,9 @@ async def test_scene_unknown_scene_reports_available_scenes(tmp_path: Path) -> N
     loop = _make_loop(tmp_path)
 
     response = await loop._process_message(
-        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/scene missing_scene")
+        InboundMessage(
+            channel="cli", sender_id="user", chat_id="direct", content="/scene missing_scene"
+        )
     )
 
     assert response is not None
@@ -264,4 +270,6 @@ async def test_scene_reports_disabled_image_generation(tmp_path: Path) -> None:
     )
 
     assert response is not None
-    assert response.content == "Image generation is not enabled. Turn on tools.imageGen.enabled first."
+    assert (
+        response.content == "Image generation is not enabled. Turn on tools.imageGen.enabled first."
+    )

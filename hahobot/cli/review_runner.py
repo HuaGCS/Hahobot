@@ -205,7 +205,9 @@ def collect_review_input(
     clean = not files
     truncated = False
     if diff_output and len(diff_output) > max_diff_chars:
-        diff_output = diff_output[: max_diff_chars - len(_TRUNCATION_NOTICE)].rstrip() + _TRUNCATION_NOTICE
+        diff_output = (
+            diff_output[: max_diff_chars - len(_TRUNCATION_NOTICE)].rstrip() + _TRUNCATION_NOTICE
+        )
         truncated = True
     if not stat_output:
         stat_output = "No diff stat output."
@@ -235,8 +237,10 @@ def collect_review_input(
 
 def build_review_messages(payload: ReviewInput) -> list[dict[str, str]]:
     """Build a tool-free review prompt for the configured model provider."""
-    branch_label = f"detached at {payload.head or 'unknown'}" if payload.detached else (
-        payload.branch or "unknown"
+    branch_label = (
+        f"detached at {payload.head or 'unknown'}"
+        if payload.detached
+        else (payload.branch or "unknown")
     )
     files_text = "\n".join(f"- {path}" for path in payload.files) or "- [none]"
     path_line = payload.path_filter or "[none]"

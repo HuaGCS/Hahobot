@@ -155,9 +155,9 @@ class HistoryArchiveSQLiteIndex:
                 payload,
             ),
         )
-        rowid = conn.execute(
-            "SELECT rowid FROM observations WHERE id = ?", (entry_id,)
-        ).fetchone()[0]
+        rowid = conn.execute("SELECT rowid FROM observations WHERE id = ?", (entry_id,)).fetchone()[
+            0
+        ]
         conn.execute(
             """
             INSERT INTO observations_fts(

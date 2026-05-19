@@ -67,7 +67,9 @@ def test_persona_import_st_card_creates_persona_files(tmp_path, monkeypatch) -> 
         encoding="utf-8"
     )
     assert (persona_dir / ".hahobot" / "st_character.json").exists()
-    manifest = json.loads((persona_dir / ".hahobot" / "st_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (persona_dir / ".hahobot" / "st_manifest.json").read_text(encoding="utf-8")
+    )
     assert manifest["response_filter_tags"] == ["inner", "thought"]
     assert manifest["reference_image"] == "/tmp/aria.png"
     assert "/persona set Aria" in result.stdout
@@ -116,7 +118,9 @@ def test_persona_import_st_card_accepts_legacy_nanobot_extension_key(tmp_path, m
     assert manifest["reference_image"] == "/tmp/aria-legacy.png"
 
 
-def test_persona_import_st_card_rejects_existing_persona_without_force(tmp_path, monkeypatch) -> None:
+def test_persona_import_st_card_rejects_existing_persona_without_force(
+    tmp_path, monkeypatch
+) -> None:
     workspace = tmp_path / "workspace"
     persona_dir = workspace / "personas" / "Aria"
     persona_dir.mkdir(parents=True)
@@ -189,8 +193,20 @@ def test_persona_import_st_preset_creates_style_file(tmp_path, monkeypatch) -> N
             {
                 "prompts": [
                     {"name": "Marker", "content": "ignored", "marker": True, "enabled": True},
-                    {"name": "Warmth", "content": "Be warm.", "enabled": True, "role": "system", "order": 20},
-                    {"name": "Reply", "content": "Keep replies vivid.", "enabled": True, "role": "assistant", "order": 10},
+                    {
+                        "name": "Warmth",
+                        "content": "Be warm.",
+                        "enabled": True,
+                        "role": "system",
+                        "order": 20,
+                    },
+                    {
+                        "name": "Reply",
+                        "content": "Keep replies vivid.",
+                        "enabled": True,
+                        "role": "assistant",
+                        "order": 10,
+                    },
                 ]
             }
         ),
@@ -266,9 +282,24 @@ def test_persona_import_st_worldinfo_creates_lore_file(tmp_path, monkeypatch) ->
         json.dumps(
             {
                 "entries": {
-                    "0": {"comment": "Always On", "content": "Aria loves sketching.", "constant": True, "order": 5},
-                    "1": {"comment": "Disabled", "content": "ignore me", "disable": True, "order": 1},
-                    "2": {"comment": "Travel", "content": "She keeps a travel journal.", "key": ["trip", "journey"], "order": 10},
+                    "0": {
+                        "comment": "Always On",
+                        "content": "Aria loves sketching.",
+                        "constant": True,
+                        "order": 5,
+                    },
+                    "1": {
+                        "comment": "Disabled",
+                        "content": "ignore me",
+                        "disable": True,
+                        "order": 1,
+                    },
+                    "2": {
+                        "comment": "Travel",
+                        "content": "She keeps a travel journal.",
+                        "key": ["trip", "journey"],
+                        "order": 10,
+                    },
                 }
             }
         ),

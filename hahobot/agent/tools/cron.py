@@ -257,8 +257,5 @@ class CronTool(Tool):
                     "This is a system-managed Dream memory consolidation job for long-term memory.\n"
                     "It remains visible so you can inspect it, but it cannot be removed."
                 )
-            return (
-                f"Cannot remove job `{job_id}`.\n"
-                "This is a protected system-managed cron job."
-            )
+            return f"Cannot remove job `{job_id}`.\nThis is a protected system-managed cron job."
         return f"Job {job_id} not found"

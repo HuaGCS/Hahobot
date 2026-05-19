@@ -97,9 +97,12 @@ async def test_transcription_unreadable_file_short_circuits(audio_file: Path) ->
     provider = OpenAITranscriptionProvider(api_key="sk-test")
     post = AsyncMock()
 
-    with patch("pathlib.Path.read_bytes", side_effect=PermissionError("denied")), patch(
-        "httpx.AsyncClient.post",
-        post,
+    with (
+        patch("pathlib.Path.read_bytes", side_effect=PermissionError("denied")),
+        patch(
+            "httpx.AsyncClient.post",
+            post,
+        ),
     ):
         result = await provider.transcribe(audio_file)
 

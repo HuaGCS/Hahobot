@@ -80,13 +80,17 @@ class TestDreamRun:
         mock_provider.chat_with_retry.assert_not_called()
         mock_runner.run.assert_not_called()
 
-    async def test_calls_runner_for_unprocessed_entries(self, dream, mock_provider, mock_runner, store):
+    async def test_calls_runner_for_unprocessed_entries(
+        self, dream, mock_provider, mock_runner, store
+    ):
         """Dream should call AgentRunner when there are unprocessed history entries."""
         store.append_history("User prefers dark mode")
         mock_provider.chat_with_retry.return_value = MagicMock(content="New fact")
-        mock_runner.run = AsyncMock(return_value=_make_run_result(
-            tool_events=[{"name": "edit_file", "status": "ok", "detail": "memory/MEMORY.md"}],
-        ))
+        mock_runner.run = AsyncMock(
+            return_value=_make_run_result(
+                tool_events=[{"name": "edit_file", "status": "ok", "detail": "memory/MEMORY.md"}],
+            )
+        )
         result = await dream.run()
         assert result is True
         mock_runner.run.assert_called_once()
@@ -94,20 +98,20 @@ class TestDreamRun:
         assert spec.max_iterations == 10
         assert spec.fail_on_tool_error is False
         assert "## Current PROFILE.md" in spec.initial_messages[1]["content"]
-        assert "hahobot-meta: confidence=high last_verified=2026-04-01" in (
-            spec.initial_messages[1]["content"]
+        assert (
+            "hahobot-meta: confidence=high last_verified=2026-04-01"
+            in (spec.initial_messages[1]["content"])
         )
         assert "## PROFILE.md Metadata Summary" in spec.initial_messages[1]["content"]
         assert "- Tagged bullets: 1" in spec.initial_messages[1]["content"]
         assert "- Bullets with last_verified: 1" in spec.initial_messages[1]["content"]
         assert "## Current INSIGHTS.md" in spec.initial_messages[1]["content"]
-        assert "# Insights\n- Prefers short review cycles before large refactors (verify)" in (
-            spec.initial_messages[1]["content"]
+        assert (
+            "# Insights\n- Prefers short review cycles before large refactors (verify)"
+            in (spec.initial_messages[1]["content"])
         )
         assert "## INSIGHTS.md Metadata Summary" in spec.initial_messages[1]["content"]
-        assert "- Legacy (verify) markers: 1" in (
-            spec.initial_messages[1]["content"]
-        )
+        assert "- Legacy (verify) markers: 1" in (spec.initial_messages[1]["content"])
 
     async def test_advances_dream_cursor(self, dream, mock_provider, mock_runner, store):
         """Dream should advance the cursor after processing."""

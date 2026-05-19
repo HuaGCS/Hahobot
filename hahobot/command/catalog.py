@@ -133,7 +133,16 @@ _COMMAND_SPECS: tuple[CommandSpec, ...] = (
         description_keys=("cmd_skill",),
         usage_text_key="skill_usage",
         note_key="admin_commands_note_skill",
-        completion_subcommands=("search", "install", "uninstall", "list", "update", "derive", "supersede", "lint"),
+        completion_subcommands=(
+            "search",
+            "install",
+            "uninstall",
+            "list",
+            "update",
+            "derive",
+            "supersede",
+            "lint",
+        ),
         prefix_match=True,
         help_rank=70,
         admin_rank=90,
@@ -394,5 +403,5 @@ def normalize_telegram_command_text(content: str) -> str:
         for form in spec.forms():
             safe = f"/{telegram_safe_command_name(form)}"
             if content == safe or content.startswith(safe + " "):
-                return form + content[len(safe):]
+                return form + content[len(safe) :]
     return content

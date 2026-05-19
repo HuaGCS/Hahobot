@@ -1,4 +1,5 @@
 """Tests for Feishu streaming (send_delta) via CardKit streaming API."""
+
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -150,7 +151,9 @@ class TestSendDelta:
     @pytest.mark.asyncio
     async def test_second_delta_within_interval_skips_update(self):
         ch = _make_channel()
-        buf = _FeishuStreamBuf(text="Hello ", card_id="card_1", sequence=1, last_edit=time.monotonic())
+        buf = _FeishuStreamBuf(
+            text="Hello ", card_id="card_1", sequence=1, last_edit=time.monotonic()
+        )
         ch._stream_bufs["oc_chat1"] = buf
 
         await ch.send_delta("oc_chat1", "world")
@@ -161,7 +164,9 @@ class TestSendDelta:
     @pytest.mark.asyncio
     async def test_delta_after_interval_updates_text(self):
         ch = _make_channel()
-        buf = _FeishuStreamBuf(text="Hello ", card_id="card_1", sequence=1, last_edit=time.monotonic() - 1.0)
+        buf = _FeishuStreamBuf(
+            text="Hello ", card_id="card_1", sequence=1, last_edit=time.monotonic() - 1.0
+        )
         ch._stream_bufs["oc_chat1"] = buf
 
         ch._client.cardkit.v1.card_element.content.return_value = _mock_content_response()
@@ -175,7 +180,10 @@ class TestSendDelta:
     async def test_stream_end_sends_final_update(self):
         ch = _make_channel()
         ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(
-            text="Final content", card_id="card_1", sequence=3, last_edit=0.0,
+            text="Final content",
+            card_id="card_1",
+            sequence=3,
+            last_edit=0.0,
         )
         ch._client.cardkit.v1.card_element.content.return_value = _mock_content_response()
         ch._client.cardkit.v1.card.settings.return_value = _mock_content_response()
@@ -193,7 +201,10 @@ class TestSendDelta:
         """If card creation failed, stream_end falls back to a plain card message."""
         ch = _make_channel()
         ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(
-            text="Fallback content", card_id=None, sequence=0, last_edit=0.0,
+            text="Fallback content",
+            card_id=None,
+            sequence=0,
+            last_edit=0.0,
         )
         ch._client.im.v1.message.create.return_value = _mock_send_response("om_fb")
 

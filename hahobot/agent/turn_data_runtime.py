@@ -44,7 +44,11 @@ class TurnDataRuntimeManager:
             persona=state.persona,
             session_key=state.key,
         )
-        turn_history = history if history is not None else state.session.get_history(max_messages=0, include_timestamps=True)
+        turn_history = (
+            history
+            if history is not None
+            else state.session.get_history(max_messages=0, include_timestamps=True)
+        )
         memorix_context = await self.loop._maybe_start_memorix_session(state.session)
         memory_scope = self.loop._memory_scope(
             state.session,
@@ -133,10 +137,9 @@ class TurnDataRuntimeManager:
             ):
                 continue
 
-            if (
-                block.get("type") == "image_url"
-                and block.get("image_url", {}).get("url", "").startswith("data:image/")
-            ):
+            if block.get("type") == "image_url" and block.get("image_url", {}).get(
+                "url", ""
+            ).startswith("data:image/"):
                 path = (block.get("_meta") or {}).get("path", "")
                 filtered.append({"type": "text", "text": image_placeholder_text(path)})
                 continue
@@ -245,7 +248,9 @@ class TurnDataRuntimeManager:
         if estimated <= budget:
             return messages
 
-        tool_indices = [idx for idx, message in enumerate(messages) if message.get("role") == "tool"]
+        tool_indices = [
+            idx for idx, message in enumerate(messages) if message.get("role") == "tool"
+        ]
         if not tool_indices:
             logger.warning(
                 "Prompt over budget for current turn: {}/{} via {} (no tool results to compact)",
@@ -314,7 +319,9 @@ class TurnDataRuntimeManager:
                         continue
                     entry["content"] = filtered
             elif role == "user":
-                if isinstance(content, str) and content.startswith(ContextBuilder._RUNTIME_CONTEXT_TAG):
+                if isinstance(content, str) and content.startswith(
+                    ContextBuilder._RUNTIME_CONTEXT_TAG
+                ):
                     parts = content.split("\n\n", 1)
                     if len(parts) > 1 and parts[1].strip():
                         entry["content"] = parts[1]

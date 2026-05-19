@@ -53,8 +53,12 @@ def test_system_prompt_mentions_workspace_out_for_generated_artifacts(tmp_path) 
 
     prompt = builder.build_system_prompt()
 
-    assert f"Put generated artifacts meant for delivery to the user under: {workspace}/out" in prompt
-    assert "Channels that need public URLs for local delivery artifacts expect files under " in prompt
+    assert (
+        f"Put generated artifacts meant for delivery to the user under: {workspace}/out" in prompt
+    )
+    assert (
+        "Channels that need public URLs for local delivery artifacts expect files under " in prompt
+    )
     assert "`mediaBaseUrl` at your own static file server for that directory." in prompt
 
 

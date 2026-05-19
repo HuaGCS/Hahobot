@@ -359,7 +359,9 @@ def _iter_enabled_channels(config: Config) -> list[str]:
     return enabled
 
 
-def _provider_target_status(config: Config, provider_name: str | None, model: str) -> ModelTargetSummary:
+def _provider_target_status(
+    config: Config, provider_name: str | None, model: str
+) -> ModelTargetSummary:
     if not provider_name:
         return ModelTargetSummary(
             provider="unresolved",
@@ -443,11 +445,7 @@ def build_model_summary(config: Config) -> ModelSummary:
             )
             for target in provider_pool.targets
         )
-        issues = tuple(
-            issue
-            for target in targets
-            for issue in target.issues
-        )
+        issues = tuple(issue for target in targets for issue in target.issues)
         status: Status = "ok" if not issues else "fail"
         detail = (
             f"Provider pool strategy: {provider_pool.strategy}. "
@@ -477,7 +475,9 @@ def build_model_summary(config: Config) -> ModelSummary:
     forced_provider = defaults.provider if defaults.provider != "auto" else None
     resolved_provider = forced_provider or config.get_provider_name(defaults.model)
     target = _provider_target_status(config, resolved_provider, defaults.model)
-    selection_mode: Literal["auto", "forced", "provider_pool"] = "forced" if forced_provider else "auto"
+    selection_mode: Literal["auto", "forced", "provider_pool"] = (
+        "forced" if forced_provider else "auto"
+    )
     detail_parts = []
     if selection_mode == "forced":
         detail_parts.append(f"Provider pinned by config: {defaults.provider}")
@@ -631,7 +631,9 @@ def run_runtime_doctor(config: Config) -> RuntimeDoctorReport:
         _check(
             "workspace",
             "ok" if workspace_exists else "warn",
-            "Workspace directory exists." if workspace_exists else "Workspace directory does not exist yet.",
+            "Workspace directory exists."
+            if workspace_exists
+            else "Workspace directory does not exist yet.",
             detail=str(workspace),
             fix="Run `hahobot onboard` or `hahobot agent` once to seed the workspace."
             if not workspace_exists
@@ -677,7 +679,9 @@ def run_runtime_doctor(config: Config) -> RuntimeDoctorReport:
             "At least one chat channel is enabled."
             if enabled_channels
             else "No chat channels are enabled.",
-            detail=", ".join(enabled_channels) if enabled_channels else "CLI and OpenAI-compatible API can still be used.",
+            detail=", ".join(enabled_channels)
+            if enabled_channels
+            else "CLI and OpenAI-compatible API can still be used.",
             fix="Enable a channel under `channels.*` if you want gateway delivery."
             if not enabled_channels
             else "",
@@ -822,7 +826,9 @@ def render_tools_summary_text(summary: ToolsSummary) -> str:
     if summary.exec.issues:
         lines.append(f"  issues: {'; '.join(summary.exec.issues)}")
 
-    lines.append(f"Image Gen: [{_format_status(summary.image_gen.status)}] {summary.image_gen.summary}")
+    lines.append(
+        f"Image Gen: [{_format_status(summary.image_gen.status)}] {summary.image_gen.summary}"
+    )
     if summary.image_gen.detail:
         lines.append(f"  detail: {summary.image_gen.detail}")
     if summary.image_gen.issues:

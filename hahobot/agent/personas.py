@@ -115,7 +115,9 @@ def list_personas(workspace: Path) -> list[str]:
                 continue
             personas.setdefault(normalized.lower(), child.name)
 
-    return sorted(personas.values(), key=lambda value: (value.lower() != DEFAULT_PERSONA, value.lower()))
+    return sorted(
+        personas.values(), key=lambda value: (value.lower() != DEFAULT_PERSONA, value.lower())
+    )
 
 
 def resolve_persona_name(workspace: Path, name: str | None) -> str | None:
@@ -247,7 +249,9 @@ def normalize_scene_text_map(value: Any) -> dict[str, str]:
     return normalized
 
 
-def resolve_persona_asset_path(workspace: Path, persona: str | None, value: str | None) -> str | None:
+def resolve_persona_asset_path(
+    workspace: Path, persona: str | None, value: str | None
+) -> str | None:
     """Resolve a persona-related asset path from either persona or workspace scope."""
     raw = _string_or_none(value)
     if raw is None:

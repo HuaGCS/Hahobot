@@ -145,12 +145,14 @@ async def test_running_service_honors_external_disable(tmp_path) -> None:
 
 def test_remove_job_refuses_system_jobs(tmp_path) -> None:
     service = CronService(tmp_path / "cron" / "jobs.json")
-    service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-    ))
+    service.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
 
     result = service.remove_job("dream")
 

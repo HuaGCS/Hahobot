@@ -102,9 +102,7 @@ class WhatsAppChannel(BaseChannel):
             if not npm_path:
                 logger.error("npm not found in PATH; cannot start WhatsApp bridge")
                 return False
-            subprocess.run(
-                [npm_path, "start"], cwd=bridge_dir, check=True, env=env
-            )
+            subprocess.run([npm_path, "start"], cwd=bridge_dir, check=True, env=env)
         except subprocess.CalledProcessError:
             return False
 
@@ -242,7 +240,12 @@ class WhatsAppChannel(BaseChannel):
                 self._lid_to_phone[lid_id] = phone_id
             sender_id = phone_id or self._lid_to_phone.get(lid_id, "") or lid_id or id_a or id_b
 
-            logger.info("Sender phone={} lid={} → sender_id={}", phone_id or "(empty)", lid_id or "(empty)", sender_id)
+            logger.info(
+                "Sender phone={} lid={} → sender_id={}",
+                phone_id or "(empty)",
+                lid_id or "(empty)",
+                sender_id,
+            )
 
             # Extract media paths (images/documents/videos downloaded by the bridge)
             media_paths = data.get("media") or []
@@ -254,7 +257,9 @@ class WhatsAppChannel(BaseChannel):
                     transcription = await self.transcribe_audio(media_paths[0])
                     if transcription:
                         content = transcription
-                        logger.info("Transcribed voice from {}: {}...", sender_id, transcription[:50])
+                        logger.info(
+                            "Transcribed voice from {}: {}...", sender_id, transcription[:50]
+                        )
                     else:
                         content = "[Voice Message: Transcription failed]"
                 else:

@@ -105,7 +105,9 @@ class ReadFileTool(_FsTool):
     def read_only(self) -> bool:
         return True
 
-    async def execute(self, path: str | None = None, offset: int = 1, limit: int | None = None, **kwargs: Any) -> Any:
+    async def execute(
+        self, path: str | None = None, offset: int = 1, limit: int | None = None, **kwargs: Any
+    ) -> Any:
         try:
             if not path:
                 return "Error reading file: Unknown path"
@@ -206,7 +208,9 @@ class WriteFileTool(_FsTool):
             "For partial edits, prefer edit_file instead."
         )
 
-    async def execute(self, path: str | None = None, content: str | None = None, **kwargs: Any) -> str:
+    async def execute(
+        self, path: str | None = None, content: str | None = None, **kwargs: Any
+    ) -> str:
         try:
             if not path:
                 raise ValueError("Unknown path")
@@ -225,6 +229,7 @@ class WriteFileTool(_FsTool):
 # ---------------------------------------------------------------------------
 # edit_file
 # ---------------------------------------------------------------------------
+
 
 def _find_match(content: str, old_text: str) -> tuple[str | None, int]:
     """Locate old_text in content: exact first, then line-trimmed sliding window.
@@ -278,9 +283,12 @@ class EditFileTool(_FsTool):
         )
 
     async def execute(
-        self, path: str | None = None, old_text: str | None = None,
+        self,
+        path: str | None = None,
+        old_text: str | None = None,
         new_text: str | None = None,
-        replace_all: bool = False, **kwargs: Any,
+        replace_all: bool = False,
+        **kwargs: Any,
     ) -> str:
         try:
             if not path:
@@ -342,19 +350,25 @@ class EditFileTool(_FsTool):
                 best_ratio, best_start = ratio, i
 
         if best_ratio > 0.5:
-            diff = "\n".join(difflib.unified_diff(
-                old_lines, lines[best_start : best_start + window],
-                fromfile="old_text (provided)",
-                tofile=f"{path} (actual, line {best_start + 1})",
-                lineterm="",
-            ))
+            diff = "\n".join(
+                difflib.unified_diff(
+                    old_lines,
+                    lines[best_start : best_start + window],
+                    fromfile="old_text (provided)",
+                    tofile=f"{path} (actual, line {best_start + 1})",
+                    lineterm="",
+                )
+            )
             return f"Error: old_text not found in {path}.\nBest match ({best_ratio:.0%} similar) at line {best_start + 1}:\n{diff}"
-        return f"Error: old_text not found in {path}. No similar text found. Verify the file content."
+        return (
+            f"Error: old_text not found in {path}. No similar text found. Verify the file content."
+        )
 
 
 # ---------------------------------------------------------------------------
 # list_dir
 # ---------------------------------------------------------------------------
+
 
 @tool_parameters(
     tool_parameters_schema(
@@ -373,9 +387,19 @@ class ListDirTool(_FsTool):
 
     _DEFAULT_MAX = 200
     _IGNORE_DIRS = {
-        ".git", "node_modules", "__pycache__", ".venv", "venv",
-        "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
-        ".ruff_cache", ".coverage", "htmlcov",
+        ".git",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        ".tox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".coverage",
+        "htmlcov",
     }
 
     @property
@@ -395,8 +419,11 @@ class ListDirTool(_FsTool):
         return True
 
     async def execute(
-        self, path: str | None = None, recursive: bool = False,
-        max_entries: int | None = None, **kwargs: Any,
+        self,
+        path: str | None = None,
+        recursive: bool = False,
+        max_entries: int | None = None,
+        **kwargs: Any,
     ) -> str:
         try:
             if path is None:

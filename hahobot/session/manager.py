@@ -43,12 +43,7 @@ class Session:
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to the session."""
-        msg = {
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now().isoformat(),
-            **kwargs
-        }
+        msg = {"role": role, "content": content, "timestamp": datetime.now().isoformat(), **kwargs}
         self.messages.append(msg)
         self.updated_at = datetime.now()
 
@@ -59,7 +54,7 @@ class Session:
         include_timestamps: bool = False,
     ) -> list[dict[str, Any]]:
         """Return unconsolidated messages for LLM input, aligned to a legal tool-call boundary."""
-        unconsolidated = self.messages[self.last_consolidated:]
+        unconsolidated = self.messages[self.last_consolidated :]
         sliced = unconsolidated[-max_messages:]
 
         # Avoid starting mid-turn when possible.
@@ -184,8 +179,8 @@ class SessionManager:
             return None
 
         try:
-            messages, metadata, created_at, updated_at, last_consolidated, _ = self._read_session_file(
-                path
+            messages, metadata, created_at, updated_at, last_consolidated, _ = (
+                self._read_session_file(path)
             )
             session = self._build_session(
                 key,
@@ -232,7 +227,7 @@ class SessionManager:
             "created_at": session.created_at.isoformat(),
             "updated_at": session.updated_at.isoformat(),
             "metadata": session.metadata,
-            "last_consolidated": session.last_consolidated
+            "last_consolidated": session.last_consolidated,
         }
 
     @staticmethod
@@ -382,7 +377,7 @@ class SessionManager:
             session.updated_at = datetime.now()
             self._rewrite_session_file(path, session)
         else:
-            new_messages = session.messages[session._persisted_message_count:]
+            new_messages = session.messages[session._persisted_message_count :]
             metadata_changed = metadata_state != session._persisted_metadata_state
 
             if new_messages or metadata_changed:
@@ -423,21 +418,25 @@ class SessionManager:
 
                 # Incremental saves append messages without rewriting the first metadata line,
                 # so use file mtime as the session's latest activity timestamp.
-                sessions.append({
-                    "key": key,
-                    "created_at": created_at,
-                    "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
-                    "path": str(path)
-                })
+                sessions.append(
+                    {
+                        "key": key,
+                        "created_at": created_at,
+                        "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                        "path": str(path),
+                    }
+                )
             except Exception:
                 repaired = self._repair(path.stem.replace("_", ":", 1))
                 if repaired is not None:
-                    sessions.append({
-                        "key": repaired.key,
-                        "created_at": repaired.created_at.isoformat(),
-                        "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
-                        "path": str(path),
-                    })
+                    sessions.append(
+                        {
+                            "key": repaired.key,
+                            "created_at": repaired.created_at.isoformat(),
+                            "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                            "path": str(path),
+                        }
+                    )
                 continue
 
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)

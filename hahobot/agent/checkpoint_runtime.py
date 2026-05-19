@@ -138,11 +138,13 @@ class CheckpointRuntimeManager:
             return False
 
         if session.messages and session.messages[-1].get("role") == "user":
-            session.messages.append({
-                "role": "assistant",
-                "content": "Error: Task interrupted before a response was generated.",
-                "timestamp": datetime.now().isoformat(),
-            })
+            session.messages.append(
+                {
+                    "role": "assistant",
+                    "content": "Error: Task interrupted before a response was generated.",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
             session.updated_at = datetime.now()
             interrupted = build_interrupted_checkpoint(session.messages)
             if interrupted is not None:

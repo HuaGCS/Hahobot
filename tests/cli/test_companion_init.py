@@ -38,7 +38,9 @@ def test_companion_init_creates_persona_scaffold_and_heartbeat_task(tmp_path: Pa
     workspace = tmp_path / "workspace"
     config_path = _write_config(tmp_path / "config.json", workspace)
 
-    result = runner.invoke(app, ["companion", "init", "--config", str(config_path), "--persona", "Aria"])
+    result = runner.invoke(
+        app, ["companion", "init", "--config", str(config_path), "--persona", "Aria"]
+    )
 
     output = _strip_ansi(result.stdout)
     persona_dir = workspace / "personas" / "Aria"
@@ -48,7 +50,9 @@ def test_companion_init_creates_persona_scaffold_and_heartbeat_task(tmp_path: Pa
     assert (persona_dir / "USER.md").exists()
     assert (persona_dir / "STYLE.md").exists()
     assert (persona_dir / "VOICE.json").exists()
-    manifest = json.loads((persona_dir / ".hahobot" / "st_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (persona_dir / ".hahobot" / "st_manifest.json").read_text(encoding="utf-8")
+    )
     assert (workspace / "HEARTBEAT.md").exists()
     assert "Companion check-in" in (workspace / "HEARTBEAT.md").read_text(encoding="utf-8")
     assert set(manifest["scene_prompts"]) == {"daily", "comfort", "date"}
@@ -76,7 +80,9 @@ def test_companion_init_reference_image_is_copied_into_persona_assets(tmp_path: 
 
     persona_dir = workspace / "personas" / "Aria"
     copied = persona_dir / "assets" / "aria.png"
-    manifest = json.loads((persona_dir / ".hahobot" / "st_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (persona_dir / ".hahobot" / "st_manifest.json").read_text(encoding="utf-8")
+    )
     assert result.exit_code == 0
     assert source.exists()
     assert copied.exists()
@@ -92,7 +98,9 @@ def test_companion_init_preserves_existing_files_without_force(tmp_path: Path) -
     (persona_dir / "SOUL.md").write_text("custom soul", encoding="utf-8")
     config_path = _write_config(tmp_path / "config.json", workspace)
 
-    result = runner.invoke(app, ["companion", "init", "--config", str(config_path), "--persona", "Aria"])
+    result = runner.invoke(
+        app, ["companion", "init", "--config", str(config_path), "--persona", "Aria"]
+    )
 
     output = _strip_ansi(result.stdout)
     assert result.exit_code == 0
@@ -113,4 +121,6 @@ def test_companion_init_force_overwrites_managed_files(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0
-    assert "warm, grounded long-term companion" in (persona_dir / "SOUL.md").read_text(encoding="utf-8")
+    assert "warm, grounded long-term companion" in (persona_dir / "SOUL.md").read_text(
+        encoding="utf-8"
+    )

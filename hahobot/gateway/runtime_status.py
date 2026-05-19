@@ -52,7 +52,11 @@ def _tool_call_label(calls: list[object]) -> str:
 
 
 def _tool_event_label(events: list[dict[str, str]]) -> str:
-    names = [str(event.get("name") or "").strip() for event in events if str(event.get("name") or "").strip()]
+    names = [
+        str(event.get("name") or "").strip()
+        for event in events
+        if str(event.get("name") or "").strip()
+    ]
     if not names:
         return ""
     label = ", ".join(names[:3])
@@ -203,7 +207,9 @@ class GatewayRuntimeStatusTracker:
         task.current_step = _trim_text(current_step)
         task.next_step = _trim_text(next_step)
         task.response_preview = _trim_text(response_preview)
-        if self._last_task is None or (task.finished_at_ms or 0) >= (self._last_task.finished_at_ms or 0):
+        if self._last_task is None or (task.finished_at_ms or 0) >= (
+            self._last_task.finished_at_ms or 0
+        ):
             self._last_task = task
 
     def _recent_task_snapshot(self) -> GatewayTaskSnapshot | None:

@@ -119,10 +119,12 @@ class TestMemoryConsolidationTypeHandling:
                 ToolCallRequest(
                     id="call_1",
                     name="save_memory",
-                    arguments=json.dumps({
-                        "history_entry": "[2026-01-01] User discussed testing.",
-                        "new_facts": "# Memory\nUser likes testing.",
-                    }),
+                    arguments=json.dumps(
+                        {
+                            "history_entry": "[2026-01-01] User discussed testing.",
+                            "new_facts": "# Memory\nUser likes testing.",
+                        }
+                    ),
                 )
             ],
         )
@@ -177,10 +179,12 @@ class TestMemoryConsolidationTypeHandling:
                 ToolCallRequest(
                     id="call_1",
                     name="save_memory",
-                    arguments=[{
-                        "history_entry": "[2026-01-01] User discussed testing.",
-                        "new_facts": "# Memory\nUser likes testing.",
-                    }],
+                    arguments=[
+                        {
+                            "history_entry": "[2026-01-01] User discussed testing.",
+                            "new_facts": "# Memory\nUser likes testing.",
+                        }
+                    ],
                 )
             ],
         )
@@ -245,13 +249,15 @@ class TestMemoryConsolidationTypeHandling:
     @pytest.mark.asyncio
     async def test_retries_transient_error_then_succeeds(self, tmp_path: Path, monkeypatch) -> None:
         store = MemoryStore(tmp_path)
-        provider = ScriptedProvider([
-            LLMResponse(content="503 server error", finish_reason="error"),
-            _make_tool_response(
-                history_entry="[2026-01-01] User discussed testing.",
-                new_facts="# Memory\nUser likes testing.",
-            ),
-        ])
+        provider = ScriptedProvider(
+            [
+                LLMResponse(content="503 server error", finish_reason="error"),
+                _make_tool_response(
+                    history_entry="[2026-01-01] User discussed testing.",
+                    new_facts="# Memory\nUser likes testing.",
+                ),
+            ]
+        )
         messages = _make_messages(message_count=60)
         delays: list[int] = []
 

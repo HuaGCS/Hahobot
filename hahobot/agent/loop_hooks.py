@@ -131,7 +131,7 @@ class LoopRunHook(AgentHook):
         prev_clean = self._visible_response_text(self._stream_buf, self._persona)
         self._stream_buf += delta
         new_clean = self._visible_response_text(self._stream_buf, self._persona)
-        incremental = new_clean[len(prev_clean):]
+        incremental = new_clean[len(prev_clean) :]
         if incremental and self._on_stream:
             await self._on_stream(incremental)
 

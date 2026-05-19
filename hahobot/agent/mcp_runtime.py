@@ -155,7 +155,9 @@ class MCPRuntime:
         self._memorix_started_sessions.add(state_key)
         if not self._is_usable_memorix_context(rendered):
             if rendered.strip():
-                logger.warning("Memorix session start returned non-context output: {}", rendered[:200])
+                logger.warning(
+                    "Memorix session start returned non-context output: {}", rendered[:200]
+                )
             return ""
 
         context = self._truncate_memorix_context(rendered)

@@ -125,7 +125,9 @@ class VoiceReplyHandler:
         speed = (
             persona_voice.speed
             if persona_voice.speed is not None
-            else getattr(cfg, "speed", None) if cfg is not None else None
+            else getattr(cfg, "speed", None)
+            if cfg is not None
+            else None
         )
         if provider_name == "edge":
             voice = persona_voice.voice or getattr(cfg, "edge_voice", "zh-CN-XiaoxiaoNeural")

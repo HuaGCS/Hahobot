@@ -57,9 +57,7 @@ def _normalize_schema_for_openai(schema: Any) -> dict[str, Any]:
 
     if "properties" in normalized and isinstance(normalized["properties"], dict):
         normalized["properties"] = {
-            name: _normalize_schema_for_openai(prop)
-            if isinstance(prop, dict)
-            else prop
+            name: _normalize_schema_for_openai(prop) if isinstance(prop, dict) else prop
             for name, prop in normalized["properties"].items()
         }
 
@@ -138,9 +136,7 @@ class MCPToolWrapper(Tool):
 class MCPResourceWrapper(Tool):
     """Wraps an MCP resource URI as a read-only hahobot Tool."""
 
-    def __init__(
-        self, session, server_name: str, resource_def, resource_timeout: int = 30
-    ):
+    def __init__(self, session, server_name: str, resource_def, resource_timeout: int = 30):
         self._session = session
         self._uri = resource_def.uri
         self._name = f"mcp_{server_name}_resource_{resource_def.name}"
@@ -211,9 +207,7 @@ class MCPResourceWrapper(Tool):
 class MCPPromptWrapper(Tool):
     """Wraps an MCP prompt as a read-only hahobot Tool."""
 
-    def __init__(
-        self, session, server_name: str, prompt_def, prompt_timeout: int = 30
-    ):
+    def __init__(self, session, server_name: str, prompt_def, prompt_timeout: int = 30):
         self._session = session
         self._prompt_name = prompt_def.name
         self._name = f"mcp_{server_name}_prompt_{prompt_def.name}"
@@ -266,9 +260,7 @@ class MCPPromptWrapper(Tool):
                 timeout=self._prompt_timeout,
             )
         except asyncio.TimeoutError:
-            logger.warning(
-                "MCP prompt '{}' timed out after {}s", self._name, self._prompt_timeout
-            )
+            logger.warning("MCP prompt '{}' timed out after {}s", self._name, self._prompt_timeout)
             return f"(MCP prompt call timed out after {self._prompt_timeout}s)"
         except asyncio.CancelledError:
             task = asyncio.current_task()
@@ -279,13 +271,17 @@ class MCPPromptWrapper(Tool):
         except McpError as exc:
             logger.error(
                 "MCP prompt '{}' failed: code={} message={}",
-                self._name, exc.error.code, exc.error.message,
+                self._name,
+                exc.error.code,
+                exc.error.message,
             )
             return f"(MCP prompt call failed: {exc.error.message} [code {exc.error.code}])"
         except Exception as exc:
             logger.exception(
                 "MCP prompt '{}' failed: {}: {}",
-                self._name, type(exc).__name__, exc,
+                self._name,
+                type(exc).__name__,
+                exc,
             )
             return f"(MCP prompt call failed: {type(exc).__name__})"
 
@@ -336,6 +332,7 @@ async def connect_mcp_servers(
                 )
                 read, write = await stack.enter_async_context(stdio_client(params))
             elif transport_type == "sse":
+
                 def httpx_client_factory(
                     headers: dict[str, str] | None = None,
                     timeout: httpx.Timeout | None = None,

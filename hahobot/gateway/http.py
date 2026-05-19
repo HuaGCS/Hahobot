@@ -123,7 +123,7 @@ def _render_status_page(
             f'<div class="stack">'
             f'<div class="task-title">{escape(task.summary)}</div>'
             f'<div class="meta-row"><span class="{_status_badge_class(task.status)}">{escape(_task_status_text(task.status))}</span>'
-            f'<span>开始于 <code>{escape(task.started_at or "-")}</code></span></div>'
+            f"<span>开始于 <code>{escape(task.started_at or '-')}</code></span></div>"
             f'<div class="meta-row"><span>结束于 <code>{escape(task.finished_at or "仍在处理中")}</code></span></div>'
             f'<div class="meta-row"><span>Persona <code>{escape(task.persona)}</code></span></div>'
             f'<div class="muted">当前步骤: {escape(task.current_step or "暂无")}</div>'
@@ -136,9 +136,7 @@ def _render_status_page(
     )
     heartbeat_model = heartbeat_snapshot.model or runtime_snapshot.model or "unknown"
     heartbeat_interval = (
-        f"{heartbeat_snapshot.interval_s}s"
-        if heartbeat_snapshot.interval_s > 0
-        else "未配置"
+        f"{heartbeat_snapshot.interval_s}s" if heartbeat_snapshot.interval_s > 0 else "未配置"
     )
     if workspace is None:
         memory_layers_html = Markup(
@@ -154,25 +152,25 @@ def _render_status_page(
         memory_layers_html = Markup(
             f'<div class="meta">'
             f'<div class="meta-row"><span>当前 persona <code>{escape(memory_status.persona)}</code></span>'
-            f'<span>层目录 <code>{escape(str(memory_status.root))}</code></span></div>'
+            f"<span>层目录 <code>{escape(str(memory_status.root))}</code></span></div>"
             f'<div class="stack">'
             f'<div><strong>PROFILE.md</strong> <span class="muted">稳定用户事实 / 偏好</span></div>'
             f'<div class="meta-row"><span>{profile.bullet_count} 条 bullet</span>'
-            f'<span>{profile_meta.tagged_bullets} 条带 metadata</span>'
-            f'<span>{profile_meta.with_last_verified} 条带 last_verified</span>'
-            f'<span>{profile_meta.legacy_verify_markers} 个 legacy verify</span></div>'
-            f'</div>'
+            f"<span>{profile_meta.tagged_bullets} 条带 metadata</span>"
+            f"<span>{profile_meta.with_last_verified} 条带 last_verified</span>"
+            f"<span>{profile_meta.legacy_verify_markers} 个 legacy verify</span></div>"
+            f"</div>"
             f'<div class="stack">'
             f'<div><strong>INSIGHTS.md</strong> <span class="muted">已验证协作规律 / 坑点</span></div>'
             f'<div class="meta-row"><span>{insights.bullet_count} 条 bullet</span>'
-            f'<span>{insights_meta.tagged_bullets} 条带 metadata</span>'
-            f'<span>{insights_meta.with_last_verified} 条带 last_verified</span>'
-            f'<span>{insights_meta.legacy_verify_markers} 个 legacy verify</span></div>'
-            f'</div>'
+            f"<span>{insights_meta.tagged_bullets} 条带 metadata</span>"
+            f"<span>{insights_meta.with_last_verified} 条带 last_verified</span>"
+            f"<span>{insights_meta.legacy_verify_markers} 个 legacy verify</span></div>"
+            f"</div>"
             f'<div class="muted">写入规则：<code>PROFILE.md</code> 放稳定用户事实与偏好，'
-            f'<code>INSIGHTS.md</code> 放已验证协作规律；推荐 metadata 形如 '
-            f'<code>&lt;!-- hahobot-meta: confidence=high last_verified=YYYY-MM-DD --&gt;</code>。</div>'
-            f'</div>'
+            f"<code>INSIGHTS.md</code> 放已验证协作规律；推荐 metadata 形如 "
+            f"<code>&lt;!-- hahobot-meta: confidence=high last_verified=YYYY-MM-DD --&gt;</code>。</div>"
+            f"</div>"
         )
     return render_html_template(
         "gateway/status.html",
@@ -239,9 +237,7 @@ def create_http_app(
 
         tracker = _status_tracker(request.app)
         star_snapshot = (
-            tracker.snapshot()
-            if tracker is not None
-            else StarOfficeStatusTracker().snapshot()
+            tracker.snapshot() if tracker is not None else StarOfficeStatusTracker().snapshot()
         )
         if _wants_html(request):
             runtime_tracker = _runtime_status_tracker(request.app) or GatewayRuntimeStatusTracker()

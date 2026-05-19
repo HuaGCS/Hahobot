@@ -58,7 +58,9 @@ class MemoryRuntimeManager:
         """Create optional shadow backends that receive writes in parallel."""
         resolved = config or self.config
         current_primary = primary or self.build_user_backend(resolved)
-        if resolved.user.shadow_write_mem0 and not isinstance(current_primary, self._mem0_backend_type):
+        if resolved.user.shadow_write_mem0 and not isinstance(
+            current_primary, self._mem0_backend_type
+        ):
             return [self._mem0_backend_type(resolved.user.mem0)]
         return []
 

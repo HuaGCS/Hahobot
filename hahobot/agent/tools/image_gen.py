@@ -171,15 +171,15 @@ class ImageGenTool(Tool):
             return None
 
         path = Path(cleaned).expanduser()
-        candidate = path.resolve(strict=False) if path.is_absolute() else (self._workspace / path).resolve(
-            strict=False
+        candidate = (
+            path.resolve(strict=False)
+            if path.is_absolute()
+            else (self._workspace / path).resolve(strict=False)
         )
         if self.restrict_to_workspace:
             workspace_root = self._workspace.resolve(strict=False)
             if not candidate.is_relative_to(workspace_root):
-                raise PermissionError(
-                    f"Reference image path is outside the workspace: {candidate}"
-                )
+                raise PermissionError(f"Reference image path is outside the workspace: {candidate}")
         return candidate
 
     def _resolve_reference_token(self, token: str) -> Path | None:
@@ -305,7 +305,8 @@ class ImageGenTool(Tool):
             (
                 "image",
                 (
-                    ref.path.name or f"reference{index}{_MIME_EXTENSIONS.get(ref.mime_type, '.png')}",
+                    ref.path.name
+                    or f"reference{index}{_MIME_EXTENSIONS.get(ref.mime_type, '.png')}",
                     ref.data,
                     ref.mime_type,
                 ),
@@ -457,7 +458,10 @@ class ImageGenTool(Tool):
 
     async def _save_base64(self, b64_data: str) -> str:
         try:
-            path = self._default_output_dir() / f"gen_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.png"
+            path = (
+                self._default_output_dir()
+                / f"gen_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.png"
+            )
             path.write_bytes(base64.b64decode(b64_data))
             return self._success_message(path)
         except Exception as exc:
@@ -474,7 +478,10 @@ class ImageGenTool(Tool):
                 resp.raise_for_status()
                 mime = resp.headers.get("content-type", "").split(";", 1)[0].strip()
                 suffix = _MIME_EXTENSIONS.get(mime, ".png")
-                path = self._default_output_dir() / f"gen_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}{suffix}"
+                path = (
+                    self._default_output_dir()
+                    / f"gen_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}{suffix}"
+                )
                 path.write_bytes(resp.content)
                 return self._success_message(path)
         except httpx.HTTPStatusError as exc:

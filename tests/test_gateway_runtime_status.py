@@ -29,7 +29,9 @@ async def test_gateway_status_hook_tracks_latest_completed_task() -> None:
     )
 
     await hook.before_iteration(context)
-    context.tool_calls = [ToolCallRequest(id="call_1", name="grep", arguments={"pattern": "incident"})]
+    context.tool_calls = [
+        ToolCallRequest(id="call_1", name="grep", arguments={"pattern": "incident"})
+    ]
     await hook.before_execute_tools(context)
     context.final_content = "Incident report reviewed."
     context.stop_reason = "completed"

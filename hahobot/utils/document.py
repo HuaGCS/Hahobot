@@ -50,7 +50,8 @@ def _extract_docx(path: Path) -> str:
     try:
         with zipfile.ZipFile(path) as zf:
             parts = [
-                name for name in zf.namelist()
+                name
+                for name in zf.namelist()
                 if name == "word/document.xml"
                 or name.startswith("word/header")
                 or name.startswith("word/footer")
@@ -68,8 +69,7 @@ def _extract_xlsx(path: Path) -> str:
             shared_strings = _xlsx_shared_strings(zf)
             workbook_names = _xlsx_sheet_names(zf)
             sheet_files = sorted(
-                name for name in zf.namelist()
-                if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", name)
+                name for name in zf.namelist() if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", name)
             )
             sheets: list[str] = []
             for index, name in enumerate(sheet_files, 1):
@@ -87,8 +87,7 @@ def _extract_pptx(path: Path) -> str:
     try:
         with zipfile.ZipFile(path) as zf:
             slide_files = sorted(
-                name for name in zf.namelist()
-                if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)
+                name for name in zf.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)
             )
             slides: list[str] = []
             for index, name in enumerate(slide_files, 1):

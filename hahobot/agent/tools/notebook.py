@@ -99,14 +99,10 @@ class NotebookEditTool(_FsTool):
                 )
             if edit_mode not in self._VALID_EDIT_MODES:
                 return (
-                    f"Error: Invalid edit_mode '{edit_mode}'. "
-                    "Use one of: replace, insert, delete."
+                    f"Error: Invalid edit_mode '{edit_mode}'. Use one of: replace, insert, delete."
                 )
             if cell_type not in self._VALID_CELL_TYPES:
-                return (
-                    f"Error: Invalid cell_type '{cell_type}'. "
-                    "Use one of: code, markdown."
-                )
+                return f"Error: Invalid cell_type '{cell_type}'. Use one of: code, markdown."
 
             notebook_path = self._resolve(path)
             if not notebook_path.exists():
@@ -158,8 +154,7 @@ class NotebookEditTool(_FsTool):
 
             if cell_index < 0 or cell_index >= len(cells):
                 return (
-                    f"Error: cell_index {cell_index} out of range "
-                    f"(notebook has {len(cells)} cells)"
+                    f"Error: cell_index {cell_index} out of range (notebook has {len(cells)} cells)"
                 )
 
             cells[cell_index]["source"] = new_source

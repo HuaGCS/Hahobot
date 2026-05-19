@@ -135,17 +135,13 @@ def build_checkpoint_from_runner_payload(
 
     if phase == "awaiting_tools":
         label = ", ".join(recent_tools[:3])
-        current_step = (
-            f"Running tools: {label}" if label else "Preparing tool execution"
-        )
+        current_step = f"Running tools: {label}" if label else "Preparing tool execution"
         next_step = "Wait for tool results"
         status = "running"
         response_preview = ""
     elif phase == "tools_completed":
         label = ", ".join(recent_tools[:3])
-        current_step = (
-            f"Completed tools: {label}" if label else "Completed tool execution"
-        )
+        current_step = f"Completed tools: {label}" if label else "Completed tool execution"
         next_step = "Prepare the final response"
         status = "running"
         response_preview = ""
@@ -193,15 +189,15 @@ def build_checkpoint_from_context(context: AgentHookContext) -> dict[str, Any] |
         status = "completed"
     elif context.tool_calls:
         names = tool_names(context.tool_calls)
-        current_step = (
-            f"Running tools: {', '.join(names[:3])}" if names else "Running tools"
-        )
+        current_step = f"Running tools: {', '.join(names[:3])}" if names else "Running tools"
         next_step = "Wait for tool results"
         status = "running"
     else:
         return None
 
-    tools = [str(event.get("name") or "") for event in context.tool_events or [] if event.get("name")]
+    tools = [
+        str(event.get("name") or "") for event in context.tool_events or [] if event.get("name")
+    ]
     return {
         "goal": goal,
         "status": status,

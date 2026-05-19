@@ -47,7 +47,9 @@ def test_companion_doctor_reports_missing_persona(tmp_path: Path) -> None:
     _make_persona(workspace, "Aria")
     config_path = _write_config(tmp_path / "config.json", workspace)
 
-    result = runner.invoke(app, ["companion", "doctor", "--config", str(config_path), "--persona", "Missing"])
+    result = runner.invoke(
+        app, ["companion", "doctor", "--config", str(config_path), "--persona", "Missing"]
+    )
 
     output = _strip_ansi(result.stdout)
     assert result.exit_code == 0
@@ -62,7 +64,9 @@ def test_companion_doctor_reports_empty_heartbeat_file(tmp_path: Path) -> None:
     (workspace / "HEARTBEAT.md").write_text("", encoding="utf-8")
     config_path = _write_config(tmp_path / "config.json", workspace)
 
-    result = runner.invoke(app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria"])
+    result = runner.invoke(
+        app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria"]
+    )
 
     output = _strip_ansi(result.stdout)
     assert result.exit_code == 0
@@ -85,7 +89,9 @@ def test_companion_doctor_reports_voice_reply_disabled_as_warn(tmp_path: Path) -
         },
     )
 
-    result = runner.invoke(app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"])
+    result = runner.invoke(
+        app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"]
+    )
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
@@ -114,7 +120,9 @@ def test_companion_doctor_reports_reference_image_outside_workspace(tmp_path: Pa
         },
     )
 
-    result = runner.invoke(app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"])
+    result = runner.invoke(
+        app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"]
+    )
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
@@ -144,7 +152,9 @@ def test_companion_doctor_reports_scene_shortcuts_ready(tmp_path: Path) -> None:
         patch={"tools": {"imageGen": {"enabled": True}}},
     )
 
-    result = runner.invoke(app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"])
+    result = runner.invoke(
+        app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"]
+    )
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
@@ -159,7 +169,9 @@ def test_companion_doctor_json_output_is_stable(tmp_path: Path) -> None:
     _make_persona(workspace)
     config_path = _write_config(tmp_path / "config.json", workspace)
 
-    result = runner.invoke(app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"])
+    result = runner.invoke(
+        app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"]
+    )
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
@@ -207,7 +219,9 @@ def test_companion_doctor_success_for_minimal_companion_workspace(tmp_path: Path
         },
     )
 
-    result = runner.invoke(app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"])
+    result = runner.invoke(
+        app, ["companion", "doctor", "--config", str(config_path), "--persona", "Aria", "--json"]
+    )
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)

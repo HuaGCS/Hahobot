@@ -153,14 +153,17 @@ async def test_gateway_session_commands_can_route_chat_and_reset(tmp_path: Path)
         )
         assert reset is not None
         assert "Switched to default session: telegram:42" in reset.content
-        assert loop._normalize_session_message(
-            InboundMessage(
-                channel="telegram",
-                sender_id="u1",
-                chat_id="42",
-                content="back to default",
-            )
-        ).session_key == "telegram:42"
+        assert (
+            loop._normalize_session_message(
+                InboundMessage(
+                    channel="telegram",
+                    sender_id="u1",
+                    chat_id="42",
+                    content="back to default",
+                )
+            ).session_key
+            == "telegram:42"
+        )
     finally:
         await loop.close_mcp()
 

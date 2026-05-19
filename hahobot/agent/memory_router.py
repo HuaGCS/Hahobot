@@ -54,9 +54,7 @@ class MemoryRouter:
             try:
                 await backend.commit_turn(request)
             except Exception:
-                logger.exception(
-                    "Memory backend commit failed: {}", type(backend).__name__
-                )
+                logger.exception("Memory backend commit failed: {}", type(backend).__name__)
 
     async def flush_session(self, scope: MemoryScope) -> None:
         """Flush backend state for a session before scope-sensitive transitions."""
@@ -65,6 +63,4 @@ class MemoryRouter:
             try:
                 await backend.flush_session(scope)
             except Exception:
-                logger.exception(
-                    "Memory backend flush failed: {}", type(backend).__name__
-                )
+                logger.exception("Memory backend flush failed: {}", type(backend).__name__)

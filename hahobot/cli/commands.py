@@ -68,6 +68,7 @@ class SafeFileHistory(FileHistory):
     def store_string(self, string: str) -> None:
         super().store_string(_sanitize_surrogates(string))
 
+
 app = typer.Typer(
     name="hahobot",
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -213,8 +214,7 @@ class _InteractiveSlashCompleter(Completer):
             options.append(current_session_id)
         options.append("cli:direct")
         options.extend(
-            session.key
-            for session in list_session_summaries(manager, cli_only=True, limit=50)
+            session.key for session in list_session_summaries(manager, cli_only=True, limit=50)
         )
         return self._unique(options)
 
@@ -328,30 +328,17 @@ def _interactive_session_usage() -> str:
 
 def _interactive_repo_usage() -> str:
     """Return help text for local interactive repo inspection controls."""
-    return (
-        "Local repo commands:\n"
-        "/repo status\n"
-        "/repo diff\n"
-        "/repo diff staged"
-    )
+    return "Local repo commands:\n/repo status\n/repo diff\n/repo diff staged"
 
 
 def _interactive_review_usage() -> str:
     """Return help text for local interactive review controls."""
-    return (
-        "Local review commands:\n"
-        "/review\n"
-        "/review staged"
-    )
+    return "Local review commands:\n/review\n/review staged"
 
 
 def _interactive_compact_usage() -> str:
     """Return help text for local interactive compaction controls."""
-    return (
-        "Local compaction commands:\n"
-        "/compact\n"
-        "/compact <key>"
-    )
+    return "Local compaction commands:\n/compact\n/compact <key>"
 
 
 def _interactive_key_bindings(*, multiline: bool) -> KeyBindings | None:
@@ -474,10 +461,9 @@ def _response_renderable(content: str, render_markdown: bool, metadata: dict | N
 
 async def _print_interactive_line(text: str) -> None:
     """Print async interactive updates with prompt_toolkit-safe Rich styling."""
+
     def _write() -> None:
-        ansi = _render_interactive_ansi(
-            lambda c: c.print(f"  [dim]↳ {text}[/dim]")
-        )
+        ansi = _render_interactive_ansi(lambda c: c.print(f"  [dim]↳ {text}[/dim]"))
         print_formatted_text(ANSI(ansi), end="")
 
     await run_in_terminal(_write)
@@ -489,6 +475,7 @@ async def _print_interactive_response(
     metadata: dict | None = None,
 ) -> None:
     """Print async interactive replies with prompt_toolkit-safe Rich styling."""
+
     def _write() -> None:
         content = response or ""
         ansi = _render_interactive_ansi(
@@ -602,9 +589,7 @@ def _handle_local_session_command(
             workspace=session_manager.workspace,
             export_format="md",
         )
-        return _LocalInteractiveCommandResult(
-            f"Exported session: {target}\nPath: {output_path}"
-        )
+        return _LocalInteractiveCommandResult(f"Exported session: {target}\nPath: {output_path}")
 
     existing = {
         session.key
@@ -731,9 +716,7 @@ async def _handle_local_compact_command(
         return _LocalInteractiveCommandResult(_interactive_compact_usage())
 
     known_sessions = {
-        str(item.get("key") or "")
-        for item in loop.sessions.list_sessions()
-        if item.get("key")
+        str(item.get("key") or "") for item in loop.sessions.list_sessions() if item.get("key")
     }
     if target != current_session_id and target not in known_sessions:
         return _LocalInteractiveCommandResult(
@@ -764,7 +747,9 @@ async def _read_interactive_input_async(*, multiline: bool = False) -> str:
                 key_bindings=_interactive_key_bindings(multiline=multiline),
                 prompt_continuation=HTML("<b fg='ansiblue'>...</b> "),
                 bottom_toolbar=(
-                    HTML("<style fg='ansigray'>Multiline mode: Enter newline, Ctrl+J submit</style>")
+                    HTML(
+                        "<style fg='ansigray'>Multiline mode: Enter newline, Ctrl+J submit</style>"
+                    )
                     if multiline
                     else None
                 ),
@@ -781,9 +766,7 @@ def version_callback(value: bool):
 
 @app.callback()
 def main(
-    version: bool = typer.Option(
-        None, "--version", "-v", callback=version_callback, is_eager=True
-    ),
+    version: bool = typer.Option(None, "--version", "-v", callback=version_callback, is_eager=True),
 ):
     """hahobot - Personal AI Assistant."""
     pass
@@ -921,9 +904,7 @@ def onboard(
         console.print(f"  1. Add your API key to [cyan]{config_path}[/cyan]")
         console.print("     Get one at: https://openrouter.ai/keys")
         console.print(f"  2. Chat: [cyan]{agent_cmd}[/cyan]")
-    console.print(
-        "\n[dim]Want Telegram/WhatsApp? See: README.md#-chat-apps[/dim]"
-    )
+    console.print("\n[dim]Want Telegram/WhatsApp? See: README.md#-chat-apps[/dim]")
 
 
 def _merge_missing_defaults(existing: Any, defaults: Any) -> Any:
@@ -1048,6 +1029,7 @@ def _make_single_provider(
         )
     elif backend == "github_copilot":
         from hahobot.providers.github_copilot_provider import GitHubCopilotProvider
+
         provider = GitHubCopilotProvider(default_model=model)
     elif backend == "anthropic":
         from hahobot.providers.anthropic_provider import AnthropicProvider
@@ -1287,7 +1269,11 @@ def review(
         raise typer.Exit(1)
 
     if payload.clean:
-        result = {"request": payload.to_dict(), "model": loaded.agents.defaults.model, "content": "No diff to review."}
+        result = {
+            "request": payload.to_dict(),
+            "model": loaded.agents.defaults.model,
+            "content": "No diff to review.",
+        }
         if json_output:
             typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
         else:
@@ -1326,7 +1312,9 @@ def review(
 def serve(
     port: int | None = typer.Option(None, "--port", "-p", help="API server port"),
     host: str | None = typer.Option(None, "--host", "-H", help="Bind address"),
-    timeout: float | None = typer.Option(None, "--timeout", "-t", help="Per-request timeout (seconds)"),
+    timeout: float | None = typer.Option(
+        None, "--timeout", "-t", help="Per-request timeout (seconds)"
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show hahobot runtime logs"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
@@ -1441,7 +1429,9 @@ def gateway(
 
     config_arg = config
     config = _load_runtime_config(config_arg, workspace)
-    runtime_config_path = Path(config_arg).expanduser().resolve() if config_arg else get_config_path()
+    runtime_config_path = (
+        Path(config_arg).expanduser().resolve() if config_arg else get_config_path()
+    )
     port = port if port is not None else config.gateway.port
 
     console.print(f"{__logo__} Starting hahobot gateway version {__version__} on port {port}...")
@@ -1508,6 +1498,7 @@ def gateway(
         from hahobot.agent.tools.cron import CronTool
         from hahobot.agent.tools.message import MessageTool
         from hahobot.utils.evaluator import evaluate_response
+
         reminder_note = (
             "[Scheduled Task] Timer finished.\n\n"
             f"Task '{job.name}' has been triggered.\n"
@@ -1569,7 +1560,9 @@ def gateway(
         await agent.reload_runtime_config(reloaded)
         runtime_status_tracker.set_model(agent.model)
         channels.apply_runtime_config(reloaded)
-        star_office_tracker.apply_push_settings(StarOfficePushSettings.from_status_config(reloaded.gateway.status))
+        star_office_tracker.apply_push_settings(
+            StarOfficePushSettings.from_status_config(reloaded.gateway.status)
+        )
         await heartbeat.apply_runtime_config(
             workspace=reloaded.workspace_path,
             model=agent.model,
@@ -1622,6 +1615,7 @@ def gateway(
     async def on_heartbeat_notify(response: str) -> None:
         """Deliver a heartbeat response to the user's channel."""
         from hahobot.bus.events import OutboundMessage
+
         channel, chat_id = _pick_heartbeat_target()
         if channel == "cli":
             return  # No external channel available to deliver to
@@ -1670,12 +1664,15 @@ def gateway(
     agent.dream.max_batch_size = dream_cfg.max_batch_size
     agent.dream.max_iterations = dream_cfg.max_iterations
     from hahobot.cron.types import CronJob, CronPayload
-    cron.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=dream_cfg.build_schedule(config.agents.defaults.timezone),
-        payload=CronPayload(kind="system_event"),
-    ))
+
+    cron.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=dream_cfg.build_schedule(config.agents.defaults.timezone),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
     console.print(f"[green]✓[/green] Dream: {dream_cfg.describe_schedule()}")
 
     async def run():
@@ -1711,8 +1708,12 @@ def gateway(
 def agent(
     message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
     session_id: str | None = typer.Option(None, "--session", "-s", help="Session ID"),
-    continue_last: bool = typer.Option(False, "--continue", help="Resume the most recent CLI session"),
-    pick_session: bool = typer.Option(False, "--pick-session", help="Interactively choose a recent CLI session"),
+    continue_last: bool = typer.Option(
+        False, "--continue", help="Resume the most recent CLI session"
+    ),
+    pick_session: bool = typer.Option(
+        False, "--pick-session", help="Interactively choose a recent CLI session"
+    ),
     multiline: bool = typer.Option(
         False,
         "--multiline",
@@ -1720,8 +1721,12 @@ def agent(
     ),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
-    markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
-    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show hahobot runtime logs during chat"),
+    markdown: bool = typer.Option(
+        True, "--markdown/--no-markdown", help="Render assistant output as Markdown"
+    ),
+    logs: bool = typer.Option(
+        False, "--logs/--no-logs", help="Show hahobot runtime logs during chat"
+    ),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -1735,12 +1740,16 @@ def agent(
 
     config_arg = config
     config = _load_runtime_config(config_arg, workspace)
-    runtime_config_path = Path(config_arg).expanduser().resolve() if config_arg else get_config_path()
+    runtime_config_path = (
+        Path(config_arg).expanduser().resolve() if config_arg else get_config_path()
+    )
     sync_workspace_templates(config.workspace_path)
 
     session_manager = SessionManager(config.workspace_path)
     if sum([session_id is not None, continue_last, pick_session]) > 1:
-        console.print("[red]Error: choose only one of --session, --continue, or --pick-session.[/red]")
+        console.print(
+            "[red]Error: choose only one of --session, --continue, or --pick-session.[/red]"
+        )
         raise typer.Exit(1)
     if session_id is None:
         if continue_last:
@@ -1826,7 +1835,8 @@ def agent(
         async def run_once():
             renderer = StreamRenderer(render_markdown=markdown)
             response = await agent_loop.process_direct(
-                message, session_id,
+                message,
+                session_id,
                 on_progress=_cli_progress,
                 on_stream=renderer.on_delta,
                 on_stream_end=renderer.on_end,
@@ -1855,7 +1865,9 @@ def agent(
             f"{__logo__} Interactive mode (type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)"
         )
         if multiline:
-            console.print("[dim]Multiline input enabled: Enter inserts newline, Ctrl+J submits.[/dim]")
+            console.print(
+                "[dim]Multiline input enabled: Enter inserts newline, Ctrl+J submits.[/dim]"
+            )
         console.print()
 
         cli_channel, cli_chat_id = _cli_route_for_session(session_id)
@@ -1869,11 +1881,11 @@ def agent(
         signal.signal(signal.SIGINT, _handle_signal)
         signal.signal(signal.SIGTERM, _handle_signal)
         # SIGHUP is not available on Windows
-        if hasattr(signal, 'SIGHUP'):
+        if hasattr(signal, "SIGHUP"):
             signal.signal(signal.SIGHUP, _handle_signal)
         # Ignore SIGPIPE to prevent silent process termination when writing to closed pipes
         # SIGPIPE is not available on Windows
-        if hasattr(signal, 'SIGPIPE'):
+        if hasattr(signal, "SIGPIPE"):
             signal.signal(signal.SIGPIPE, signal.SIG_IGN)
 
         async def run_interactive():
@@ -1964,7 +1976,9 @@ def agent(
                             if result.new_session_id is not None:
                                 state["session_id"] = result.new_session_id
                                 _update_interactive_completion_session(result.new_session_id)
-                                next_channel, next_chat_id = _cli_route_for_session(result.new_session_id)
+                                next_channel, next_chat_id = _cli_route_for_session(
+                                    result.new_session_id
+                                )
                                 state["cli_channel"] = next_channel
                                 state["cli_chat_id"] = next_chat_id
                             await _print_interactive_response(
@@ -2017,14 +2031,16 @@ def agent(
                         turn_response.clear()
                         renderer = StreamRenderer(render_markdown=markdown)
 
-                        await bus.publish_inbound(InboundMessage(
-                            channel=str(state["cli_channel"]),
-                            sender_id="user",
-                            chat_id=str(state["cli_chat_id"]),
-                            content=user_input,
-                            metadata={"_wants_stream": True},
-                            session_key_override=str(state["session_id"]),
-                        ))
+                        await bus.publish_inbound(
+                            InboundMessage(
+                                channel=str(state["cli_channel"]),
+                                sender_id="user",
+                                chat_id=str(state["cli_chat_id"]),
+                                content=user_input,
+                                metadata={"_wants_stream": True},
+                                session_key_override=str(state["session_id"]),
+                            )
+                        )
 
                         await turn_done.wait()
 
@@ -2034,7 +2050,9 @@ def agent(
                                 if renderer:
                                     await renderer.close()
                                 _print_agent_response(
-                                    content, render_markdown=markdown, metadata=meta,
+                                    content,
+                                    render_markdown=markdown,
+                                    metadata=meta,
                                 )
                         elif renderer and not renderer.streamed:
                             await renderer.close()
@@ -2062,7 +2080,9 @@ def sessions_list(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     limit: int = typer.Option(20, "--limit", help="Maximum number of sessions to show"),
     cli_only: bool = typer.Option(False, "--cli-only", help="Only show local CLI sessions"),
-    include_internal: bool = typer.Option(False, "--all", help="Include internal cron/api/system sessions"),
+    include_internal: bool = typer.Option(
+        False, "--all", help="Include internal cron/api/system sessions"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ):
     """List recent saved sessions for the active workspace."""
@@ -2182,18 +2202,14 @@ def sessions_compact(
     loaded = _load_runtime_config(config, workspace, quiet=json_output)
     manager = SessionManager(loaded.workspace_path)
     known_sessions = {
-        str(item.get("key") or "")
-        for item in manager.list_sessions()
-        if item.get("key")
+        str(item.get("key") or "") for item in manager.list_sessions() if item.get("key")
     }
     if session_key not in known_sessions:
         console.print(f"[red]Error: Session not found: {session_key}[/red]")
         raise typer.Exit(1)
 
     provider = _make_provider(loaded)
-    runtime_config_path = (
-        Path(config).expanduser().resolve() if config else get_config_path()
-    )
+    runtime_config_path = Path(config).expanduser().resolve() if config else get_config_path()
     loop = AgentLoop(
         bus=MessageBus(),
         provider=provider,
@@ -2471,7 +2487,9 @@ def companion_init(
     ),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
-    force: bool = typer.Option(False, "--force", help="Overwrite managed companion files if they already exist"),
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite managed companion files if they already exist"
+    ),
     reference_image: str | None = typer.Option(
         None,
         "--reference-image",
@@ -2499,9 +2517,7 @@ def companion_init(
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1) from exc
 
-    console.print(
-        f"[green]✓[/green] Companion scaffold ready for persona '{result.persona}'"
-    )
+    console.print(f"[green]✓[/green] Companion scaffold ready for persona '{result.persona}'")
     console.print(f"  Workspace: [cyan]{result.workspace}[/cyan]")
     console.print(f"  Persona directory: [cyan]{result.persona_dir}[/cyan]")
     if result.created_paths:
@@ -2521,8 +2537,7 @@ def companion_init(
         for path in result.copied_assets:
             console.print(f"    - [cyan]{path}[/cyan]")
     console.print(
-        "  Next step: run "
-        f"[cyan]hahobot companion doctor --persona {result.persona}[/cyan]"
+        f"  Next step: run [cyan]hahobot companion doctor --persona {result.persona}[/cyan]"
     )
 
 
@@ -2632,7 +2647,9 @@ def _get_bridge_dir() -> Path:
 @channels_app.command("login")
 def channels_login(
     channel_name: str = typer.Argument(..., help="Channel name (e.g. weixin, whatsapp)"),
-    force: bool = typer.Option(False, "--force", "-f", help="Force re-authentication even if already logged in"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Force re-authentication even if already logged in"
+    ),
     config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Authenticate with a channel via QR code or other interactive login."""
@@ -2722,8 +2739,12 @@ def status():
 
     console.print(f"{__logo__} hahobot Status\n")
 
-    console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
-    console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")
+    console.print(
+        f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}"
+    )
+    console.print(
+        f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}"
+    )
 
     if config_path.exists():
         from hahobot.providers.registry import PROVIDERS
@@ -2745,7 +2766,9 @@ def status():
                     console.print(f"{spec.label}: [dim]not set[/dim]")
             else:
                 has_key = bool(p.api_key)
-                console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
+                console.print(
+                    f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}"
+                )
 
 
 # ============================================================================
@@ -2769,7 +2792,9 @@ def _register_login(name: str):
 
 @provider_app.command("login")
 def provider_login(
-    provider: str = typer.Argument(..., help="OAuth provider (e.g. 'openai-codex', 'github-copilot')"),
+    provider: str = typer.Argument(
+        ..., help="OAuth provider (e.g. 'openai-codex', 'github-copilot')"
+    ),
 ):
     """Authenticate with an OAuth provider."""
     from hahobot.providers.registry import PROVIDERS
@@ -2809,7 +2834,9 @@ def _login_openai_codex() -> None:
         if not (token and token.access):
             console.print("[red]✗ Authentication failed[/red]")
             raise typer.Exit(1)
-        console.print(f"[green]✓ Authenticated with OpenAI Codex[/green]  [dim]{token.account_id}[/dim]")
+        console.print(
+            f"[green]✓ Authenticated with OpenAI Codex[/green]  [dim]{token.account_id}[/dim]"
+        )
     except ImportError:
         console.print("[red]oauth_cli_kit not installed. Run: pip install oauth-cli-kit[/red]")
         raise typer.Exit(1)

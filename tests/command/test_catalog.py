@@ -67,7 +67,9 @@ async def test_agent_command_router_registers_dream_log_prefix(monkeypatch) -> N
     monkeypatch.setattr(router_mod, "cmd_dream_log", fake_dream_log)
     router = router_mod.build_agent_command_router()
     ctx = CommandContext(
-        msg=InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content="/dream-log deadbeef"),
+        msg=InboundMessage(
+            channel="cli", sender_id="u1", chat_id="direct", content="/dream-log deadbeef"
+        ),
         session=None,
         key="cli:direct",
         raw="/dream-log deadbeef",
@@ -93,7 +95,9 @@ async def test_agent_command_router_registers_update_prefix(monkeypatch) -> None
     monkeypatch.setattr(router_mod, "cmd_update", fake_update)
     router = router_mod.build_agent_command_router()
     ctx = CommandContext(
-        msg=InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content="/update check"),
+        msg=InboundMessage(
+            channel="cli", sender_id="u1", chat_id="direct", content="/update check"
+        ),
         session=None,
         key="cli:direct",
         raw="/update check",

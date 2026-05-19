@@ -77,9 +77,7 @@ class Mem0UserMemoryBackend(UserMemoryBackend):
         try:
             module = import_module("mem0")
         except ImportError as exc:  # pragma: no cover - exercised in runtime envs
-            raise RuntimeError(
-                "mem0ai is not installed. Run: pip install -e \".[mem0]\""
-            ) from exc
+            raise RuntimeError('mem0ai is not installed. Run: pip install -e ".[mem0]"') from exc
 
         async_cls = getattr(module, "AsyncMemory", None)
         config_payload = self._build_mem0_config_payload()
@@ -114,7 +112,9 @@ class Mem0UserMemoryBackend(UserMemoryBackend):
     def _build_mem0_config_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {}
         for section_name in ("llm", "embedder", "vector_store"):
-            section = self._build_provider_section(section_name, getattr(self._config, section_name))
+            section = self._build_provider_section(
+                section_name, getattr(self._config, section_name)
+            )
             if section:
                 payload[section_name] = section
         return payload

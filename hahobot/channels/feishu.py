@@ -250,6 +250,7 @@ def _extract_post_text(content_json: dict) -> str:
     text, _ = _extract_post_content(content_json)
     return text
 
+
 class FeishuChannel(BaseChannel):
     """
     Feishu/Lark channel using WebSocket long connection.
@@ -1175,6 +1176,7 @@ class FeishuChannel(BaseChannel):
             ContentCardElementRequest,
             ContentCardElementRequestBody,
         )
+
         try:
             request = (
                 ContentCardElementRequest.builder()
@@ -1259,16 +1261,26 @@ class FeishuChannel(BaseChannel):
             if buf.card_id:
                 buf.sequence += 1
                 await self._run_blocking(
-                    self._stream_update_text_sync, buf.card_id, buf.text, buf.sequence,
+                    self._stream_update_text_sync,
+                    buf.card_id,
+                    buf.text,
+                    buf.sequence,
                 )
                 # Required so the chat list preview exits the streaming placeholder (Feishu streaming card docs).
                 buf.sequence += 1
                 await self._run_blocking(
-                    self._close_streaming_mode_sync, buf.card_id, buf.sequence,
+                    self._close_streaming_mode_sync,
+                    buf.card_id,
+                    buf.sequence,
                 )
             else:
-                for chunk in self._split_elements_by_table_limit(self._build_card_elements(buf.text)):
-                    card = json.dumps({"config": {"wide_screen_mode": True}, "elements": chunk}, ensure_ascii=False)
+                for chunk in self._split_elements_by_table_limit(
+                    self._build_card_elements(buf.text)
+                ):
+                    card = json.dumps(
+                        {"config": {"wide_screen_mode": True}, "elements": chunk},
+                        ensure_ascii=False,
+                    )
                     await self._run_blocking(
                         self._send_message_sync, rid_type, chat_id, "interactive", card
                     )
@@ -1310,7 +1322,9 @@ class FeishuChannel(BaseChannel):
             if msg.metadata.get("_tool_hint"):
                 if msg.content and msg.content.strip():
                     await self._send_tool_hint_card(
-                        receive_id_type, msg.chat_id, msg.content.strip(),
+                        receive_id_type,
+                        msg.chat_id,
+                        msg.content.strip(),
                     )
                 return
 
@@ -1344,7 +1358,8 @@ class FeishuChannel(BaseChannel):
                     if key:
                         await self._run_blocking(
                             _do_send,
-                            "image", json.dumps({"image_key": key}, ensure_ascii=False),
+                            "image",
+                            json.dumps({"image_key": key}, ensure_ascii=False),
                         )
                 else:
                     key = await self._run_blocking(self._upload_file_sync, file_path)
@@ -1360,7 +1375,8 @@ class FeishuChannel(BaseChannel):
                             media_type = "file"
                         await self._run_blocking(
                             _do_send,
-                            media_type, json.dumps({"file_key": key}, ensure_ascii=False),
+                            media_type,
+                            json.dumps({"file_key": key}, ensure_ascii=False),
                         )
 
             if msg.content and msg.content.strip():
@@ -1383,7 +1399,8 @@ class FeishuChannel(BaseChannel):
                         card = {"config": {"wide_screen_mode": True}, "elements": chunk}
                         await self._run_blocking(
                             _do_send,
-                            "interactive", json.dumps(card, ensure_ascii=False),
+                            "interactive",
+                            json.dumps(card, ensure_ascii=False),
                         )
 
         except Exception as e:
@@ -1589,7 +1606,10 @@ class FeishuChannel(BaseChannel):
             parts.append("".join(buf).strip())
 
         return "\n".join(part for part in parts if part)
-    async def _send_tool_hint_card(self, receive_id_type: str, receive_id: str, tool_hint: str) -> None:
+
+    async def _send_tool_hint_card(
+        self, receive_id_type: str, receive_id: str, tool_hint: str
+    ) -> None:
         """Send tool hint as an interactive card with formatted code block.
 
         Args:

@@ -85,9 +85,7 @@ async def test_auto_compact_archives_idle_prefix_and_exposes_resume_summary(tmp_
     await auto._archive("cli:test")
 
     reloaded = manager.get_or_create("cli:test")
-    assert consolidator.calls == [
-        ("cli:test", ["u1", "a1", "u2", "a2"], "idle_auto_compact")
-    ]
+    assert consolidator.calls == [("cli:test", ["u1", "a1", "u2", "a2"], "idle_auto_compact")]
     assert [message["content"] for message in reloaded.messages] == [
         "u3",
         "a3",
@@ -134,9 +132,7 @@ async def test_auto_compact_skips_active_sessions_until_next_tick(tmp_path) -> N
     await asyncio.gather(*tasks)
 
     assert len(tasks) == 1
-    assert consolidator.calls == [
-        ("cli:test", ["u1", "a1", "u2", "a2"], "idle_auto_compact")
-    ]
+    assert consolidator.calls == [("cli:test", ["u1", "a1", "u2", "a2"], "idle_auto_compact")]
 
 
 @pytest.mark.asyncio

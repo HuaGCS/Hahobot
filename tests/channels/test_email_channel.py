@@ -295,6 +295,7 @@ async def test_send_uses_smtp_and_reply_subject(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_send_skips_reply_when_auto_reply_disabled(monkeypatch) -> None:
     """When auto_reply_enabled=False, replies should be skipped but proactive sends allowed."""
+
     class FakeSMTP:
         def __init__(self, _host: str, _port: int, timeout: int = 30) -> None:
             self.sent_messages: list[EmailMessage] = []
@@ -356,6 +357,7 @@ async def test_send_skips_reply_when_auto_reply_disabled(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_send_proactive_email_when_auto_reply_disabled(monkeypatch) -> None:
     """Proactive emails (not replies) should be sent even when auto_reply_enabled=False."""
+
     class FakeSMTP:
         def __init__(self, _host: str, _port: int, timeout: int = 30) -> None:
             self.sent_messages: list[EmailMessage] = []
@@ -496,8 +498,10 @@ def test_fetch_messages_between_dates_uses_imap_since_before_without_mark_seen(m
 # Security: Anti-spoofing tests for Authentication-Results verification
 # ---------------------------------------------------------------------------
 
+
 def _make_fake_imap(raw: bytes):
     """Return a FakeIMAP class pre-loaded with the given raw email."""
+
     class FakeIMAP:
         def __init__(self) -> None:
             self.store_calls: list[tuple[bytes, str, str]] = []
@@ -693,7 +697,9 @@ def test_extract_attachments_saves_pdf(tmp_path, monkeypatch) -> None:
     fake = _make_fake_imap(raw)
     monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
 
-    cfg = _make_config(allowed_attachment_types=["application/pdf"], verify_dkim=False, verify_spf=False)
+    cfg = _make_config(
+        allowed_attachment_types=["application/pdf"], verify_dkim=False, verify_spf=False
+    )
     channel = EmailChannel(cfg, MessageBus())
     items = channel._fetch_new_messages()
 

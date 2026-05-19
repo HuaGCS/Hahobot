@@ -264,12 +264,14 @@ def test_list_shows_next_run(tmp_path) -> None:
 
 def test_list_includes_protected_dream_system_job_with_memory_purpose(tmp_path) -> None:
     tool = _make_tool(tmp_path)
-    tool._cron.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-    ))
+    tool._cron.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
 
     result = tool._list_jobs()
 
@@ -280,12 +282,14 @@ def test_list_includes_protected_dream_system_job_with_memory_purpose(tmp_path) 
 
 def test_remove_protected_dream_job_returns_clear_feedback(tmp_path) -> None:
     tool = _make_tool(tmp_path)
-    tool._cron.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-    ))
+    tool._cron.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
 
     result = tool._remove_job("dream")
 

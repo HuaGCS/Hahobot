@@ -91,11 +91,13 @@ class CommandRuntimeManager:
 
     @staticmethod
     def _persona_usage(language: str) -> str:
-        return "\n".join([
-            text(language, "cmd_persona_current"),
-            text(language, "cmd_persona_list"),
-            text(language, "cmd_persona_set"),
-        ])
+        return "\n".join(
+            [
+                text(language, "cmd_persona_current"),
+                text(language, "cmd_persona_list"),
+                text(language, "cmd_persona_set"),
+            ]
+        )
 
     @staticmethod
     def _stchar_usage(language: str) -> str:
@@ -107,11 +109,13 @@ class CommandRuntimeManager:
 
     @staticmethod
     def _language_usage(language: str) -> str:
-        return "\n".join([
-            text(language, "cmd_lang_current"),
-            text(language, "cmd_lang_list"),
-            text(language, "cmd_lang_set"),
-        ])
+        return "\n".join(
+            [
+                text(language, "cmd_lang_current"),
+                text(language, "cmd_lang_list"),
+                text(language, "cmd_lang_set"),
+            ]
+        )
 
     @staticmethod
     def _mcp_usage(language: str) -> str:
@@ -239,7 +243,9 @@ class CommandRuntimeManager:
 
         return await self.loop._mcp_commands.list(msg, language)
 
-    async def handle_language_command(self, msg: InboundMessage, session: Session) -> OutboundMessage:
+    async def handle_language_command(
+        self, msg: InboundMessage, session: Session
+    ) -> OutboundMessage:
         """Handle session-scoped language switching commands."""
         parts = msg.content.strip().split()
         current = self.loop._get_session_language(session)
@@ -255,7 +261,9 @@ class CommandRuntimeManager:
 
         return self.loop._language_commands.set(msg, session, parts[2])
 
-    async def handle_persona_command(self, msg: InboundMessage, session: Session) -> OutboundMessage:
+    async def handle_persona_command(
+        self, msg: InboundMessage, session: Session
+    ) -> OutboundMessage:
         """Handle session-scoped persona management commands."""
         language = self.loop._get_session_language(session)
         parts = msg.content.strip().split()

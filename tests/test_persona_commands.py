@@ -32,9 +32,10 @@ def _make_persona(workspace: Path, name: str, soul: str) -> None:
 
 
 class TestPersonaCommands:
-
     @pytest.mark.asyncio
-    async def test_persona_switch_clears_session_and_persists_selection(self, tmp_path: Path) -> None:
+    async def test_persona_switch_clears_session_and_persists_selection(
+        self, tmp_path: Path
+    ) -> None:
         _make_persona(tmp_path, "coder", "You are coder persona.")
         loop, _provider = _make_loop(tmp_path)
         loop.memory_consolidator.archive_unconsolidated = AsyncMock(return_value=True)
@@ -46,7 +47,9 @@ class TestPersonaCommands:
         loop.sessions.save(session)
 
         response = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/persona set coder")
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/persona set coder"
+            )
         )
 
         assert response is not None
@@ -59,10 +62,14 @@ class TestPersonaCommands:
         assert switched.messages == []
 
         current = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/persona current")
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/persona current"
+            )
         )
         listing = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/persona list")
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/persona list"
+            )
         )
 
         assert current is not None
@@ -91,7 +98,9 @@ class TestPersonaCommands:
         loop, _provider = _make_loop(tmp_path)
 
         switched = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/lang set zh")
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/lang set zh"
+            )
         )
         help_response = await loop._process_message(
             InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/help")
@@ -162,7 +171,9 @@ class TestPersonaCommands:
 
         loop, _provider = _make_loop(tmp_path)
         response = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/stchar show coder")
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/stchar show coder"
+            )
         )
 
         assert response is not None
@@ -184,7 +195,9 @@ class TestPersonaCommands:
         loop.sessions.save(session)
 
         response = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/stchar load coder")
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/stchar load coder"
+            )
         )
 
         assert response is not None
@@ -221,7 +234,9 @@ class TestPersonaCommands:
         loop, _provider = _make_loop(tmp_path)
 
         response = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/preset show coder")
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/preset show coder"
+            )
         )
 
         assert response is not None

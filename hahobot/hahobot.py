@@ -60,9 +60,7 @@ class Hahobot:
 
         config: Config = resolve_config_env_vars(load_config(resolved))
         if workspace is not None:
-            config.agents.defaults.workspace = str(
-                Path(workspace).expanduser().resolve()
-            )
+            config.agents.defaults.workspace = str(Path(workspace).expanduser().resolve())
 
         provider = _make_provider(config)
         bus = MessageBus()
@@ -119,7 +117,8 @@ class Hahobot:
                 self._loop._extra_hooks = list(hooks)
             try:
                 response = await self._loop.process_direct(
-                    message, session_key=session_key,
+                    message,
+                    session_key=session_key,
                 )
             finally:
                 self._loop._extra_hooks = prev
@@ -204,9 +203,7 @@ def _make_single_provider(
     elif backend == "azure_openai":
         from hahobot.providers.azure_openai_provider import AzureOpenAIProvider
 
-        provider = AzureOpenAIProvider(
-            api_key=p.api_key, api_base=p.api_base, default_model=model
-        )
+        provider = AzureOpenAIProvider(api_key=p.api_key, api_base=p.api_base, default_model=model)
     elif backend == "anthropic":
         from hahobot.providers.anthropic_provider import AnthropicProvider
 

@@ -13,7 +13,9 @@ from hahobot.agent.tools import image_gen as image_gen_module
 from hahobot.agent.tools.image_gen import ImageGenTool
 from hahobot.config.schema import Config, ImageGenConfig
 
-_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII="
+_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII="
+)
 _PNG_BYTES = base64.b64decode(_PNG_B64)
 
 

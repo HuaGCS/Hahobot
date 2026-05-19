@@ -71,7 +71,9 @@ class MessageTool(Tool):
 
     def _should_record_delivery(self, channel: str, chat_id: str) -> bool:
         target_key = self._target_session_key(channel, chat_id)
-        return bool(target_key and self._default_session_key and target_key != self._default_session_key)
+        return bool(
+            target_key and self._default_session_key and target_key != self._default_session_key
+        )
 
     def start_turn(self) -> None:
         """Reset per-turn send tracking."""
@@ -94,18 +96,12 @@ class MessageTool(Tool):
         return {
             "type": "object",
             "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "The message content to send"
-                },
+                "content": {"type": "string", "description": "The message content to send"},
                 "channel": {
                     "type": "string",
-                    "description": "Optional: target channel (telegram, discord, etc.)"
+                    "description": "Optional: target channel (telegram, discord, etc.)",
                 },
-                "chat_id": {
-                    "type": "string",
-                    "description": "Optional: target chat/user ID"
-                },
+                "chat_id": {"type": "string", "description": "Optional: target chat/user ID"},
                 "media": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -113,9 +109,9 @@ class MessageTool(Tool):
                         "Optional: list of file paths or remote URLs to attach. "
                         "Generated local files should be written under workspace/out first."
                     ),
-                }
+                },
             },
-            "required": ["content"]
+            "required": ["content"],
         }
 
     async def execute(
@@ -125,9 +121,10 @@ class MessageTool(Tool):
         chat_id: str | None = None,
         message_id: str | None = None,
         media: list[str] | None = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> str:
         from hahobot.utils.helpers import strip_think
+
         content = strip_think(content)
 
         channel = channel or self._default_channel
@@ -155,7 +152,9 @@ class MessageTool(Tool):
             media=media or [],
             metadata={
                 "message_id": message_id,
-            } if message_id else {},
+            }
+            if message_id
+            else {},
         )
 
         try:

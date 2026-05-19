@@ -8,7 +8,9 @@ import pytest
 from hahobot.utils import self_update as self_update_mod
 
 
-def _fake_completed(command: list[str], stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:
+def _fake_completed(
+    command: list[str], stdout: str = "", stderr: str = ""
+) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=stderr)
 
 

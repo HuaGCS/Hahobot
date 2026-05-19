@@ -139,8 +139,13 @@ class AzureOpenAIProvider(LLMProvider):
         tool_choice: str | dict[str, Any] | None = None,
     ) -> LLMResponse:
         body = self._build_body(
-            messages, tools, model, max_tokens, temperature,
-            reasoning_effort, tool_choice,
+            messages,
+            tools,
+            model,
+            max_tokens,
+            temperature,
+            reasoning_effort,
+            tool_choice,
         )
         try:
             response = await self._client.responses.create(**body)
@@ -160,15 +165,20 @@ class AzureOpenAIProvider(LLMProvider):
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         body = self._build_body(
-            messages, tools, model, max_tokens, temperature,
-            reasoning_effort, tool_choice,
+            messages,
+            tools,
+            model,
+            max_tokens,
+            temperature,
+            reasoning_effort,
+            tool_choice,
         )
         body["stream"] = True
 
         try:
             stream = await self._client.responses.create(**body)
-            content, tool_calls, finish_reason, usage, reasoning_content = (
-                await consume_sdk_stream(stream, on_content_delta)
+            content, tool_calls, finish_reason, usage, reasoning_content = await consume_sdk_stream(
+                stream, on_content_delta
             )
             return LLMResponse(
                 content=content or None,

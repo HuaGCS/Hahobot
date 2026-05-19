@@ -37,10 +37,17 @@ _MAX_LENGTH_RECOVERIES = 3
 _SNIP_SAFETY_BUFFER = 1024
 _MICROCOMPACT_KEEP_RECENT = 10
 _MICROCOMPACT_MIN_CHARS = 500
-_COMPACTABLE_TOOLS = frozenset({
-    "read_file", "exec", "grep", "glob",
-    "web_search", "web_fetch", "list_dir",
-})
+_COMPACTABLE_TOOLS = frozenset(
+    {
+        "read_file",
+        "exec",
+        "grep",
+        "glob",
+        "web_search",
+        "web_fetch",
+        "list_dir",
+    }
+)
 _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 
 
@@ -158,7 +165,9 @@ class AgentRunner:
                         "model": spec.model,
                         "assistant_message": assistant_message,
                         "completed_tool_results": [],
-                        "pending_tool_calls": [tc.to_openai_tool_call() for tc in response.tool_calls],
+                        "pending_tool_calls": [
+                            tc.to_openai_tool_call() for tc in response.tool_calls
+                        ],
                     },
                 )
 
@@ -261,11 +270,13 @@ class AgentRunner:
                     )
                     if hook.wants_streaming() and not stream_closed:
                         await hook.on_stream_end(context, resuming=True)
-                    messages.append(build_assistant_message(
-                        normalized,
-                        reasoning_content=response.reasoning_content,
-                        thinking_blocks=response.thinking_blocks,
-                    ))
+                    messages.append(
+                        build_assistant_message(
+                            normalized,
+                            reasoning_content=response.reasoning_content,
+                            thinking_blocks=response.thinking_blocks,
+                        )
+                    )
                     messages.append(build_length_recovery_message())
                     context.final_content = clean
                     context.stop_reason = "length_recovery"
@@ -294,11 +305,13 @@ class AgentRunner:
                 await hook.after_iteration(context)
                 break
 
-            messages.append(build_assistant_message(
-                normalized,
-                reasoning_content=response.reasoning_content,
-                thinking_blocks=response.thinking_blocks,
-            ))
+            messages.append(
+                build_assistant_message(
+                    normalized,
+                    reasoning_content=response.reasoning_content,
+                    thinking_blocks=response.thinking_blocks,
+                )
+            )
             await self._emit_checkpoint(
                 spec,
                 {
@@ -385,6 +398,7 @@ class AgentRunner:
             tools=spec.tools.get_definitions(),
         )
         if hook.wants_streaming():
+
             async def _stream(delta: str) -> None:
                 await hook.on_stream(context, delta)
 
@@ -471,13 +485,19 @@ class AgentRunner:
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
-                tool_results.extend(await asyncio.gather(*(
-                    self._run_tool(spec, tool_call, external_lookup_counts)
-                    for tool_call in batch
-                )))
+                tool_results.extend(
+                    await asyncio.gather(
+                        *(
+                            self._run_tool(spec, tool_call, external_lookup_counts)
+                            for tool_call in batch
+                        )
+                    )
+                )
             else:
                 for tool_call in batch:
-                    tool_results.append(await self._run_tool(spec, tool_call, external_lookup_counts))
+                    tool_results.append(
+                        await self._run_tool(spec, tool_call, external_lookup_counts)
+                    )
 
         results: list[Any] = []
         events: list[dict[str, str]] = []
@@ -626,12 +646,15 @@ class AgentRunner:
             insert_at = assistant_idx + 1 + offset
             while insert_at < len(updated) and updated[insert_at].get("role") == "tool":
                 insert_at += 1
-            updated.insert(insert_at, {
-                "role": "tool",
-                "tool_call_id": call_id,
-                "name": name,
-                "content": _BACKFILL_CONTENT,
-            })
+            updated.insert(
+                insert_at,
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": name,
+                    "content": _BACKFILL_CONTENT,
+                },
+            )
             offset += 1
         return updated
 
@@ -690,9 +713,13 @@ class AgentRunner:
         if not messages or not spec.context_window_tokens:
             return messages
 
-        provider_max_tokens = getattr(getattr(self.provider, "generation", None), "max_tokens", 4096)
-        max_output = spec.max_tokens if isinstance(spec.max_tokens, int) else (
-            provider_max_tokens if isinstance(provider_max_tokens, int) else 4096
+        provider_max_tokens = getattr(
+            getattr(self.provider, "generation", None), "max_tokens", 4096
+        )
+        max_output = (
+            spec.max_tokens
+            if isinstance(spec.max_tokens, int)
+            else (provider_max_tokens if isinstance(provider_max_tokens, int) else 4096)
         )
         budget = spec.context_block_limit or (
             spec.context_window_tokens - max_output - _SNIP_SAFETY_BUFFER

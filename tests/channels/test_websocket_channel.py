@@ -171,7 +171,9 @@ async def test_send_delivers_json_message_with_media_and_reply() -> None:
 
 @pytest.mark.asyncio
 async def test_send_delta_emits_delta_and_stream_end() -> None:
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, MagicMock())
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True}, MagicMock()
+    )
     mock_ws = AsyncMock()
     channel._connections["chat-1"] = mock_ws
 
@@ -314,7 +316,9 @@ async def test_end_to_end_server_pushes_streaming_deltas_to_client(bus: MagicMoc
     await asyncio.sleep(0.3)
 
     try:
-        async with websockets.connect(f"ws://127.0.0.1:{port}/ws?client_id=stream-tester") as client:
+        async with websockets.connect(
+            f"ws://127.0.0.1:{port}/ws?client_id=stream-tester"
+        ) as client:
             ready = json.loads(await client.recv())
             chat_id = ready["chat_id"]
 

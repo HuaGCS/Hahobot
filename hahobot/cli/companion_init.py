@@ -76,15 +76,18 @@ def _companion_style() -> str:
 
 
 def _companion_voice(name: str) -> str:
-    return json.dumps(
-        {
-            "instructions": (
-                f"Speak as {name}. Keep the delivery warm, calm, natural, and low-pressure."
-            )
-        },
-        ensure_ascii=False,
-        indent=2,
-    ) + "\n"
+    return (
+        json.dumps(
+            {
+                "instructions": (
+                    f"Speak as {name}. Keep the delivery warm, calm, natural, and low-pressure."
+                )
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 def _companion_manifest(*, reference_image: str | None = None) -> dict[str, object]:
@@ -151,14 +154,18 @@ def _append_heartbeat_task(
 ) -> bool:
     heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
     if not heartbeat_path.exists():
-        heartbeat_path.write_text("# Heartbeat Tasks\n\n## Active Tasks\n\n## Completed\n", encoding="utf-8")
+        heartbeat_path.write_text(
+            "# Heartbeat Tasks\n\n## Active Tasks\n\n## Completed\n", encoding="utf-8"
+        )
         created.append(heartbeat_path)
     content = heartbeat_path.read_text(encoding="utf-8")
     if _DEFAULT_HEARTBEAT_TASK in content:
         return False
 
     if "\n## Completed" in content:
-        content = content.replace("\n## Completed", f"\n{_DEFAULT_HEARTBEAT_TASK}\n\n## Completed", 1)
+        content = content.replace(
+            "\n## Completed", f"\n{_DEFAULT_HEARTBEAT_TASK}\n\n## Completed", 1
+        )
     else:
         suffix = "" if content.endswith("\n") else "\n"
         content = f"{content}{suffix}\n{_DEFAULT_HEARTBEAT_TASK}\n"
@@ -217,7 +224,11 @@ def init_companion_workspace(
         raise ValueError(f"Invalid persona name: {persona}")
 
     persona_name = normalized
-    persona_dir = workspace if persona_name == DEFAULT_PERSONA else workspace / PERSONAS_DIRNAME / persona_name
+    persona_dir = (
+        workspace
+        if persona_name == DEFAULT_PERSONA
+        else workspace / PERSONAS_DIRNAME / persona_name
+    )
     persona_dir.mkdir(parents=True, exist_ok=True)
 
     display_name = "default companion persona" if persona_name == DEFAULT_PERSONA else persona_name

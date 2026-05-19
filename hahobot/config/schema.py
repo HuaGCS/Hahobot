@@ -59,7 +59,9 @@ class TelegramConfig(Base):
     )
     reply_to_message: bool = False  # If true, bot replies quote the original message
     react_emoji: str = "👀"
-    group_policy: Literal["open", "mention"] = "mention"  # "mention" responds when @mentioned or replied to, "open" responds to all
+    group_policy: Literal["open", "mention"] = (
+        "mention"  # "mention" responds when @mentioned or replied to, "open" responds to all
+    )
     connection_pool_size: int = 32  # Outbound Telegram API HTTP pool size
     pool_timeout: float = 5.0  # Shared HTTP pool timeout for bot sends and getUpdates
     streaming: bool = True  # Progressive edit-based streaming for final text replies
@@ -95,7 +97,9 @@ class FeishuConfig(Base):
     react_emoji: str = (
         "THUMBSUP"  # Emoji type for message reactions (e.g. THUMBSUP, OK, DONE, SMILE)
     )
-    group_policy: Literal["open", "mention"] = "mention"  # "mention" responds when @mentioned, "open" responds to all
+    group_policy: Literal["open", "mention"] = (
+        "mention"  # "mention" responds when @mentioned, "open" responds to all
+    )
     reply_to_message: bool = False  # If true, replies quote the original Feishu message
     streaming: bool = True  # Progressive edit-based streaming for final text replies
 
@@ -461,7 +465,9 @@ class ChannelsConfig(Base):
 
     send_progress: bool = True  # stream agent's text progress to the channel
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
-    send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
+    send_max_retries: int = Field(
+        default=3, ge=0, le=10
+    )  # Max delivery attempts (initial send included)
     transcription_provider: Literal["groq", "openai"] = "groq"
     transcription_language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}$")
     voice_reply: VoiceReplyConfig = Field(default_factory=VoiceReplyConfig)
@@ -626,7 +632,9 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("toolHintMaxLength"),
         serialization_alias="toolHintMaxLength",
     )
-    unified_session: bool = False  # Share one session across all channels (single-user multi-device)
+    unified_session: bool = (
+        False  # Share one session across all channels (single-user multi-device)
+    )
     disabled_skills: list[str] = Field(default_factory=list)
     session_ttl_minutes: int = Field(
         default=0,
@@ -634,7 +642,9 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("idleCompactAfterMinutes", "sessionTtlMinutes"),
         serialization_alias="idleCompactAfterMinutes",
     )
-    reasoning_effort: str | None = None  # low / medium / high / adaptive - enables LLM thinking mode
+    reasoning_effort: str | None = (
+        None  # low / medium / high / adaptive - enables LLM thinking mode
+    )
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     dream: DreamConfig = Field(default_factory=DreamConfig)
     provider_pool: ProviderPoolConfig | None = Field(
@@ -670,7 +680,9 @@ class ProvidersConfig(Base):
     """Configuration for LLM providers."""
 
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
-    azure_openai: ProviderConfig = Field(default_factory=ProviderConfig)  # Azure OpenAI (model = deployment name)
+    azure_openai: ProviderConfig = Field(
+        default_factory=ProviderConfig
+    )  # Azure OpenAI (model = deployment name)
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     openrouter: ProviderConfig = Field(default_factory=ProviderConfig)
@@ -690,11 +702,21 @@ class ProvidersConfig(Base):
     aihubmix: ProviderConfig = Field(default_factory=ProviderConfig)  # AiHubMix API gateway
     siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)  # SiliconFlow (硅基流动)
     volcengine: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine (火山引擎)
-    volcengine_coding_plan: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine Coding Plan
-    byteplus: ProviderConfig = Field(default_factory=ProviderConfig)  # BytePlus (VolcEngine international)
-    byteplus_coding_plan: ProviderConfig = Field(default_factory=ProviderConfig)  # BytePlus Coding Plan
-    openai_codex: ProviderConfig = Field(default_factory=ProviderConfig, exclude=True)  # OpenAI Codex (OAuth)
-    github_copilot: ProviderConfig = Field(default_factory=ProviderConfig, exclude=True)  # Github Copilot (OAuth)
+    volcengine_coding_plan: ProviderConfig = Field(
+        default_factory=ProviderConfig
+    )  # VolcEngine Coding Plan
+    byteplus: ProviderConfig = Field(
+        default_factory=ProviderConfig
+    )  # BytePlus (VolcEngine international)
+    byteplus_coding_plan: ProviderConfig = Field(
+        default_factory=ProviderConfig
+    )  # BytePlus Coding Plan
+    openai_codex: ProviderConfig = Field(
+        default_factory=ProviderConfig, exclude=True
+    )  # OpenAI Codex (OAuth)
+    github_copilot: ProviderConfig = Field(
+        default_factory=ProviderConfig, exclude=True
+    )  # Github Copilot (OAuth)
     qianfan: ProviderConfig = Field(default_factory=ProviderConfig)  # Qianfan (百度千帆)
 
 
@@ -842,7 +864,9 @@ class ToolsConfig(Base):
     image_gen: ImageGenConfig = Field(default_factory=ImageGenConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
-    ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
+    ssrf_whitelist: list[str] = Field(
+        default_factory=list
+    )  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 
 class Mem0ProviderConfig(Base):
@@ -902,7 +926,9 @@ class Config(BaseSettings):
     def bind_config_path(self, config_path: Path | None) -> "Config":
         """Attach the source config path used to load or save this config."""
         self._config_path = (
-            Path(config_path).expanduser().resolve(strict=False) if config_path is not None else None
+            Path(config_path).expanduser().resolve(strict=False)
+            if config_path is not None
+            else None
         )
         return self
 

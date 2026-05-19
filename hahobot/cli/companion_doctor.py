@@ -164,7 +164,9 @@ def _enabled_channels(config: Config) -> list[str]:
     return enabled
 
 
-def _resolve_target_persona(workspace: Path, requested: str | None) -> tuple[str, str | None, list[str]]:
+def _resolve_target_persona(
+    workspace: Path, requested: str | None
+) -> tuple[str, str | None, list[str]]:
     """Resolve the persona to inspect and return available custom personas."""
     personas = list_personas(workspace)
     custom_personas = [persona for persona in personas if persona != DEFAULT_PERSONA]
@@ -187,7 +189,9 @@ def _voice_provider_check(config: Config) -> CompanionCheck:
             fix="Enable channels.voiceReply.enabled if you want persona-aware voice replies.",
         )
 
-    configured_channels = [name for name in voice.channels if isinstance(name, str) and name.strip()]
+    configured_channels = [
+        name for name in voice.channels if isinstance(name, str) and name.strip()
+    ]
     if not configured_channels:
         return _check(
             "voice_reply",
@@ -230,7 +234,9 @@ def _voice_provider_check(config: Config) -> CompanionCheck:
 
     provider_cfg, provider_name_hint = config._match_provider()
     api_key = (voice.api_key or getattr(provider_cfg, "api_key", "") or "").strip()
-    api_base = (voice.api_base or getattr(provider_cfg, "api_base", "") or "https://api.openai.com/v1").strip()
+    api_base = (
+        voice.api_base or getattr(provider_cfg, "api_base", "") or "https://api.openai.com/v1"
+    ).strip()
     if not api_key:
         return _check(
             "voice_provider",
@@ -357,7 +363,9 @@ def run_companion_doctor(config: Config, *, persona: str | None = None) -> Compa
     """Inspect the active workspace and report companion readiness."""
     workspace = config.workspace_path.resolve(strict=False)
     requested_persona = persona.strip() if isinstance(persona, str) and persona.strip() else None
-    target_name, resolved_persona, custom_personas = _resolve_target_persona(workspace, requested_persona)
+    target_name, resolved_persona, custom_personas = _resolve_target_persona(
+        workspace, requested_persona
+    )
     checks: list[CompanionCheck] = []
 
     if workspace.exists() and workspace.is_dir():
@@ -425,7 +433,11 @@ def run_companion_doctor(config: Config, *, persona: str | None = None) -> Compa
         )
 
     active_persona = resolved_persona or target_name
-    active_root = persona_workspace(workspace, active_persona) if resolved_persona else workspace / "personas" / target_name
+    active_root = (
+        persona_workspace(workspace, active_persona)
+        if resolved_persona
+        else workspace / "personas" / target_name
+    )
     has_soul = (active_root / PERSONA_SOUL_FILENAME).exists()
     has_user = (active_root / PERSONA_USER_FILENAME).exists()
     if resolved_persona is not None and (has_soul or has_user):

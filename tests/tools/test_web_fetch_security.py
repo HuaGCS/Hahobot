@@ -32,8 +32,10 @@ async def test_web_fetch_blocks_private_ip():
 @pytest.mark.asyncio
 async def test_web_fetch_blocks_localhost():
     tool = WebFetchTool()
+
     def _resolve_localhost(hostname, port, family=0, type_=0):
         return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 0))]
+
     with patch("hahobot.security.network.socket.getaddrinfo", _resolve_localhost):
         result = await tool.execute(url="http://localhost/admin")
     data = json.loads(result)
@@ -46,7 +48,6 @@ async def test_web_fetch_result_contains_untrusted_flag():
     tool = WebFetchTool()
 
     fake_html = "<html><head><title>Test</title></head><body><p>Hello world</p></body></html>"
-
 
     class FakeStreamResponse:
         status_code = 200
@@ -79,8 +80,10 @@ async def test_web_fetch_result_contains_untrusted_flag():
         def stream(self, method, url, headers=None):
             return FakeStreamResponse()
 
-    with patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_public), \
-         patch("hahobot.agent.tools.web.httpx.AsyncClient", FakeClient):
+    with (
+        patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_public),
+        patch("hahobot.agent.tools.web.httpx.AsyncClient", FakeClient),
+    ):
         result = await tool.execute(url="https://example.com/page")
 
     data = json.loads(result)

@@ -16,10 +16,12 @@ from hahobot.security.network import (
 
 def _fake_resolve(host: str, results: list[str]):
     """Return a getaddrinfo mock that maps the given host to fake IP results."""
+
     def _resolver(hostname, port, family=0, type_=0):
         if hostname == host:
             return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (ip, 0)) for ip in results]
         raise socket.gaierror(f"cannot resolve {hostname}")
+
     return _resolver
 
 
@@ -36,6 +38,7 @@ def _patch_resolve_raises(exc: Exception):
 # ---------------------------------------------------------------------------
 # validate_url_target — scheme / domain basics
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_rejects_non_http_scheme():
@@ -54,16 +57,20 @@ async def test_rejects_missing_domain():
 # validate_url_target — blocked private/internal IPs
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("ip,label", [
-    ("127.0.0.1", "loopback"),
-    ("127.0.0.2", "loopback_alt"),
-    ("10.0.0.1", "rfc1918_10"),
-    ("172.16.5.1", "rfc1918_172"),
-    ("192.168.1.1", "rfc1918_192"),
-    ("169.254.169.254", "metadata"),
-    ("0.0.0.0", "zero"),
-])
+@pytest.mark.parametrize(
+    "ip,label",
+    [
+        ("127.0.0.1", "loopback"),
+        ("127.0.0.2", "loopback_alt"),
+        ("10.0.0.1", "rfc1918_10"),
+        ("172.16.5.1", "rfc1918_172"),
+        ("192.168.1.1", "rfc1918_192"),
+        ("169.254.169.254", "metadata"),
+        ("0.0.0.0", "zero"),
+    ],
+)
 async def test_blocks_private_ipv4(ip: str, label: str):
     with _patch_resolve("evil.com", [ip]):
         ok, err = await validate_url_target("http://evil.com/path")
@@ -92,6 +99,7 @@ async def test_blocks_ipv4_mapped_ipv6_loopback():
 # validate_url_target — allows public IPs
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_allows_public_ip():
     with _patch_resolve("example.com", ["93.184.216.34"]):
@@ -110,10 +118,11 @@ async def test_allows_normal_https():
 # contains_internal_url — shell command scanning
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_detects_curl_metadata():
     with _patch_resolve("169.254.169.254", ["169.254.169.254"]):
-        assert await contains_internal_url('curl -s http://169.254.169.254/computeMetadata/v1/')
+        assert await contains_internal_url("curl -s http://169.254.169.254/computeMetadata/v1/")
 
 
 @pytest.mark.asyncio
@@ -136,6 +145,7 @@ async def test_no_urls_returns_false():
 # ---------------------------------------------------------------------------
 # SSRF whitelist — allow specific CIDR ranges (#2669)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_blocks_cgnat_by_default():

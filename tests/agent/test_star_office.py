@@ -25,7 +25,9 @@ class _FakeResponse:
 
 
 class _FakeAsyncClient:
-    def __init__(self, responses: list[_FakeResponse], calls: list[dict[str, object]], *args, **kwargs) -> None:
+    def __init__(
+        self, responses: list[_FakeResponse], calls: list[dict[str, object]], *args, **kwargs
+    ) -> None:
         self._responses = responses
         self._calls = calls
         self.timeout = kwargs.get("timeout")
@@ -53,7 +55,9 @@ async def test_star_office_hook_tracks_research_then_returns_idle() -> None:
         if call_count["n"] == 1:
             return LLMResponse(
                 content="let me look that up",
-                tool_calls=[ToolCallRequest(id="call_1", name="web_search", arguments={"q": "hahobot"})],
+                tool_calls=[
+                    ToolCallRequest(id="call_1", name="web_search", arguments={"q": "hahobot"})
+                ],
             )
         return LLMResponse(content="done", tool_calls=[], usage={})
 
@@ -72,13 +76,15 @@ async def test_star_office_hook_tracks_research_then_returns_idle() -> None:
     tools.execute = AsyncMock(side_effect=execute)
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "Research hahobot"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        hook=StarOfficeHook(tracker),
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "Research hahobot"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            hook=StarOfficeHook(tracker),
+        )
+    )
 
     assert result.final_content == "done"
     assert len(observed) == 1
@@ -95,10 +101,12 @@ async def test_star_office_hook_tracks_research_then_returns_idle() -> None:
 @pytest.mark.asyncio
 async def test_star_office_hook_marks_exec_failures_as_error() -> None:
     provider = MagicMock()
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="running command",
-        tool_calls=[ToolCallRequest(id="call_1", name="exec", arguments={"command": "false"})],
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="running command",
+            tool_calls=[ToolCallRequest(id="call_1", name="exec", arguments={"command": "false"})],
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
 
@@ -113,14 +121,16 @@ async def test_star_office_hook_marks_exec_failures_as_error() -> None:
     tools.execute = AsyncMock(side_effect=execute)
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "Run diagnostics"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        hook=StarOfficeHook(tracker),
-        fail_on_tool_error=True,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "Run diagnostics"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            hook=StarOfficeHook(tracker),
+            fail_on_tool_error=True,
+        )
+    )
 
     assert result.stop_reason == "tool_error"
     assert observed[0].state == "executing"
@@ -135,23 +145,27 @@ async def test_star_office_hook_marks_exec_failures_as_error() -> None:
 @pytest.mark.asyncio
 async def test_star_office_hook_clears_active_run_on_max_iterations() -> None:
     provider = MagicMock()
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="still working",
-        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="still working",
+            tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
     tools.execute = AsyncMock(return_value="tool result")
 
     tracker = StarOfficeStatusTracker()
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "Keep going"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        hook=StarOfficeHook(tracker),
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "Keep going"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            hook=StarOfficeHook(tracker),
+        )
+    )
 
     assert result.stop_reason == "max_iterations"
 
@@ -162,7 +176,9 @@ async def test_star_office_hook_clears_active_run_on_max_iterations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_star_office_tracker_pushes_join_and_status_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_star_office_tracker_pushes_join_and_status_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from hahobot import star_office as star_office_module
 
     calls: list[dict[str, object]] = []
@@ -214,7 +230,9 @@ async def test_star_office_tracker_pushes_join_and_status_updates(monkeypatch: p
 
 
 @pytest.mark.asyncio
-async def test_star_office_tracker_rejoins_after_push_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_star_office_tracker_rejoins_after_push_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from hahobot import star_office as star_office_module
 
     calls: list[dict[str, object]] = []
@@ -267,7 +285,9 @@ async def test_star_office_tracker_rejoins_after_push_failure(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
-async def test_star_office_tracker_main_mode_pushes_main_state(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_star_office_tracker_main_mode_pushes_main_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from hahobot import star_office as star_office_module
 
     calls: list[dict[str, object]] = []

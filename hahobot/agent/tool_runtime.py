@@ -354,8 +354,13 @@ class ToolRuntimeManager:
     ) -> None:
         """Update context for tools that need routing or persona info."""
         for name in (
-            "message", "spawn", "cron", "history_search", "history_expand",
-            "history_timeline", "self_inspect",
+            "message",
+            "spawn",
+            "cron",
+            "history_search",
+            "history_expand",
+            "history_timeline",
+            "self_inspect",
         ):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):

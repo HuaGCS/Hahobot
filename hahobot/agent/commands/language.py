@@ -51,7 +51,11 @@ class LanguageCommandHandler:
         if target == current:
             return self._response(
                 msg,
-                text(current, "language_already_active", language_name=language_label(target, current)),
+                text(
+                    current,
+                    "language_already_active",
+                    language_name=language_label(target, current),
+                ),
             )
 
         self.loop._set_session_language(session, target)

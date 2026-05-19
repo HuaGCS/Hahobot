@@ -104,6 +104,7 @@ class ProviderPoolProvider(LLMProvider):
             if on_content_delta is None or len(self.entries) <= 1:
                 call_kwargs["on_content_delta"] = on_content_delta
             else:
+
                 async def _buffer(delta: str) -> None:
                     deltas.append(delta)
 

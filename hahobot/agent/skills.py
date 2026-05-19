@@ -93,7 +93,9 @@ class SkillsLoader:
         return {
             "always": bool(payload.get("always")),
             "requires": requires,
-            "triggers": self._normalize_string_list(payload.get("triggers") or payload.get("keywords")),
+            "triggers": self._normalize_string_list(
+                payload.get("triggers") or payload.get("keywords")
+            ),
             "tool_tags": self._normalize_string_list(
                 payload.get("tool_tags") or payload.get("toolTags") or payload.get("tools")
             ),
@@ -117,7 +119,9 @@ class SkillsLoader:
             "success_count": normalized["success_count"],
         }
 
-    def _skill_entries_from_dir(self, base: Path, source: str, *, skip_names: set[str] | None = None) -> list[dict[str, str]]:
+    def _skill_entries_from_dir(
+        self, base: Path, source: str, *, skip_names: set[str] | None = None
+    ) -> list[dict[str, str]]:
         if not base.exists():
             return []
         entries: list[dict[str, str]] = []
@@ -147,14 +151,20 @@ class SkillsLoader:
         workspace_names = {entry["name"] for entry in skills}
         if self.builtin_skills and self.builtin_skills.exists():
             skills.extend(
-                self._skill_entries_from_dir(self.builtin_skills, "builtin", skip_names=workspace_names)
+                self._skill_entries_from_dir(
+                    self.builtin_skills, "builtin", skip_names=workspace_names
+                )
             )
 
         if self.disabled_skills:
             skills = [entry for entry in skills if entry["name"] not in self.disabled_skills]
 
         if filter_unavailable:
-            return [skill for skill in skills if self._check_requirements(self._get_skill_meta(skill["name"]))]
+            return [
+                skill
+                for skill in skills
+                if self._check_requirements(self._get_skill_meta(skill["name"]))
+            ]
         return skills
 
     def load_skill(self, name: str) -> str | None:
@@ -284,7 +294,9 @@ class SkillsLoader:
         targets: list[str],
     ) -> tuple[bool, list[str]] | None:
         """Remove one or more superseded targets from a workspace skill."""
-        lowered_targets = {target.strip().lower() for target in targets if target and target.strip()}
+        lowered_targets = {
+            target.strip().lower() for target in targets if target and target.strip()
+        }
         result = self._update_workspace_skill_metadata(
             name,
             lambda current: {
@@ -384,7 +396,11 @@ class SkillsLoader:
         required_bins = requires.get("bins", [])
         required_env_vars = requires.get("env", [])
         return ", ".join(
-            [f"CLI: {command_name}" for command_name in required_bins if not shutil.which(command_name)]
+            [
+                f"CLI: {command_name}"
+                for command_name in required_bins
+                if not shutil.which(command_name)
+            ]
             + [f"ENV: {env_name}" for env_name in required_env_vars if not os.environ.get(env_name)]
         )
 
@@ -401,7 +417,7 @@ class SkillsLoader:
             return content
         match = _STRIP_SKILL_FRONTMATTER.match(content)
         if match:
-            return content[match.end():].strip()
+            return content[match.end() :].strip()
         return content
 
     def _updated_skill_metadata_content(
@@ -414,7 +430,7 @@ class SkillsLoader:
         match = _STRIP_SKILL_FRONTMATTER.match(content)
         if match:
             frontmatter_lines = match.group(1).splitlines()
-            body = content[match.end():]
+            body = content[match.end() :]
         else:
             frontmatter_lines = [f"name: {name}"]
             body = content
@@ -490,12 +506,14 @@ class SkillsLoader:
         for entry in self.list_skills(filter_unavailable=filter_unavailable):
             project_meta = self._get_skill_meta(entry["name"])
             available = self._check_requirements(project_meta)
-            records.append({
-                **entry,
-                "description": self._get_skill_description(entry["name"]),
-                "available": available,
-                "project_meta": project_meta,
-            })
+            records.append(
+                {
+                    **entry,
+                    "description": self._get_skill_description(entry["name"]),
+                    "available": available,
+                    "project_meta": project_meta,
+                }
+            )
         return records
 
     def _superseded_names(self, records: list[dict[str, Any]]) -> set[str]:
@@ -571,7 +589,9 @@ class SkillsLoader:
             targets = record["project_meta"].get("supersedes") or []
             if not targets:
                 continue
-            existing = [target for target in targets if target in by_name and target != record["name"]]
+            existing = [
+                target for target in targets if target in by_name and target != record["name"]
+            ]
             missing = [target for target in targets if target not in by_name]
             if existing:
                 superseded_entries.append({"name": record["name"], "targets": existing})
@@ -587,9 +607,13 @@ class SkillsLoader:
             left_triggers = {item.lower() for item in left["project_meta"].get("triggers") or []}
             left_tools = {item.lower() for item in left["project_meta"].get("tool_tags") or []}
             left_tokens = self._tokenize(left["name"], left["description"], *left_triggers)
-            for right in visible[index + 1:]:
-                right_triggers = {item.lower() for item in right["project_meta"].get("triggers") or []}
-                right_tools = {item.lower() for item in right["project_meta"].get("tool_tags") or []}
+            for right in visible[index + 1 :]:
+                right_triggers = {
+                    item.lower() for item in right["project_meta"].get("triggers") or []
+                }
+                right_tools = {
+                    item.lower() for item in right["project_meta"].get("tool_tags") or []
+                }
                 right_tokens = self._tokenize(right["name"], right["description"], *right_triggers)
                 shared_triggers = sorted(left_triggers & right_triggers)
                 shared_tools = sorted(left_tools & right_tools)
@@ -597,12 +621,14 @@ class SkillsLoader:
                 if len(shared_triggers) >= 2 or (
                     shared_triggers and shared_tools and len(shared_tokens) >= 3
                 ):
-                    overlaps.append({
-                        "left": left["name"],
-                        "right": right["name"],
-                        "shared_triggers": shared_triggers,
-                        "shared_tools": shared_tools,
-                    })
+                    overlaps.append(
+                        {
+                            "left": left["name"],
+                            "right": right["name"],
+                            "shared_triggers": shared_triggers,
+                            "shared_tools": shared_tools,
+                        }
+                    )
 
         return {
             "total": len(records),
@@ -619,7 +645,10 @@ class SkillsLoader:
             entry["name"]
             for entry in self.list_skills(filter_unavailable=True)
             if (meta := self.get_skill_metadata(entry["name"]) or {})
-            and (self._parse_project_metadata(meta.get("metadata", "")).get("always") or meta.get("always"))
+            and (
+                self._parse_project_metadata(meta.get("metadata", "")).get("always")
+                or meta.get("always")
+            )
         ]
 
     def get_skill_metadata(self, name: str) -> dict | None:
@@ -643,5 +672,5 @@ class SkillsLoader:
             if ":" not in line:
                 continue
             key, value = line.split(":", 1)
-            metadata[key.strip()] = value.strip().strip('"\'')
+            metadata[key.strip()] = value.strip().strip("\"'")
         return metadata
