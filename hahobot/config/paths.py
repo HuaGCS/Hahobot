@@ -60,12 +60,16 @@ def resolve_workspace_path(
     return get_default_workspace_path(config_path)
 
 
-def get_workspace_path(workspace: str | Path | None = None, *, config_path: str | Path | None = None) -> Path:
+def get_workspace_path(
+    workspace: str | Path | None = None, *, config_path: str | Path | None = None
+) -> Path:
     """Resolve and ensure the agent workspace path."""
     return ensure_dir(resolve_workspace_path(workspace, config_path=config_path))
 
 
-def is_default_workspace(workspace: str | Path | None, *, config_path: str | Path | None = None) -> bool:
+def is_default_workspace(
+    workspace: str | Path | None, *, config_path: str | Path | None = None
+) -> bool:
     """Return whether a workspace resolves to the config-derived default workspace path."""
     current = resolve_workspace_path(workspace, config_path=config_path)
     default = get_default_workspace_path(config_path)

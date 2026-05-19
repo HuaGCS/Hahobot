@@ -11,7 +11,9 @@ from hahobot.agent.personas import (
 )
 
 
-def test_persona_reference_images_resolve_persona_and_workspace_relative_paths(tmp_path: Path) -> None:
+def test_persona_reference_images_resolve_persona_and_workspace_relative_paths(
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "workspace"
     persona_dir = workspace / "personas" / "Aria"
     assets_dir = persona_dir / "assets"

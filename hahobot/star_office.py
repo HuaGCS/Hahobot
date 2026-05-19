@@ -238,7 +238,9 @@ class StarOfficeRemoteRelay:
             "state": snapshot.state,
             "detail": snapshot.detail,
         }
-        data, status = await self._post_json(self._build_url(settings, _PUSH_ROUTE_JOIN), payload, settings)
+        data, status = await self._post_json(
+            self._build_url(settings, _PUSH_ROUTE_JOIN), payload, settings
+        )
         agent_id = data.get("agentId")
         if status in {200, 201} and data.get("ok") is True and isinstance(agent_id, (int, str)):
             self._agent_id = str(agent_id)
@@ -249,7 +251,9 @@ class StarOfficeRemoteRelay:
         )
         return False
 
-    async def _push_update(self, settings: StarOfficePushSettings, snapshot: StarOfficeSnapshot) -> bool:
+    async def _push_update(
+        self, settings: StarOfficePushSettings, snapshot: StarOfficeSnapshot
+    ) -> bool:
         if not self._agent_id:
             return False
         payload = {
@@ -258,7 +262,9 @@ class StarOfficeRemoteRelay:
             "state": snapshot.state,
             "detail": snapshot.detail,
         }
-        data, status = await self._post_json(self._build_url(settings, _PUSH_ROUTE_UPDATE), payload, settings)
+        data, status = await self._post_json(
+            self._build_url(settings, _PUSH_ROUTE_UPDATE), payload, settings
+        )
         if status in {200, 201} and data.get("ok") is True:
             return True
         self._log_failure(
@@ -369,7 +375,9 @@ class StarOfficeStatusTracker:
 
     def finish(self, run_id: int, *, state: str = "idle", detail: str = "") -> StarOfficeSnapshot:
         self._active_runs.pop(run_id, None)
-        normalized_detail = detail or (self._idle_detail if state == "idle" else _DEFAULT_ERROR_DETAIL)
+        normalized_detail = detail or (
+            self._idle_detail if state == "idle" else _DEFAULT_ERROR_DETAIL
+        )
         self._latest = self._snapshot(state, normalized_detail)
         return self._publish_current()
 
@@ -399,7 +407,9 @@ def _extract_latest_user_text(messages: list[dict[str, Any]]) -> str:
 
 
 def _classify_tool_calls(tool_calls: list[Any]) -> tuple[str, str]:
-    names = [getattr(tool_call, "name", "") for tool_call in tool_calls if getattr(tool_call, "name", "")]
+    names = [
+        getattr(tool_call, "name", "") for tool_call in tool_calls if getattr(tool_call, "name", "")
+    ]
     if not names:
         return "syncing", "Synchronizing tool results"
 
@@ -435,7 +445,9 @@ def _summarize_tool_events(events: list[dict[str, str]]) -> tuple[str, str]:
 class StarOfficeHook(AgentHook):
     """Map agent lifecycle events onto Star Office presence states."""
 
-    def __init__(self, tracker: StarOfficeStatusTracker, *, idle_detail: str = _DEFAULT_IDLE_DETAIL) -> None:
+    def __init__(
+        self, tracker: StarOfficeStatusTracker, *, idle_detail: str = _DEFAULT_IDLE_DETAIL
+    ) -> None:
         self._tracker = tracker
         self._idle_detail = _trim_detail(idle_detail) or _DEFAULT_IDLE_DETAIL
 

@@ -192,9 +192,7 @@ async def test_memory_router_fans_out_shadow_writes() -> None:
 @pytest.mark.asyncio
 async def test_memory_router_falls_back_to_file_when_primary_returns_empty() -> None:
     primary = MagicMock()
-    primary.resolve_context = AsyncMock(
-        return_value=ResolvedMemoryContext(block="", source="mem0")
-    )
+    primary.resolve_context = AsyncMock(return_value=ResolvedMemoryContext(block="", source="mem0"))
 
     fallback = MagicMock()
     fallback.resolve_context = AsyncMock(

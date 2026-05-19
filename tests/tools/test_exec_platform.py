@@ -15,8 +15,8 @@ from hahobot.agent.tools.shell import ExecTool
 # _build_env
 # ---------------------------------------------------------------------------
 
-class TestBuildEnvUnix:
 
+class TestBuildEnvUnix:
     def test_expected_keys(self):
         with patch("hahobot.agent.tools.shell._IS_WINDOWS", False):
             env = ExecTool()._build_env()
@@ -40,12 +40,22 @@ class TestBuildEnvUnix:
 
 
 class TestBuildEnvWindows:
-
     _EXPECTED_KEYS = {
-        "SYSTEMROOT", "COMSPEC", "USERPROFILE", "HOMEDRIVE",
-        "HOMEPATH", "TEMP", "TMP", "PATHEXT", "PATH",
-        "APPDATA", "LOCALAPPDATA", "ProgramData",
-        "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+        "SYSTEMROOT",
+        "COMSPEC",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "TEMP",
+        "TMP",
+        "PATHEXT",
+        "PATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "ProgramData",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
     }
 
     def test_expected_keys(self):
@@ -85,7 +95,6 @@ class TestBuildEnvWindows:
 
 
 class TestBuildEnvUnixAllowedKeys:
-
     def test_allowed_env_keys_are_forwarded(self, monkeypatch):
         monkeypatch.setenv("GOPATH", "/opt/go")
         with patch("hahobot.agent.tools.shell._IS_WINDOWS", False):
@@ -97,8 +106,8 @@ class TestBuildEnvUnixAllowedKeys:
 # _spawn
 # ---------------------------------------------------------------------------
 
-class TestSpawnUnix:
 
+class TestSpawnUnix:
     @pytest.mark.asyncio
     async def test_uses_bash(self):
         with (
@@ -116,7 +125,6 @@ class TestSpawnUnix:
 
 
 class TestSpawnWindows:
-
     @pytest.mark.asyncio
     async def test_uses_comspec_from_env(self):
         env = {"COMSPEC": r"C:\Windows\system32\cmd.exe", "PATH": ""}
@@ -151,8 +159,8 @@ class TestSpawnWindows:
 # path_append
 # ---------------------------------------------------------------------------
 
-class TestPathAppendPlatform:
 
+class TestPathAppendPlatform:
     @pytest.mark.asyncio
     async def test_unix_uses_env_backed_path_append(self):
         """On Unix, path_append is passed through env instead of interpolated directly."""
@@ -221,8 +229,8 @@ class TestPathAppendPlatform:
 # sandbox
 # ---------------------------------------------------------------------------
 
-class TestSandboxPlatform:
 
+class TestSandboxPlatform:
     @pytest.mark.asyncio
     async def test_bwrap_skipped_on_windows(self):
         """bwrap must be silently skipped on Windows, not crash."""
@@ -251,7 +259,9 @@ class TestSandboxPlatform:
 
         with (
             patch("hahobot.agent.tools.shell._IS_WINDOWS", False),
-            patch("hahobot.agent.tools.shell.wrap_command", return_value="bwrap -- sh -c ls") as mock_wrap,
+            patch(
+                "hahobot.agent.tools.shell.wrap_command", return_value="bwrap -- sh -c ls"
+            ) as mock_wrap,
             patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -267,8 +277,8 @@ class TestSandboxPlatform:
 # end-to-end (mocked subprocess, full execute path)
 # ---------------------------------------------------------------------------
 
-class TestExecuteEndToEnd:
 
+class TestExecuteEndToEnd:
     @pytest.mark.asyncio
     async def test_windows_full_path(self):
         """Full execute() flow on Windows: env, spawn, output formatting."""

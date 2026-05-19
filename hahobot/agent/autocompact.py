@@ -152,7 +152,9 @@ class AutoCompact:
     def prepare_session(self, session: Session, key: str) -> tuple[Session, str | None]:
         """Reload a session if needed and surface any pending one-shot resume summary."""
         if key in self._archiving or self._is_expired(session.updated_at):
-            logger.info("Auto-compact: reloading session {} (archiving={})", key, key in self._archiving)
+            logger.info(
+                "Auto-compact: reloading session {} (archiving={})", key, key in self._archiving
+            )
             session = self.sessions.get_or_create(key)
 
         entry = self._summaries.pop(key, None)

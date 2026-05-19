@@ -87,7 +87,7 @@ def perform_self_update(
 ) -> Path:
     """Synchronize the current checkout, refresh dependencies, and rebuild enabled extras."""
     lang = _resolve_language(language)
-    root = (repo_root or find_checkout_root())
+    root = repo_root or find_checkout_root()
     if root is None:
         raise SelfUpdateError(text(lang, "update_error_not_checkout"))
     root = root.expanduser().resolve(strict=False)
@@ -132,8 +132,10 @@ def inspect_self_update(
 ) -> SelfUpdateCheckResult:
     """Inspect whether one /update mode can run without mutating the repo."""
     lang = _resolve_language(language)
-    mode: Literal["full", "force", "bridge"] = "bridge" if bridge_only else ("force" if force else "full")
-    root = (repo_root or find_checkout_root())
+    mode: Literal["full", "force", "bridge"] = (
+        "bridge" if bridge_only else ("force" if force else "full")
+    )
+    root = repo_root or find_checkout_root()
     project_root = root.expanduser().resolve(strict=False) if root is not None else None
     issues: list[str] = []
     branch: str | None = None
@@ -199,9 +201,7 @@ def inspect_self_update(
                 dirty_changes = _trim_text(status, max_lines=20, max_chars=_MAX_DIRTY_CHARS)
                 worktree_clean = not bool(status.strip())
                 if not worktree_clean and not force:
-                    issues.append(
-                        text(lang, "update_error_dirty_worktree", changes=dirty_changes)
-                    )
+                    issues.append(text(lang, "update_error_dirty_worktree", changes=dirty_changes))
             except SelfUpdateError as exc:
                 issues.append(str(exc))
 
@@ -214,7 +214,9 @@ def inspect_self_update(
             source_root = repo_top or project_root
             if source_root is not None and not (source_root / "bridge" / "package.json").exists():
                 issues.append(
-                    text(lang, "update_error_bridge_source_missing", path=str(source_root / "bridge"))
+                    text(
+                        lang, "update_error_bridge_source_missing", path=str(source_root / "bridge")
+                    )
                 )
 
     return SelfUpdateCheckResult(
@@ -262,11 +264,13 @@ def format_self_update_check(result: SelfUpdateCheckResult, *, language: str | N
     for step in _planned_step_texts(result, lang):
         lines.append(f"- {step}")
     if result.dirty_changes and result.worktree_clean is False:
-        lines.extend([
-            "",
-            f"{text(lang, 'update_check_dirty_label')}:",
-            result.dirty_changes,
-        ])
+        lines.extend(
+            [
+                "",
+                f"{text(lang, 'update_check_dirty_label')}:",
+                result.dirty_changes,
+            ]
+        )
     if result.issues:
         lines.extend(["", f"{text(lang, 'update_check_issues_label')}:"])
         for issue in result.issues:
@@ -305,7 +309,9 @@ def _git_repo_root(git_path: str, root: Path, *, language: str) -> Path:
     return Path(resolved).expanduser().resolve(strict=False)
 
 
-def _ensure_clean_tracking_branch(git_path: str, root: Path, *, language: str, force: bool = False) -> None:
+def _ensure_clean_tracking_branch(
+    git_path: str, root: Path, *, language: str, force: bool = False
+) -> None:
     branch = _git_stdout(
         [git_path, "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=root,
@@ -409,7 +415,9 @@ def _format_process_failure(exc: subprocess.CalledProcessError) -> str:
     return "\n".join(parts)
 
 
-def _trim_text(raw: str, *, max_lines: int = _MAX_FAILURE_LINES, max_chars: int = _MAX_FAILURE_CHARS) -> str:
+def _trim_text(
+    raw: str, *, max_lines: int = _MAX_FAILURE_LINES, max_chars: int = _MAX_FAILURE_CHARS
+) -> str:
     cleaned = raw.strip()
     if not cleaned:
         return ""

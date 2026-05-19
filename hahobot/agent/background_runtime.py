@@ -40,7 +40,9 @@ class BackgroundRuntimeManager:
         if existing and not existing.done():
             return existing
 
-        task = asyncio.create_task(self.loop.memory_consolidator.maybe_consolidate_by_tokens(session))
+        task = asyncio.create_task(
+            self.loop.memory_consolidator.maybe_consolidate_by_tokens(session)
+        )
         self.loop._token_consolidation_tasks[session.key] = task
         self.track_background_task(task)
 

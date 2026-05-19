@@ -127,13 +127,15 @@ class ContextBuilder:
         if skills_summary:
             parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
 
-        entries = self.memory.read_unprocessed_history(since_cursor=self.memory.get_last_dream_cursor())
+        entries = self.memory.read_unprocessed_history(
+            since_cursor=self.memory.get_last_dream_cursor()
+        )
         if entries:
-            capped = entries[-self._MAX_RECENT_HISTORY:]
-            history_text = "\n".join(
-                f"- [{e['timestamp']}] {e['content']}" for e in capped
+            capped = entries[-self._MAX_RECENT_HISTORY :]
+            history_text = "\n".join(f"- [{e['timestamp']}] {e['content']}" for e in capped)
+            parts.append(
+                "# Recent History\n\n" + truncate_text(history_text, self._MAX_HISTORY_CHARS)
             )
-            parts.append("# Recent History\n\n" + truncate_text(history_text, self._MAX_HISTORY_CHARS))
 
         return "\n\n---\n\n".join(parts)
 
@@ -244,7 +246,9 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
     def _read_persona_overlay_file(self, persona: str, filename: str) -> str:
         """Read a workspace file, preferring persona-local overrides when present."""
         file_path = self.workspace / filename
-        persona_dir = None if persona == DEFAULT_PERSONA else personas_root(self.workspace) / persona
+        persona_dir = (
+            None if persona == DEFAULT_PERSONA else personas_root(self.workspace) / persona
+        )
         if persona_dir:
             persona_file = persona_dir / filename
             if persona_file.exists():
@@ -328,36 +332,46 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
             if not mime or not mime.startswith("image/"):
                 continue
             b64 = base64.b64encode(raw).decode()
-            images.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{b64}"},
-                "_meta": {"path": str(p)},
-            })
+            images.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    "_meta": {"path": str(p)},
+                }
+            )
 
         if not images:
             return text
         return images + [{"type": "text", "text": text}]
 
     def add_tool_result(
-        self, messages: list[dict[str, Any]],
-        tool_call_id: str, tool_name: str, result: Any,
+        self,
+        messages: list[dict[str, Any]],
+        tool_call_id: str,
+        tool_name: str,
+        result: Any,
     ) -> list[dict[str, Any]]:
         """Add a tool result to the message list."""
-        messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result})
+        messages.append(
+            {"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result}
+        )
         return messages
 
     def add_assistant_message(
-        self, messages: list[dict[str, Any]],
+        self,
+        messages: list[dict[str, Any]],
         content: str | None,
         tool_calls: list[dict[str, Any]] | None = None,
         reasoning_content: str | None = None,
         thinking_blocks: list[dict] | None = None,
     ) -> list[dict[str, Any]]:
         """Add an assistant message to the message list."""
-        messages.append(build_assistant_message(
-            content,
-            tool_calls=tool_calls,
-            reasoning_content=reasoning_content,
-            thinking_blocks=thinking_blocks,
-        ))
+        messages.append(
+            build_assistant_message(
+                content,
+                tool_calls=tool_calls,
+                reasoning_content=reasoning_content,
+                thinking_blocks=thinking_blocks,
+            )
+        )
         return messages

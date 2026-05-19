@@ -116,13 +116,15 @@ class TestHistoryWithCursor:
         assert entries[0]["content"] == "visible [private redacted]"
 
     def test_raw_archive_caps_formatted_messages(self, store):
-        store.raw_archive([
-            {
-                "timestamp": "2026-04-24 10:00",
-                "role": "user",
-                "content": "x" * 20_000,
-            }
-        ])
+        store.raw_archive(
+            [
+                {
+                    "timestamp": "2026-04-24 10:00",
+                    "role": "user",
+                    "content": "x" * 20_000,
+                }
+            ]
+        )
         entries = store.read_unprocessed_history(since_cursor=0)
         assert len(entries[0]["content"]) < 17_000
         assert "truncated" in entries[0]["content"]
@@ -147,7 +149,8 @@ class TestLegacyHistoryMigration:
         """JSONL entries with cursor=1 are correctly parsed and returned."""
         store.history_file.write_text(
             '{"cursor": 1, "timestamp": "2026-03-30 14:30", "content": "Old event"}\n',
-            encoding="utf-8")
+            encoding="utf-8",
+        )
         entries = store.read_unprocessed_history(since_cursor=0)
         assert len(entries) == 1
         assert entries[0]["cursor"] == 1
@@ -231,8 +234,7 @@ class TestLegacyHistoryMigration:
         memory_dir.mkdir()
         legacy_file = memory_dir / "HISTORY.md"
         legacy_content = (
-            "[2026-03-25–2026-04-02] Multi-day summary.\n"
-            "[2026-03-26/27] Cross-day summary.\n"
+            "[2026-03-25–2026-04-02] Multi-day summary.\n[2026-03-26/27] Cross-day summary.\n"
         )
         legacy_file.write_text(legacy_content, encoding="utf-8")
 
@@ -290,9 +292,7 @@ class TestLegacyHistoryMigration:
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
         legacy_file = memory_dir / "HISTORY.md"
-        legacy_file.write_bytes(
-            b"[2026-04-01 10:00] Broken \xff data still needs migration.\n\n"
-        )
+        legacy_file.write_bytes(b"[2026-04-01 10:00] Broken \xff data still needs migration.\n\n")
 
         store = MemoryStore(tmp_path)
 

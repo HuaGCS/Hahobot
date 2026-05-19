@@ -40,7 +40,9 @@ def test_sessions_list_json_includes_preview_and_persona(tmp_path: Path) -> None
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     config_path = _write_config(tmp_path / "config.json", workspace)
-    _save_session(workspace, "cli:alpha", ("user", "hello"), ("assistant", "hi there"), persona="Aria")
+    _save_session(
+        workspace, "cli:alpha", ("user", "hello"), ("assistant", "hi there"), persona="Aria"
+    )
     _save_session(workspace, "telegram:42", ("user", "ping from telegram"))
 
     result = runner.invoke(app, ["sessions", "list", "--config", str(config_path), "--json"])
@@ -227,7 +229,9 @@ def test_agent_continue_uses_latest_cli_session(tmp_path: Path, monkeypatch) -> 
         "hahobot.cron.service.CronService",
         lambda _store, **_kwargs: object(),
     )
-    monkeypatch.setattr("hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+    )
 
     class _FakeAgentLoop:
         def __init__(self, *args, **kwargs) -> None:
@@ -301,7 +305,9 @@ def test_agent_pick_session_uses_selected_cli_session(tmp_path: Path, monkeypatc
         "hahobot.cron.service.CronService",
         lambda _store, **_kwargs: object(),
     )
-    monkeypatch.setattr("hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+    )
 
     class _FakeAgentLoop:
         def __init__(self, *args, **kwargs) -> None:
@@ -378,7 +384,9 @@ def test_local_session_command_list_and_current(tmp_path: Path) -> None:
 def test_local_session_command_use_and_show(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    _save_session(workspace, "cli:alpha", ("user", "first"), ("assistant", "second"), persona="Aria")
+    _save_session(
+        workspace, "cli:alpha", ("user", "first"), ("assistant", "second"), persona="Aria"
+    )
     manager = SessionManager(workspace)
     session = manager.get_or_create("cli:alpha")
     session.metadata["working_checkpoint"] = {

@@ -63,7 +63,9 @@ class _RecordingTool(Tool):
         return self._result
 
 
-def _make_loop(workspace: Path, *, mcp_servers: dict | None = None, config_path: Path | None = None):
+def _make_loop(
+    workspace: Path, *, mcp_servers: dict | None = None, config_path: Path | None = None
+):
     """Create an AgentLoop with a real workspace and lightweight mocks."""
     from hahobot.agent.loop import AgentLoop
     from hahobot.bus.queue import MessageBus
@@ -181,7 +183,11 @@ async def test_mcp_config_reload_resets_connections_and_tools(tmp_path: Path) ->
     )
     loop = _make_loop(
         tmp_path,
-        mcp_servers={"old": SimpleNamespace(model_dump=lambda: {"command": "npx", "args": ["-y", "@demo/old"]})},
+        mcp_servers={
+            "old": SimpleNamespace(
+                model_dump=lambda: {"command": "npx", "args": ["-y", "@demo/old"]}
+            )
+        },
         config_path=config_path,
     )
     stack = SimpleNamespace(aclose=AsyncMock())
@@ -355,7 +361,7 @@ async def test_runtime_config_reload_updates_agent_and_tool_settings(tmp_path: P
                             "apiKey": "",
                             "baseUrl": "",
                             "maxResults": 3,
-                        }
+                        },
                     },
                 },
                 "channels": {
@@ -392,7 +398,7 @@ async def test_runtime_config_reload_updates_agent_and_tool_settings(tmp_path: P
                             "apiKey": "demo-key",
                             "baseUrl": "https://search.example.com",
                             "maxResults": 7,
-                        }
+                        },
                     },
                 },
                 "channels": {

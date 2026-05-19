@@ -107,7 +107,9 @@ class EdgeSpeechProvider:
         try:
             import edge_tts
         except ImportError as exc:  # pragma: no cover - exercised via runtime env
-            raise RuntimeError("edge-tts is not installed. Install it to use provider=edge.") from exc
+            raise RuntimeError(
+                "edge-tts is not installed. Install it to use provider=edge."
+            ) from exc
 
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -152,9 +154,7 @@ class GPTSoVITSSpeechProvider:
     async def synthesize_to_file(self, text: str, *, output_path: str | Path) -> Path:
         """Synthesize text with GPT-SoVITS into an audio file."""
         if not self.refer_wav_path or not self.prompt_text:
-            raise ValueError(
-                "GPT-SoVITS requires refer_wav_path and prompt_text configuration."
-            )
+            raise ValueError("GPT-SoVITS requires refer_wav_path and prompt_text configuration.")
 
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)

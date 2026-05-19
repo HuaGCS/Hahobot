@@ -78,12 +78,13 @@ class _StopGatewayError(RuntimeError):
 @pytest.fixture
 def mock_paths():
     """Mock config/workspace paths for test isolation."""
-    with patch("hahobot.config.loader.get_config_path") as mock_cp, \
-         patch("hahobot.config.loader.find_compatible_config_source", return_value=None), \
-         patch("hahobot.config.loader.save_config") as mock_sc, \
-         patch("hahobot.config.loader.load_config") as mock_lc, \
-         patch("hahobot.cli.commands.get_workspace_path") as mock_ws:
-
+    with (
+        patch("hahobot.config.loader.get_config_path") as mock_cp,
+        patch("hahobot.config.loader.find_compatible_config_source", return_value=None),
+        patch("hahobot.config.loader.save_config") as mock_sc,
+        patch("hahobot.config.loader.load_config") as mock_lc,
+        patch("hahobot.cli.commands.get_workspace_path") as mock_ws,
+    ):
         base_dir = Path("./test_onboard_data").resolve()
         if base_dir.exists():
             shutil.rmtree(base_dir)
@@ -94,7 +95,9 @@ def mock_paths():
 
         mock_cp.return_value = config_file
         mock_ws.return_value = workspace_dir
-        mock_lc.side_effect = lambda _config_path=None: Config().bind_config_path(_config_path or config_file)
+        mock_lc.side_effect = lambda _config_path=None: Config().bind_config_path(
+            _config_path or config_file
+        )
 
         def _save_config(config: Config, config_path: Path | None = None):
             target = config_path or config_file
@@ -166,6 +169,7 @@ def test_onboard_existing_workspace_safe_create(mock_paths):
     assert "Created workspace" not in result.stdout
     assert "Created AGENTS.md" in result.stdout
     assert (workspace_dir / "AGENTS.md").exists()
+
 
 def test_onboard_help_shows_workspace_and_config_options():
     result = runner.invoke(app, ["onboard", "--help"])
@@ -470,10 +474,12 @@ async def test_github_copilot_provider_refreshes_client_api_key_before_chat():
 
     mock_client = MagicMock()
     mock_client.api_key = "no-key"
-    mock_client.chat.completions.create = AsyncMock(return_value={
-        "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
-        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-    })
+    mock_client.chat.completions.create = AsyncMock(
+        return_value={
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+    )
 
     with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI", return_value=mock_client):
         provider = GitHubCopilotProvider(default_model="github-copilot/gpt-5.1")
@@ -572,14 +578,16 @@ def mock_agent_runtime(tmp_path):
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "default-workspace")
 
-    with patch("hahobot.config.loader.load_config", return_value=config) as mock_load_config, \
-         patch("hahobot.config.loader.resolve_config_env_vars", side_effect=lambda c: c), \
-         patch("hahobot.cli.commands.sync_workspace_templates") as mock_sync_templates, \
-         patch("hahobot.cli.commands._make_provider", return_value=object()), \
-         patch("hahobot.cli.commands._print_agent_response") as mock_print_response, \
-         patch("hahobot.bus.queue.MessageBus"), \
-         patch("hahobot.cron.service.CronService"), \
-         patch("hahobot.agent.loop.AgentLoop") as mock_agent_loop_cls:
+    with (
+        patch("hahobot.config.loader.load_config", return_value=config) as mock_load_config,
+        patch("hahobot.config.loader.resolve_config_env_vars", side_effect=lambda c: c),
+        patch("hahobot.cli.commands.sync_workspace_templates") as mock_sync_templates,
+        patch("hahobot.cli.commands._make_provider", return_value=object()),
+        patch("hahobot.cli.commands._print_agent_response") as mock_print_response,
+        patch("hahobot.bus.queue.MessageBus"),
+        patch("hahobot.cron.service.CronService"),
+        patch("hahobot.agent.loop.AgentLoop") as mock_agent_loop_cls,
+    ):
         agent_loop = MagicMock()
         agent_loop.channels_config = None
         agent_loop.process_direct = AsyncMock(
@@ -624,7 +632,9 @@ def test_agent_uses_default_config_when_no_workspace_or_config_flags(mock_agent_
     )
     mock_agent_runtime["agent_loop"].process_direct.assert_awaited_once()
     mock_agent_runtime["print_response"].assert_called_once_with(
-        "mock-response", render_markdown=True, metadata={},
+        "mock-response",
+        render_markdown=True,
+        metadata={},
     )
 
 
@@ -673,7 +683,9 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
             return None
 
     monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+    )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
 
@@ -714,7 +726,9 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
 
     monkeypatch.setattr("hahobot.cron.service.CronService", _FakeCron)
     monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+    )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
 
@@ -723,9 +737,7 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
     assert seen["cron_max_sleep_ms"] == 12_345
 
 
-def test_agent_workspace_override_does_not_migrate_legacy_cron(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_path: Path) -> None:
     config_file = tmp_path / "instance" / "config.json"
     config_file.parent.mkdir(parents=True)
     config_file.write_text("{}")
@@ -762,7 +774,9 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(
 
     monkeypatch.setattr("hahobot.cron.service.CronService", _FakeCron)
     monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+    )
 
     result = runner.invoke(
         app,
@@ -864,6 +878,7 @@ def test_agent_hints_about_deprecated_memory_window(mock_agent_runtime, tmp_path
     assert result.exit_code == 0
     assert "memoryWindow" in result.stdout
     assert "no longer used" in result.stdout
+
 
 def test_agent_passes_web_search_config_to_agent_loop(mock_agent_runtime) -> None:
     mock_agent_runtime["config"].tools.web.search.provider = "searxng"
@@ -1340,7 +1355,10 @@ def test_gateway_cli_port_overrides_configured_port(monkeypatch, tmp_path: Path)
     assert isinstance(result.exception, _StopGatewayError)
     assert "port 18792" in result.stdout
 
-def test_gateway_constructs_http_server_without_public_file_options(monkeypatch, tmp_path: Path) -> None:
+
+def test_gateway_constructs_http_server_without_public_file_options(
+    monkeypatch, tmp_path: Path
+) -> None:
     config_file = tmp_path / "instance" / "config.json"
     config_file.parent.mkdir(parents=True)
     config_file.write_text("{}")
@@ -1425,7 +1443,9 @@ def test_gateway_registers_dream_job_from_config(monkeypatch, tmp_path: Path) ->
     monkeypatch.setattr("hahobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda c: c)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path, silent=False: None)
+    monkeypatch.setattr(
+        "hahobot.cli.commands.sync_workspace_templates", lambda _path, silent=False: None
+    )
     monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("hahobot.session.manager.SessionManager", lambda _workspace: MagicMock())
@@ -1533,10 +1553,7 @@ def test_gateway_registers_dream_job_from_config(monkeypatch, tmp_path: Path) ->
     assert "Dream: every 4h" in result.stdout
 
 
-
-def test_serve_uses_api_config_defaults_and_workspace_override(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_serve_uses_api_config_defaults_and_workspace_override(monkeypatch, tmp_path: Path) -> None:
     config_file = _write_instance_config(tmp_path)
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "config-workspace")

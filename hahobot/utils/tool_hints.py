@@ -8,15 +8,15 @@ from hahobot.utils.path import abbreviate_path
 
 # Registry: tool_name -> (key_args, template, is_path, is_command)
 _TOOL_FORMATS: dict[str, tuple[list[str], str, bool, bool]] = {
-    "read_file":  (["path", "file_path"],              "read {}",     True,  False),
-    "write_file": (["path", "file_path"],              "write {}",    True,  False),
-    "edit":       (["file_path", "path"],              "edit {}",     True,  False),
-    "glob":       (["pattern"],                        'glob "{}"',   False, False),
-    "grep":       (["pattern"],                        'grep "{}"',   False, False),
-    "exec":       (["command"],                        "$ {}",        False, True),
-    "web_search": (["query"],                          'search "{}"', False, False),
-    "web_fetch":  (["url"],                            "fetch {}",    True,  False),
-    "list_dir":   (["path"],                           "ls {}",       True,  False),
+    "read_file": (["path", "file_path"], "read {}", True, False),
+    "write_file": (["path", "file_path"], "write {}", True, False),
+    "edit": (["file_path", "path"], "edit {}", True, False),
+    "glob": (["pattern"], 'glob "{}"', False, False),
+    "grep": (["pattern"], 'grep "{}"', False, False),
+    "exec": (["command"], "$ {}", False, True),
+    "web_search": (["query"], 'search "{}"', False, False),
+    "web_fetch": (["url"], "fetch {}", True, False),
+    "list_dir": (["path"], "ls {}", True, False),
 }
 
 # Matches file paths embedded in shell commands, including quoted paths with spaces.
@@ -134,4 +134,8 @@ def _fmt_fallback(tc, max_length: int = 40) -> str:
     val = next(iter(args.values()), None) if isinstance(args, dict) else None
     if not isinstance(val, str):
         return tc.name
-    return f'{tc.name}("{abbreviate_path(val, max_length)}")' if len(val) > max_length else f'{tc.name}("{val}")'
+    return (
+        f'{tc.name}("{abbreviate_path(val, max_length)}")'
+        if len(val) > max_length
+        else f'{tc.name}("{val}")'
+    )

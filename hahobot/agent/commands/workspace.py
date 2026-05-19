@@ -331,6 +331,8 @@ class WorkspaceCommandHandler:
                 f"Session not found: {target}\nUse /session list to inspect saved sessions.",
                 render_as="text",
             )
-        target_session = session if target == session.key else self.loop.sessions.get_or_create(target)
+        target_session = (
+            session if target == session.key else self.loop.sessions.get_or_create(target)
+        )
         report = await compact_session(target_session, self.loop)
         return self._response(msg, render_session_compact_text(report), render_as="text")

@@ -36,17 +36,19 @@ class RunRuntimeManager:
         persona: str | None = None,
     ) -> tuple[str | None, list[str], list[dict[str, Any]], str]:
         """Run the main agent iteration loop and normalize result bookkeeping."""
-        result = await self.loop.runner.run(self._build_run_spec(
-            initial_messages=initial_messages,
-            on_progress=on_progress,
-            on_stream=on_stream,
-            on_stream_end=on_stream_end,
-            session=session,
-            channel=channel,
-            chat_id=chat_id,
-            message_id=message_id,
-            persona=persona,
-        ))
+        result = await self.loop.runner.run(
+            self._build_run_spec(
+                initial_messages=initial_messages,
+                on_progress=on_progress,
+                on_stream=on_stream,
+                on_stream_end=on_stream_end,
+                session=session,
+                channel=channel,
+                chat_id=chat_id,
+                message_id=message_id,
+                persona=persona,
+            )
+        )
         self._record_usage_and_logs(result)
         return result.final_content, result.tools_used, result.messages, result.stop_reason
 

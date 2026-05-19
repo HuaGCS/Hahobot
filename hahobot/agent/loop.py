@@ -218,6 +218,7 @@ class AgentLoop:
         disabled_skills: list[str] | None = None,
     ):
         from hahobot.config.schema import ExecToolConfig, ImageGenConfig, MemoryConfig
+
         if web_config is not None:
             web_proxy = getattr(web_config, "proxy", web_proxy) or None
             web_search_config = getattr(web_config, "search", web_search_config)
@@ -228,11 +229,14 @@ class AgentLoop:
                 "provider",
                 web_search_provider,
             )
-            web_search_base_url = getattr(
-                web_search_config,
-                "base_url",
-                web_search_base_url,
-            ) or None
+            web_search_base_url = (
+                getattr(
+                    web_search_config,
+                    "base_url",
+                    web_search_base_url,
+                )
+                or None
+            )
             web_search_max_results = getattr(
                 web_search_config,
                 "max_results",
@@ -630,7 +634,12 @@ class AgentLoop:
 
     async def _record_proactive_delivery(self, msg: OutboundMessage) -> None:
         """Persist delivered proactive output into the target channel session."""
-        if not msg.channel or not msg.chat_id or not isinstance(msg.content, str) or not msg.content.strip():
+        if (
+            not msg.channel
+            or not msg.chat_id
+            or not isinstance(msg.content, str)
+            or not msg.content.strip()
+        ):
             return
         session = self.sessions.get_or_create(f"{msg.channel}:{msg.chat_id}")
         session.add_message(

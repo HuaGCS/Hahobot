@@ -282,7 +282,9 @@ async def test_openai_direct_reasoning_falls_back_when_responses_api_is_unsuppor
         client_instance.responses.create = AsyncMock(
             side_effect=_CompatibilityError("Responses API not supported")
         )
-        client_instance.chat.completions.create = AsyncMock(return_value=_fake_chat_response("fallback"))
+        client_instance.chat.completions.create = AsyncMock(
+            return_value=_fake_chat_response("fallback")
+        )
 
         provider = OpenAICompatProvider(
             api_key="sk-test-key",
@@ -300,7 +302,9 @@ async def test_openai_direct_reasoning_falls_back_when_responses_api_is_unsuppor
 
 
 @pytest.mark.asyncio
-async def test_openai_direct_reasoning_stream_falls_back_when_responses_api_is_unsupported() -> None:
+async def test_openai_direct_reasoning_stream_falls_back_when_responses_api_is_unsupported() -> (
+    None
+):
     spec = find_by_name("openai")
     deltas: list[str] = []
 
@@ -361,7 +365,9 @@ async def test_openai_responses_fallback_opens_short_circuit_after_repeated_fail
         client_instance.responses.create = AsyncMock(
             side_effect=_CompatibilityError("Responses API not supported")
         )
-        client_instance.chat.completions.create = AsyncMock(return_value=_fake_chat_response("fallback"))
+        client_instance.chat.completions.create = AsyncMock(
+            return_value=_fake_chat_response("fallback")
+        )
 
         provider = OpenAICompatProvider(
             api_key="sk-test-key",
@@ -403,7 +409,9 @@ async def test_openai_responses_fallback_reprobes_after_circuit_interval(
                 _fake_responses_output("steady-ok"),
             ]
         )
-        client_instance.chat.completions.create = AsyncMock(return_value=_fake_chat_response("fallback"))
+        client_instance.chat.completions.create = AsyncMock(
+            return_value=_fake_chat_response("fallback")
+        )
 
         provider = OpenAICompatProvider(
             api_key="sk-test-key",
@@ -490,28 +498,32 @@ def test_openai_compat_preserves_message_level_reasoning_fields() -> None:
     with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
-    sanitized = provider._sanitize_messages([
-        {"role": "user", "content": "hi"},
-        {
-            "role": "assistant",
-            "content": "done",
-            "reasoning_content": "hidden",
-            "extra_content": {"debug": True},
-            "tool_calls": [
-                {
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {"name": "fn", "arguments": "{}"},
-                    "extra_content": {"google": {"thought_signature": "sig"}},
-                }
-            ],
-        },
-        {"role": "user", "content": "thanks"},
-    ])
+    sanitized = provider._sanitize_messages(
+        [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": "done",
+                "reasoning_content": "hidden",
+                "extra_content": {"debug": True},
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "fn", "arguments": "{}"},
+                        "extra_content": {"google": {"thought_signature": "sig"}},
+                    }
+                ],
+            },
+            {"role": "user", "content": "thanks"},
+        ]
+    )
 
     assert sanitized[1]["reasoning_content"] == "hidden"
     assert sanitized[1]["extra_content"] == {"debug": True}
-    assert sanitized[1]["tool_calls"][0]["extra_content"] == {"google": {"thought_signature": "sig"}}
+    assert sanitized[1]["tool_calls"][0]["extra_content"] == {
+        "google": {"thought_signature": "sig"}
+    }
 
 
 @pytest.mark.asyncio
@@ -543,14 +555,19 @@ async def test_openai_compat_stream_watchdog_returns_error_on_stall(monkeypatch)
 # Provider-specific thinking parameters (extra_body)
 # ---------------------------------------------------------------------------
 
+
 def _build_kwargs_for(provider_name: str, model: str, reasoning_effort=None):
     spec = find_by_name(provider_name)
     with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI"):
         p = OpenAICompatProvider(api_key="k", default_model=model, spec=spec)
     return p._build_kwargs(
         messages=[{"role": "user", "content": "hi"}],
-        tools=None, model=model, max_tokens=1024, temperature=0.7,
-        reasoning_effort=reasoning_effort, tool_choice=None,
+        tools=None,
+        model=model,
+        max_tokens=1024,
+        temperature=0.7,
+        reasoning_effort=reasoning_effort,
+        tool_choice=None,
     )
 
 

@@ -44,7 +44,9 @@ class _FakeProcess:
 
 
 class _FakeAsyncClient:
-    def __init__(self, *, response: httpx.Response | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self, *, response: httpx.Response | None = None, error: Exception | None = None
+    ) -> None:
         self.response = response
         self.error = error
         self.calls: list[dict[str, object]] = []
@@ -55,7 +57,13 @@ class _FakeAsyncClient:
     async def __aexit__(self, exc_type, exc, tb) -> bool:
         return False
 
-    async def get(self, url: str, *, params: dict[str, str] | None = None, headers: dict[str, str] | None = None):
+    async def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         self.calls.append({"url": url, "params": params, "headers": headers})
         if self.error is not None:
             raise self.error
@@ -94,15 +102,25 @@ async def test_skill_search_uses_registry_api(tmp_path: Path) -> None:
     client = _FakeAsyncClient(response=response)
     create_proc = AsyncMock()
 
-    with patch("hahobot.agent.commands.skill.httpx.AsyncClient", return_value=client), \
-         patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc):
+    with (
+        patch("hahobot.agent.commands.skill.httpx.AsyncClient", return_value=client),
+        patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc),
+    ):
         response = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill search web scraping")
+            InboundMessage(
+                channel="cli",
+                sender_id="user",
+                chat_id="direct",
+                content="/skill search web scraping",
+            )
         )
 
     assert response is not None
     assert 'Found 42 skills for "web scraping"' in response.content
-    assert "slug: news-aggregator-skill | owner: cclank | installs: 667 | stars: 19 | version: 0.1.0" in response.content
+    assert (
+        "slug: news-aggregator-skill | owner: cclank | installs: 667 | stars: 19 | version: 0.1.0"
+        in response.content
+    )
     assert "https://clawhub.ai/cclank/news-aggregator-skill" in response.content
     assert create_proc.await_count == 0
     assert client.calls == [
@@ -142,9 +160,11 @@ async def test_skill_retries_after_clearing_corrupted_npx_cache(tmp_path: Path) 
     recovered_proc = _FakeProcess(stdout="demo-skill")
     create_proc = AsyncMock(side_effect=[broken_proc, recovered_proc])
 
-    with patch("hahobot.agent.commands.skill.shutil.which", return_value="/usr/bin/npx"), \
-         patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc), \
-         patch("hahobot.agent.commands.skill.shutil.rmtree") as remove_tree:
+    with (
+        patch("hahobot.agent.commands.skill.shutil.which", return_value="/usr/bin/npx"),
+        patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc),
+        patch("hahobot.agent.commands.skill.shutil.rmtree") as remove_tree,
+    ):
         response = await loop._process_message(
             InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill list")
         )
@@ -168,10 +188,14 @@ async def test_skill_search_surfaces_registry_request_errors(tmp_path: Path) -> 
     )
     create_proc = AsyncMock()
 
-    with patch("hahobot.agent.commands.skill.httpx.AsyncClient", return_value=client), \
-         patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc):
+    with (
+        patch("hahobot.agent.commands.skill.httpx.AsyncClient", return_value=client),
+        patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc),
+    ):
         response = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill search test")
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/skill search test"
+            )
         )
 
     assert response is not None
@@ -192,8 +216,10 @@ async def test_skill_search_empty_output_returns_no_results(tmp_path: Path) -> N
     client = _FakeAsyncClient(response=response)
     create_proc = AsyncMock()
 
-    with patch("hahobot.agent.commands.skill.httpx.AsyncClient", return_value=client), \
-         patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc):
+    with (
+        patch("hahobot.agent.commands.skill.httpx.AsyncClient", return_value=client),
+        patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc),
+    ):
         response = await loop._process_message(
             InboundMessage(
                 channel="cli",
@@ -230,14 +256,19 @@ async def test_skill_search_empty_output_returns_no_results(tmp_path: Path) -> N
     ],
 )
 async def test_skill_commands_use_active_workspace(
-    tmp_path: Path, command: str, expected_args: tuple[str, ...], expected_output: str,
+    tmp_path: Path,
+    command: str,
+    expected_args: tuple[str, ...],
+    expected_output: str,
 ) -> None:
     loop = _make_loop(tmp_path)
     proc = _FakeProcess(stdout=expected_output)
     create_proc = AsyncMock(return_value=proc)
 
-    with patch("hahobot.agent.commands.skill.shutil.which", return_value="/usr/bin/npx"), \
-         patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc):
+    with (
+        patch("hahobot.agent.commands.skill.shutil.which", return_value="/usr/bin/npx"),
+        patch("hahobot.agent.commands.skill.asyncio.create_subprocess_exec", create_proc),
+    ):
         response = await loop._process_message(
             InboundMessage(channel="cli", sender_id="user", chat_id="direct", content=command)
         )
@@ -252,7 +283,9 @@ async def test_skill_commands_use_active_workspace(
 
 
 @pytest.mark.asyncio
-async def test_skill_uninstall_removes_local_workspace_skill_and_prunes_lockfile(tmp_path: Path) -> None:
+async def test_skill_uninstall_removes_local_workspace_skill_and_prunes_lockfile(
+    tmp_path: Path,
+) -> None:
     loop = _make_loop(tmp_path)
     skill_dir = tmp_path / "skills" / "demo-skill"
     skill_dir.mkdir(parents=True)
@@ -266,7 +299,9 @@ async def test_skill_uninstall_removes_local_workspace_skill_and_prunes_lockfile
     )
 
     response = await loop._process_message(
-        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill uninstall demo-skill")
+        InboundMessage(
+            channel="cli", sender_id="user", chat_id="direct", content="/skill uninstall demo-skill"
+        )
     )
 
     assert response is not None
@@ -290,11 +325,15 @@ async def test_skill_help_includes_skill_command(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_skill_derive_creates_workspace_skill_draft_from_session_context(tmp_path: Path) -> None:
+async def test_skill_derive_creates_workspace_skill_draft_from_session_context(
+    tmp_path: Path,
+) -> None:
     loop = _make_loop(tmp_path)
     session = loop.sessions.get_or_create("cli:direct")
     session.add_message("user", "Trace the browser status page regression")
-    session.add_message("assistant", "The recent fix came from narrowing the task and verifying the status page.")
+    session.add_message(
+        "assistant", "The recent fix came from narrowing the task and verifying the status page."
+    )
     session.metadata["working_checkpoint"] = {
         "status": "completed",
         "goal": "Trace the browser status page regression",
@@ -326,15 +365,26 @@ async def test_skill_derive_creates_workspace_skill_draft_from_session_context(t
     assert "Use when you need to browser status workflow." in content
     assert 'metadata: {"hahobot":{"triggers":[' in content
     assert '"tool_tags":["grep","read_file","exec"]' in content
-    assert "Repeat this workspace-local workflow for: Trace the browser status page regression" in content
-    assert "Start with these tools or command families when relevant: grep, read_file, exec." in content
+    assert (
+        "Repeat this workspace-local workflow for: Trace the browser status page regression"
+        in content
+    )
+    assert (
+        "Start with these tools or command families when relevant: grep, read_file, exec."
+        in content
+    )
     assert "Trigger hints: browser, trace, page, regression, fix" in content
     assert "Derived from session: cli:direct" in content
-    assert "Recent completion summary: Status page now shows current and next step correctly." in content
+    assert (
+        "Recent completion summary: Status page now shows current and next step correctly."
+        in content
+    )
 
 
 @pytest.mark.asyncio
-async def test_skill_derive_refuses_to_overwrite_existing_draft_without_force(tmp_path: Path) -> None:
+async def test_skill_derive_refuses_to_overwrite_existing_draft_without_force(
+    tmp_path: Path,
+) -> None:
     loop = _make_loop(tmp_path)
     skill_path = tmp_path / "skills" / "status-page-fix" / "SKILL.md"
     skill_path.parent.mkdir(parents=True)
@@ -360,7 +410,9 @@ async def test_skill_derive_force_overwrites_existing_draft(tmp_path: Path) -> N
     loop = _make_loop(tmp_path)
     session = loop.sessions.get_or_create("cli:direct")
     session.add_message("user", "Trace the browser status page regression")
-    session.add_message("assistant", "The recent fix came from narrowing the task and verifying the status page.")
+    session.add_message(
+        "assistant", "The recent fix came from narrowing the task and verifying the status page."
+    )
     session.metadata["working_checkpoint"] = {
         "status": "completed",
         "goal": "Trace the browser status page regression",
@@ -416,13 +468,17 @@ async def test_skill_usage_errors_are_user_facing(tmp_path: Path) -> None:
         InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill install")
     )
     missing_uninstall_slug = await loop._process_message(
-        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill uninstall")
+        InboundMessage(
+            channel="cli", sender_id="user", chat_id="direct", content="/skill uninstall"
+        )
     )
     missing_derive_name = await loop._process_message(
         InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill derive")
     )
     missing_supersede_args = await loop._process_message(
-        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/skill supersede")
+        InboundMessage(
+            channel="cli", sender_id="user", chat_id="direct", content="/skill supersede"
+        )
     )
 
     assert usage is not None
@@ -489,18 +545,22 @@ async def test_skill_supersede_rejects_unknown_targets(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_skill_supersede_remove_updates_metadata_even_for_missing_workspace_targets(tmp_path: Path) -> None:
+async def test_skill_supersede_remove_updates_metadata_even_for_missing_workspace_targets(
+    tmp_path: Path,
+) -> None:
     loop = _make_loop(tmp_path)
     skill_dir = tmp_path / "skills" / "cleanup-v2"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
-        '\n'.join([
-            "---",
-            'metadata: {"hahobot":{"supersedes":["cleanup-v1","ghost-skill"]}}',
-            "---",
-            "",
-            "# cleanup-v2",
-        ]),
+        "\n".join(
+            [
+                "---",
+                'metadata: {"hahobot":{"supersedes":["cleanup-v1","ghost-skill"]}}',
+                "---",
+                "",
+                "# cleanup-v2",
+            ]
+        ),
         encoding="utf-8",
     )
     old_dir = tmp_path / "skills" / "cleanup-v1"
@@ -528,13 +588,15 @@ async def test_skill_supersede_clear_empties_metadata(tmp_path: Path) -> None:
     skill_dir = tmp_path / "skills" / "cleanup-v2"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
-        '\n'.join([
-            "---",
-            'metadata: {"hahobot":{"supersedes":["cleanup-v1","cleanup-v0"]}}',
-            "---",
-            "",
-            "# cleanup-v2",
-        ]),
+        "\n".join(
+            [
+                "---",
+                'metadata: {"hahobot":{"supersedes":["cleanup-v1","cleanup-v0"]}}',
+                "---",
+                "",
+                "# cleanup-v2",
+            ]
+        ),
         encoding="utf-8",
     )
 
@@ -629,7 +691,12 @@ async def test_runtime_skill_read_updates_last_used_and_success_count(tmp_path: 
     )
 
     response = await loop._process_message(
-        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="Use the status page fix skill")
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="Use the status page fix skill",
+        )
     )
 
     assert response is not None

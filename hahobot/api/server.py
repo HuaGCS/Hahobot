@@ -102,6 +102,7 @@ class _ApiAttachment:
 # Response helpers
 # ---------------------------------------------------------------------------
 
+
 def _error_json(status: int, message: str, err_type: str = "invalid_request_error") -> web.Response:
     return web.json_response(
         {"error": {"message": message, "type": err_type, "code": status}},
@@ -382,6 +383,7 @@ async def _parse_request_body(request: web.Request) -> tuple[dict[str, Any], lis
 # Route handlers
 # ---------------------------------------------------------------------------
 
+
 async def handle_chat_completions(request: web.Request) -> web.Response:
     """POST /v1/chat/completions"""
 
@@ -480,17 +482,19 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 async def handle_models(request: web.Request) -> web.Response:
     """GET /v1/models"""
     model_name = _app_value(request.app, MODEL_NAME_KEY, "model_name", "hahobot")
-    return web.json_response({
-        "object": "list",
-        "data": [
-            {
-                "id": model_name,
-                "object": "model",
-                "created": 0,
-                "owned_by": "hahobot",
-            }
-        ],
-    })
+    return web.json_response(
+        {
+            "object": "list",
+            "data": [
+                {
+                    "id": model_name,
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": "hahobot",
+                }
+            ],
+        }
+    )
 
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -502,7 +506,10 @@ async def handle_health(request: web.Request) -> web.Response:
 # App factory
 # ---------------------------------------------------------------------------
 
-def create_app(agent_loop, model_name: str = "hahobot", request_timeout: float = 120.0) -> web.Application:
+
+def create_app(
+    agent_loop, model_name: str = "hahobot", request_timeout: float = 120.0
+) -> web.Application:
     """Create the aiohttp application.
 
     Args:

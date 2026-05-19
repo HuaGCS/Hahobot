@@ -13,6 +13,7 @@ from hahobot.providers.base import LLMResponse
 
 def _make_loop(tmp_path, *, estimated_tokens: int, context_window_tokens: int) -> AgentLoop:
     from hahobot.providers.base import GenerationSettings
+
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
     provider.generation = GenerationSettings(max_tokens=0)
@@ -62,7 +63,9 @@ async def test_prompt_above_threshold_triggers_consolidation(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_prompt_above_threshold_archives_until_next_user_boundary(tmp_path, monkeypatch) -> None:
+async def test_prompt_above_threshold_archives_until_next_user_boundary(
+    tmp_path, monkeypatch
+) -> None:
     loop = _make_loop(tmp_path, estimated_tokens=1000, context_window_tokens=200)
     loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
 
@@ -77,7 +80,9 @@ async def test_prompt_above_threshold_archives_until_next_user_boundary(tmp_path
     loop.sessions.save(session)
 
     token_map = {"u1": 120, "a1": 120, "u2": 120, "a2": 120, "u3": 120}
-    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda message: token_map[message["content"]])
+    monkeypatch.setattr(
+        memory_module, "estimate_message_tokens", lambda message: token_map[message["content"]]
+    )
 
     await loop.consolidator.maybe_consolidate_by_tokens(session)
 
@@ -105,6 +110,7 @@ async def test_consolidation_loops_until_target_met(tmp_path, monkeypatch) -> No
     loop.sessions.save(session)
 
     call_count = [0]
+
     def mock_estimate(_session):
         call_count[0] += 1
         if call_count[0] == 1:
@@ -123,7 +129,9 @@ async def test_consolidation_loops_until_target_met(tmp_path, monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_consolidation_continues_below_trigger_until_half_target(tmp_path, monkeypatch) -> None:
+async def test_consolidation_continues_below_trigger_until_half_target(
+    tmp_path, monkeypatch
+) -> None:
     """Once triggered, consolidation should continue until it drops below half threshold."""
     loop = _make_loop(tmp_path, estimated_tokens=0, context_window_tokens=200)
     loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
@@ -169,11 +177,13 @@ async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) ->
     async def track_consolidate(messages):
         order.append("consolidate")
         return True
+
     loop.consolidator.archive = track_consolidate  # type: ignore[method-assign]
 
     async def track_llm(*args, **kwargs):
         order.append("llm")
         return LLMResponse(content="ok", tool_calls=[])
+
     loop.provider.chat_with_retry = track_llm
     loop.provider.chat_stream_with_retry = track_llm
 
@@ -187,9 +197,11 @@ async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) ->
     monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _m: 500)
 
     call_count = [0]
+
     def mock_estimate(_session):
         call_count[0] += 1
         return (1000 if call_count[0] <= 1 else 80, "test")
+
     loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
 
     await loop.process_direct("hello", session_key="cli:test")
@@ -244,7 +256,9 @@ async def test_large_tool_results_are_compacted_before_next_llm_call(tmp_path, m
     provider.generation = GenerationSettings(max_tokens=512)
 
     def estimate(messages, tools, model):
-        payload = json.dumps({"messages": messages, "tools": tools, "model": model}, ensure_ascii=False)
+        payload = json.dumps(
+            {"messages": messages, "tools": tools, "model": model}, ensure_ascii=False
+        )
         return (len(payload) // 2, "test-counter")
 
     provider.estimate_prompt_tokens = estimate
@@ -370,13 +384,17 @@ async def test_multi_step_tool_turn_keeps_memory_and_recent_context(tmp_path, mo
         if call_count["n"] == 1:
             return LLMResponse(
                 content="first tool",
-                tool_calls=[ToolCallRequest(id="call_1", name="search_docs", arguments={"query": "atlas"})],
+                tool_calls=[
+                    ToolCallRequest(id="call_1", name="search_docs", arguments={"query": "atlas"})
+                ],
             )
         if call_count["n"] == 2:
             captured_calls.append(copy.deepcopy(messages))
             return LLMResponse(
                 content="second tool",
-                tool_calls=[ToolCallRequest(id="call_2", name="scan_repo", arguments={"path": "."})],
+                tool_calls=[
+                    ToolCallRequest(id="call_2", name="scan_repo", arguments={"path": "."})
+                ],
             )
         captured_calls.append(copy.deepcopy(messages))
         return LLMResponse(content="done", tool_calls=[])
@@ -400,7 +418,9 @@ async def test_multi_step_tool_turn_keeps_memory_and_recent_context(tmp_path, mo
 
     monkeypatch.setattr("hahobot.agent.tools.registry.ToolRegistry.execute", fake_execute)
 
-    response = await loop.process_direct("Use the remembered Atlas facts and inspect the repo", session_key="cli:test")
+    response = await loop.process_direct(
+        "Use the remembered Atlas facts and inspect the repo", session_key="cli:test"
+    )
 
     assert response is not None
     assert response.content == "done"
@@ -431,8 +451,7 @@ async def test_multi_step_tool_turn_keeps_memory_and_recent_context(tmp_path, mo
     assert len(newer_tool["content"]) < 5_000
 
     assistant_tool_turns = [
-        msg for msg in third_call
-        if msg.get("role") == "assistant" and msg.get("tool_calls")
+        msg for msg in third_call if msg.get("role") == "assistant" and msg.get("tool_calls")
     ]
     assert [turn["tool_calls"][0]["function"]["name"] for turn in assistant_tool_turns] == [
         "search_docs",

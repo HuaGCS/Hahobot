@@ -63,16 +63,24 @@ def test_save_turn_keeps_image_placeholder_with_path_after_runtime_strip() -> No
 
     loop._save_turn(
         session,
-        [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": runtime},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}, "_meta": {"path": "/media/feishu/photo.jpg"}},
-            ],
-        }],
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": runtime},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,abc"},
+                        "_meta": {"path": "/media/feishu/photo.jpg"},
+                    },
+                ],
+            }
+        ],
         skip=0,
     )
-    assert session.messages[0]["content"] == [{"type": "text", "text": "[image: /media/feishu/photo.jpg]"}]
+    assert session.messages[0]["content"] == [
+        {"type": "text", "text": "[image: /media/feishu/photo.jpg]"}
+    ]
 
 
 def test_save_turn_keeps_image_placeholder_without_meta() -> None:
@@ -82,13 +90,15 @@ def test_save_turn_keeps_image_placeholder_without_meta() -> None:
 
     loop._save_turn(
         session,
-        [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": runtime},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
-            ],
-        }],
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": runtime},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+                ],
+            }
+        ],
         skip=0,
     )
     assert session.messages[0]["content"] == [{"type": "text", "text": "[image]"}]
@@ -146,7 +156,7 @@ def test_restore_runtime_checkpoint_rehydrates_completed_and_pending_tools() -> 
                         "function": {"name": "exec", "arguments": "{}"},
                     }
                 ],
-            }
+            },
         },
     )
 
@@ -254,18 +264,22 @@ async def test_process_message_persists_user_message_before_turn_completes(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_process_message_does_not_duplicate_early_persisted_user_message(tmp_path: Path) -> None:
+async def test_process_message_does_not_duplicate_early_persisted_user_message(
+    tmp_path: Path,
+) -> None:
     loop = _make_full_loop(tmp_path)
-    loop._run_agent_loop = AsyncMock(return_value=(
-        "done",
-        [],
-        [
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "done"},
-        ],
-        "stop",
-    ))  # type: ignore[method-assign]
+    loop._run_agent_loop = AsyncMock(
+        return_value=(
+            "done",
+            [],
+            [
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "done"},
+            ],
+            "stop",
+        )
+    )  # type: ignore[method-assign]
 
     result = await loop._process_message(
         InboundMessage(channel="feishu", sender_id="u1", chat_id="c2", content="hello")
@@ -287,15 +301,17 @@ async def test_process_message_does_not_duplicate_early_persisted_user_message(t
 @pytest.mark.asyncio
 async def test_process_system_message_uses_origin_route_context(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
-    loop._run_agent_loop = AsyncMock(return_value=(
-        "background done",
-        [],
-        [
-            {"role": "system", "content": "system"},
-            {"role": "assistant", "content": "background done"},
-        ],
-        "stop",
-    ))  # type: ignore[method-assign]
+    loop._run_agent_loop = AsyncMock(
+        return_value=(
+            "background done",
+            [],
+            [
+                {"role": "system", "content": "system"},
+                {"role": "assistant", "content": "background done"},
+            ],
+            "stop",
+        )
+    )  # type: ignore[method-assign]
 
     result = await loop._process_message(
         InboundMessage(
@@ -361,7 +377,9 @@ async def test_process_system_subagent_persists_followup_without_prompt_duplicat
     assert user_messages == []
 
     session = loop.sessions.get_or_create("feishu:c-followup")
-    followups = [message for message in session.messages if message.get("subagent_task_id") == "task-1"]
+    followups = [
+        message for message in session.messages if message.get("subagent_task_id") == "task-1"
+    ]
     assert len(followups) == 1
     assert followups[0]["role"] == "assistant"
     assert followups[0]["injected_event"] == "subagent_result"
@@ -421,33 +439,39 @@ async def test_process_system_subagent_followup_dedupes_same_task_id(tmp_path: P
     assert len(assistant_messages) == 1
 
     session = loop.sessions.get_or_create("feishu:c-dedupe")
-    followups = [message for message in session.messages if message.get("subagent_task_id") == "task-1"]
+    followups = [
+        message for message in session.messages if message.get("subagent_task_id") == "task-1"
+    ]
     assert len(followups) == 1
 
 
 @pytest.mark.asyncio
-async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(tmp_path: Path) -> None:
+async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(
+    tmp_path: Path,
+) -> None:
     loop = _make_full_loop(tmp_path)
     session = loop.sessions.get_or_create("feishu:c3")
     session.add_message("user", "old question")
     session.metadata[AgentLoop._PENDING_USER_TURN_KEY] = True
     loop.sessions.save(session)
 
-    loop._run_agent_loop = AsyncMock(return_value=(
-        "new answer",
-        [],
-        [
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "old question"},
-            {
-                "role": "assistant",
-                "content": "Error: Task interrupted before a response was generated.",
-            },
-            {"role": "user", "content": "new question"},
-            {"role": "assistant", "content": "new answer"},
-        ],
-        "stop",
-    ))  # type: ignore[method-assign]
+    loop._run_agent_loop = AsyncMock(
+        return_value=(
+            "new answer",
+            [],
+            [
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "old question"},
+                {
+                    "role": "assistant",
+                    "content": "Error: Task interrupted before a response was generated.",
+                },
+                {"role": "user", "content": "new question"},
+                {"role": "assistant", "content": "new answer"},
+            ],
+            "stop",
+        )
+    )  # type: ignore[method-assign]
 
     result = await loop._process_message(
         InboundMessage(channel="feishu", sender_id="u1", chat_id="c3", content="new question")
@@ -461,7 +485,10 @@ async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(t
         for message in session.messages
     ] == [
         {"role": "user", "content": "old question"},
-        {"role": "assistant", "content": "Error: Task interrupted before a response was generated."},
+        {
+            "role": "assistant",
+            "content": "Error: Task interrupted before a response was generated.",
+        },
         {"role": "user", "content": "new question"},
         {"role": "assistant", "content": "new answer"},
     ]

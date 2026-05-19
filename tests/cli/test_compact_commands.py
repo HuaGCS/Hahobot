@@ -112,7 +112,9 @@ def test_sessions_compact_missing_session_returns_error(tmp_path: Path, monkeypa
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     config_path = _write_config(tmp_path / "config.json", workspace)
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: _FakeCompactProvider())
+    monkeypatch.setattr(
+        "hahobot.cli.commands._make_provider", lambda _config: _FakeCompactProvider()
+    )
 
     result = runner.invoke(
         app,

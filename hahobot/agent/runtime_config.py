@@ -173,9 +173,9 @@ class RuntimeConfigManager:
         self.configure_memory_router()
         self.apply_runtime_tool_config()
 
-        mcp_changed = self.loop._dump_mcp_servers(config.tools.mcp_servers) != self.loop._dump_mcp_servers(
-            self.loop._mcp_servers
-        )
+        mcp_changed = self.loop._dump_mcp_servers(
+            config.tools.mcp_servers
+        ) != self.loop._dump_mcp_servers(self.loop._mcp_servers)
         self.loop._mcp_runtime.update_runtime(
             workspace=self.loop.workspace,
             servers=config.tools.mcp_servers,

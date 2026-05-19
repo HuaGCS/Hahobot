@@ -21,8 +21,10 @@ def mock_prompt_session():
     """Mock the global prompt session."""
     mock_session = MagicMock()
     mock_session.prompt_async = AsyncMock()
-    with patch("hahobot.cli.commands._PROMPT_SESSION", mock_session), \
-         patch("hahobot.cli.commands.patch_stdout"):
+    with (
+        patch("hahobot.cli.commands._PROMPT_SESSION", mock_session),
+        patch("hahobot.cli.commands.patch_stdout"),
+    ):
         yield mock_session
 
 
@@ -299,7 +301,9 @@ def test_interactive_slash_completer_matches_dynamic_scene_names(tmp_path):
     manifest_dir = persona_dir / ".hahobot"
     manifest_dir.mkdir(parents=True)
     (manifest_dir / "st_manifest.json").write_text(
-        json.dumps({"scene_prompts": {"rainy_walk": "Umbrella, close walk, wet street reflections."}}),
+        json.dumps(
+            {"scene_prompts": {"rainy_walk": "Umbrella, close walk, wet street reflections."}}
+        ),
         encoding="utf-8",
     )
 
@@ -359,10 +363,11 @@ def test_init_prompt_session_creates_session():
     # Ensure global is None before test
     commands._PROMPT_SESSION = None
 
-    with patch("hahobot.cli.commands.PromptSession") as mock_session_cls, \
-         patch("hahobot.cli.commands.FileHistory"), \
-         patch("pathlib.Path.home") as mock_home:
-
+    with (
+        patch("hahobot.cli.commands.PromptSession") as mock_session_cls,
+        patch("hahobot.cli.commands.FileHistory"),
+        patch("pathlib.Path.home") as mock_home,
+    ):
         mock_home.return_value = MagicMock()
 
         commands._init_prompt_session()
@@ -402,7 +407,9 @@ def test_print_cli_progress_line_pauses_spinner_before_printing():
     mock_console = MagicMock()
     mock_console.status.return_value = spinner
 
-    with patch.object(commands.console, "print", side_effect=lambda *_args, **_kwargs: order.append("print")):
+    with patch.object(
+        commands.console, "print", side_effect=lambda *_args, **_kwargs: order.append("print")
+    ):
         thinking = stream_mod.ThinkingSpinner(console=mock_console)
         with thinking:
             commands._print_cli_progress_line("tool running", thinking)
@@ -432,11 +439,7 @@ async def test_print_interactive_progress_line_pauses_spinner_before_printing():
 
 
 def test_response_renderable_uses_text_for_explicit_plain_rendering():
-    status = (
-        "🐈 hahobot v0.1.4.post5\n"
-        "🧠 Model: MiniMax-M2.7\n"
-        "📊 Tokens: 20639 in / 29 out"
-    )
+    status = "🐈 hahobot v0.1.4.post5\n🧠 Model: MiniMax-M2.7\n📊 Tokens: 20639 in / 29 out"
 
     renderable = commands._response_renderable(
         status,

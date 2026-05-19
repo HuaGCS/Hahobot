@@ -85,21 +85,25 @@ class DispatchRuntimeManager:
             if total
             else text(language, "no_active_task")
         )
-        await self.loop.bus.publish_outbound(OutboundMessage(
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-            content=content,
-        ))
+        await self.loop.bus.publish_outbound(
+            OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=content,
+            )
+        )
 
     async def handle_restart(self, msg: InboundMessage) -> None:
         """Restart the process in-place via os.execv."""
         session = self.loop.sessions.get_or_create(msg.session_key)
         language = self.loop._get_session_language(session)
-        await self.loop.bus.publish_outbound(OutboundMessage(
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-            content=text(language, "restarting"),
-        ))
+        await self.loop.bus.publish_outbound(
+            OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=text(language, "restarting"),
+            )
+        )
 
         async def _do_restart() -> None:
             await asyncio.sleep(1)
@@ -149,12 +153,14 @@ class DispatchRuntimeManager:
                 if response is not None:
                     await self.loop.bus.publish_outbound(response)
                 elif msg.channel == "cli":
-                    await self.loop.bus.publish_outbound(OutboundMessage(
-                        channel=msg.channel,
-                        chat_id=msg.chat_id,
-                        content="",
-                        metadata=msg.metadata or {},
-                    ))
+                    await self.loop.bus.publish_outbound(
+                        OutboundMessage(
+                            channel=msg.channel,
+                            chat_id=msg.chat_id,
+                            content="",
+                            metadata=msg.metadata or {},
+                        )
+                    )
             except asyncio.CancelledError:
                 logger.info("Task cancelled for session {}", msg.session_key)
                 session = self.loop.sessions.get_or_create(msg.session_key)
@@ -165,28 +171,33 @@ class DispatchRuntimeManager:
                 raise
             except ExternalHookBridgeBlocked as exc:
                 logger.info("External hook blocked session {}: {}", msg.session_key, exc)
-                await self.loop.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel,
-                    chat_id=msg.chat_id,
-                    content=str(exc) or text(
-                        self.loop._get_session_language(
-                            self.loop.sessions.get_or_create(msg.session_key)
+                await self.loop.bus.publish_outbound(
+                    OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content=str(exc)
+                        or text(
+                            self.loop._get_session_language(
+                                self.loop.sessions.get_or_create(msg.session_key)
+                            ),
+                            "generic_error",
                         ),
-                        "generic_error",
-                    ),
-                ))
+                    )
+                )
             except Exception:
                 logger.exception("Error processing message for session {}", msg.session_key)
-                await self.loop.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel,
-                    chat_id=msg.chat_id,
-                    content=text(
-                        self.loop._get_session_language(
-                            self.loop.sessions.get_or_create(msg.session_key)
+                await self.loop.bus.publish_outbound(
+                    OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content=text(
+                            self.loop._get_session_language(
+                                self.loop.sessions.get_or_create(msg.session_key)
+                            ),
+                            "generic_error",
                         ),
-                        "generic_error",
-                    ),
-                ))
+                    )
+                )
 
     def track_background_task(self, task: asyncio.Task) -> asyncio.Task:
         """Track a background task until completion."""
@@ -214,12 +225,14 @@ class DispatchRuntimeManager:
             meta = dict(msg.metadata or {})
             meta["_stream_delta"] = True
             meta["_stream_id"] = _current_stream_id()
-            await self.loop.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                content=delta,
-                metadata=meta,
-            ))
+            await self.loop.bus.publish_outbound(
+                OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=delta,
+                    metadata=meta,
+                )
+            )
 
         async def on_stream_end(*, resuming: bool = False) -> None:
             nonlocal stream_segment
@@ -227,12 +240,14 @@ class DispatchRuntimeManager:
             meta["_stream_end"] = True
             meta["_resuming"] = resuming
             meta["_stream_id"] = _current_stream_id()
-            await self.loop.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                content="",
-                metadata=meta,
-            ))
+            await self.loop.bus.publish_outbound(
+                OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content="",
+                    metadata=meta,
+                )
+            )
             stream_segment += 1
 
         return on_stream, on_stream_end

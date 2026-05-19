@@ -183,7 +183,10 @@ class HistoryArchiveStore:
         archived_at = datetime.now().astimezone().isoformat()
         time_start, time_end = self._time_bounds(messages, fallback=archived_at)
         archive_id = self._build_archive_id(time_end, session_key)
-        summary = strip_private_text(history_entry).strip() or f"[{time_end[:16]}] Archived {len(messages)} messages."
+        summary = (
+            strip_private_text(history_entry).strip()
+            or f"[{time_end[:16]}] Archived {len(messages)} messages."
+        )
         normalized_messages = strip_private_messages(messages)
         tools = self._extract_tools(normalized_messages)
         files = self._extract_files(normalized_messages, summary)
@@ -279,7 +282,11 @@ class HistoryArchiveStore:
         since_dt = parse_datetime(since, end_of_day=False)
         until_dt = parse_datetime(until, end_of_day=True)
         file_query = file.strip().lower() if isinstance(file, str) and file.strip() else None
-        type_query = observation_type.strip().lower() if isinstance(observation_type, str) and observation_type.strip() else None
+        type_query = (
+            observation_type.strip().lower()
+            if isinstance(observation_type, str) and observation_type.strip()
+            else None
+        )
         ranked: list[tuple[int, datetime, dict[str, Any]]] = []
 
         for entry in entries:
@@ -536,7 +543,9 @@ class HistoryArchiveStore:
         messages: list[dict[str, Any]],
         source: str,
     ) -> str:
-        text = "\n".join([summary, *(content_to_text(msg.get("content")) for msg in messages)]).lower()
+        text = "\n".join(
+            [summary, *(content_to_text(msg.get("content")) for msg in messages)]
+        ).lower()
         if "error" in text or "failed" in text or "bug" in text or "fix" in text:
             return "bugfix"
         if "decision" in text or "decided" in text or "choose" in text:

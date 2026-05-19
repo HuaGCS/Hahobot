@@ -105,7 +105,9 @@ async def test_external_hook_bridge_blocks_on_continue_false(tmp_path: Path) -> 
 @pytest.mark.asyncio
 async def test_external_hook_bridge_fail_open_ignores_nonzero_exit(tmp_path: Path) -> None:
     hook = ExternalHookBridge(
-        _python_hook("import json, sys; json.load(sys.stdin); sys.stderr.write('boom'); raise SystemExit(1)")
+        _python_hook(
+            "import json, sys; json.load(sys.stdin); sys.stderr.write('boom'); raise SystemExit(1)"
+        )
     )
 
     await hook.before_iteration(_context(tmp_path))
@@ -114,7 +116,9 @@ async def test_external_hook_bridge_fail_open_ignores_nonzero_exit(tmp_path: Pat
 @pytest.mark.asyncio
 async def test_external_hook_bridge_fail_closed_raises_nonzero_exit(tmp_path: Path) -> None:
     hook = ExternalHookBridge(
-        _python_hook("import json, sys; json.load(sys.stdin); sys.stderr.write('boom'); raise SystemExit(1)"),
+        _python_hook(
+            "import json, sys; json.load(sys.stdin); sys.stderr.write('boom'); raise SystemExit(1)"
+        ),
         fail_open=False,
     )
 
@@ -150,11 +154,13 @@ async def test_external_hook_bridge_block_message_reaches_bus_clients(tmp_path: 
         )
     )
 
-    with patch("hahobot.agent.loop.ContextBuilder"), \
-         patch("hahobot.agent.loop.SessionManager"), \
-         patch("hahobot.agent.loop.SubagentManager") as mock_sub_mgr, \
-         patch("hahobot.agent.loop.Consolidator") as mock_consolidator, \
-         patch("hahobot.agent.loop.Dream"):
+    with (
+        patch("hahobot.agent.loop.ContextBuilder"),
+        patch("hahobot.agent.loop.SessionManager"),
+        patch("hahobot.agent.loop.SubagentManager") as mock_sub_mgr,
+        patch("hahobot.agent.loop.Consolidator") as mock_consolidator,
+        patch("hahobot.agent.loop.Dream"),
+    ):
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         mock_consolidator.return_value.maybe_consolidate_by_tokens = AsyncMock(return_value=None)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, hooks=[hook])
@@ -164,12 +170,14 @@ async def test_external_hook_bridge_block_message_reaches_bus_clients(tmp_path: 
 
     run_task = asyncio.create_task(loop.run())
     try:
-        await bus.publish_inbound(InboundMessage(
-            channel="cli",
-            sender_id="user",
-            chat_id="direct",
-            content="hi",
-        ))
+        await bus.publish_inbound(
+            InboundMessage(
+                channel="cli",
+                sender_id="user",
+                chat_id="direct",
+                content="hi",
+            )
+        )
         outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=2)
         assert outbound.content == "blocked by test"
     finally:

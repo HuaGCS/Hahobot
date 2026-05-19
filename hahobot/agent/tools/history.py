@@ -131,11 +131,11 @@ class HistorySearchTool(_HistoryTool):
 
         lines = [f'Archived history matches for "{query}":\n']
         for idx, entry in enumerate(results, 1):
-            lines.append(f'{idx}. ID: {entry.get("id", "")}')
+            lines.append(f"{idx}. ID: {entry.get('id', '')}")
             lines.append(
                 "   Session: "
-                f'{entry.get("sessionKey", "")} | '
-                f'{entry.get("timeStart", "")} -> {entry.get("timeEnd", "")}'
+                f"{entry.get('sessionKey', '')} | "
+                f"{entry.get('timeStart', '')} -> {entry.get('timeEnd', '')}"
             )
             summary = str(entry.get("summary", "")).strip()
             if summary:
@@ -181,7 +181,10 @@ class HistoryTimelineTool(_HistoryTool):
             "properties": {
                 "query": {"type": ["string", "null"], "description": "Optional text query."},
                 "file": {"type": ["string", "null"], "description": "Optional file/path filter."},
-                "anchor": {"type": ["string", "null"], "description": "Optional archive id to center on."},
+                "anchor": {
+                    "type": ["string", "null"],
+                    "description": "Optional archive id to center on.",
+                },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20},
             },
         }
@@ -206,7 +209,9 @@ class HistoryTimelineTool(_HistoryTool):
         search_query = query or file or ""
         if anchor_entry and not search_query:
             concepts = anchor_entry.get("concepts") or anchor_entry.get("keywords") or []
-            search_query = " ".join(str(item) for item in concepts[:3]) or str(anchor_entry.get("title", ""))
+            search_query = " ".join(str(item) for item in concepts[:3]) or str(
+                anchor_entry.get("title", "")
+            )
 
         entries = store.search(
             query=search_query,
@@ -216,7 +221,9 @@ class HistoryTimelineTool(_HistoryTool):
         )
         if anchor_entry and all(entry.get("id") != anchor_entry.get("id") for entry in entries):
             entries = [anchor_entry, *entries]
-        entries = sorted(entries[: max(1, min(limit, 20))], key=lambda item: str(item.get("timeEnd", "")))
+        entries = sorted(
+            entries[: max(1, min(limit, 20))], key=lambda item: str(item.get("timeEnd", ""))
+        )
         if not entries:
             return "No archived history timeline entries found."
 
@@ -225,8 +232,8 @@ class HistoryTimelineTool(_HistoryTool):
             marker = "*" if anchor and entry.get("id") == anchor else "-"
             title = str(entry.get("title") or entry.get("summary") or "(untitled)").strip()
             lines.append(
-                f'{marker} {entry.get("timeEnd", "")} | {entry.get("observationType", "conversation")} | '
-                f'{title[:120]} | id={entry.get("id", "")} '
+                f"{marker} {entry.get('timeEnd', '')} | {entry.get('observationType', 'conversation')} | "
+                f"{title[:120]} | id={entry.get('id', '')} "
             )
             files = [str(item) for item in entry.get("files") or [] if str(item).strip()]
             if files:
@@ -282,7 +289,7 @@ class HistoryExpandTool(_HistoryTool):
         if record is None:
             return f'Error: Archived history id not found: "{id}"'
         if isinstance(record, dict) and record.get("error"):
-            return f'Error: {record["error"]}'
+            return f"Error: {record['error']}"
 
         entry = record.get("entry") if isinstance(record, dict) else None
         messages = record.get("messages") if isinstance(record, dict) else None
@@ -292,8 +299,8 @@ class HistoryExpandTool(_HistoryTool):
         selected, omitted = self._select_messages(messages, max_messages)
         lines = [f'Archived transcript for "{id}":']
         lines.append(
-            f'Session: {entry.get("sessionKey", "")} | '
-            f'{entry.get("timeStart", "")} -> {entry.get("timeEnd", "")}'
+            f"Session: {entry.get('sessionKey', '')} | "
+            f"{entry.get('timeStart', '')} -> {entry.get('timeEnd', '')}"
         )
         summary = str(entry.get("summary", "")).strip()
         if summary:

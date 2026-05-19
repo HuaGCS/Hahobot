@@ -27,9 +27,7 @@ def _messages() -> list[dict]:
             "role": "assistant",
             "content": "I will inspect /status and providerPool handling first.",
             "timestamp": "2026-03-30T12:00:05",
-            "tool_calls": [
-                {"id": "call_1", "type": "function", "function": {"name": "read_file"}}
-            ],
+            "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file"}}],
         },
         {
             "role": "tool",
@@ -47,9 +45,7 @@ def _messages() -> list[dict]:
 
 def _read_jsonl(path: Path) -> list[dict]:
     return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 
@@ -189,7 +185,9 @@ async def test_history_search_filters_by_file_and_timeline(tmp_path: Path) -> No
     )
     store.write_archive(
         session_key="cli:direct",
-        messages=[{"role": "user", "content": "Discuss README.md", "timestamp": "2026-03-30T13:00:00"}],
+        messages=[
+            {"role": "user", "content": "Discuss README.md", "timestamp": "2026-03-30T13:00:00"}
+        ],
         history_entry="[2026-03-30 13:00] Updated README.md docs.",
         source="token_consolidation",
     )

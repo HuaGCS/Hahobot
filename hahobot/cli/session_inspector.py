@@ -240,7 +240,7 @@ def load_session_detail(
         return None
 
     session = manager.get_or_create(key)
-    selected_messages = session.messages[-max(limit, 0):] if limit >= 0 else list(session.messages)
+    selected_messages = session.messages[-max(limit, 0) :] if limit >= 0 else list(session.messages)
     detail_messages = tuple(
         SessionMessageSummary(
             role=str(message.get("role") or "unknown"),
@@ -267,9 +267,7 @@ def load_session_detail(
         message_count=len(session.messages),
         persona=session.metadata.get("persona"),
         metadata=dict(session.metadata),
-        working_checkpoint=normalize_working_checkpoint(
-            session.metadata.get("working_checkpoint")
-        ),
+        working_checkpoint=normalize_working_checkpoint(session.metadata.get("working_checkpoint")),
         internal=is_internal_session_key(key),
         shown_limit=max(limit, 0),
         messages=detail_messages,

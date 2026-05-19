@@ -61,7 +61,9 @@ class _FakeDiscordClient:
 
 class _FakeAttachment:
     # Attachment double that can simulate successful or failing save() calls.
-    def __init__(self, attachment_id: int, filename: str, *, size: int = 1, fail: bool = False) -> None:
+    def __init__(
+        self, attachment_id: int, filename: str, *, size: int = 1, fail: bool = False
+    ) -> None:
         self.id = attachment_id
         self.filename = filename
         self.size = size
@@ -522,9 +524,7 @@ async def test_slash_new_forwards_when_user_is_allowlisted() -> None:
     assert new_cmd is not None
     await new_cmd.callback(interaction)
 
-    assert interaction.response.messages == [
-        {"content": "Processing /new...", "ephemeral": True}
-    ]
+    assert interaction.response.messages == [{"content": "Processing /new...", "ephemeral": True}]
     assert len(handled) == 1
     assert handled[0]["content"] == "/new"
     assert handled[0]["sender_id"] == "123"
@@ -598,9 +598,7 @@ async def test_slash_help_returns_ephemeral_help_text() -> None:
     assert help_cmd is not None
     await help_cmd.callback(interaction)
 
-    assert interaction.response.messages == [
-        {"content": build_help_text(), "ephemeral": True}
-    ]
+    assert interaction.response.messages == [{"content": build_help_text(), "ephemeral": True}]
     assert handled == []
 
 
@@ -735,11 +733,13 @@ async def test_start_typing_uses_typing_context_when_trigger_typing_missing() ->
         def typing(self):
             async def _waiter():
                 await release.wait()
+
             # Hold the loop so task remains active until explicitly stopped.
             class _Ctx(_TypingCtx):
                 async def __aenter__(self):
                     await super().__aenter__()
                     await _waiter()
+
             return _Ctx()
 
     typing_channel = _NoTriggerChannel(channel_id=123)

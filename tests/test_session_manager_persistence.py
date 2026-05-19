@@ -13,9 +13,7 @@ from hahobot.session.manager import SessionManager
 
 def _read_jsonl(path: Path) -> list[dict]:
     return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 
@@ -105,7 +103,9 @@ def test_list_sessions_uses_file_mtime_for_append_only_updates(tmp_path: Path) -
     assert after > before
 
 
-def test_full_rewrite_is_atomic_when_write_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_full_rewrite_is_atomic_when_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     manager = SessionManager(tmp_path)
     session = manager.get_or_create("qq:test")
     session.add_message("user", "hello")

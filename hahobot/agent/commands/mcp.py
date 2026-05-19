@@ -51,9 +51,7 @@ class MCPCommandHandler:
 
         grouped_tools = self._group_mcp_tool_names()
         tool_lines = "\n".join(
-            f"- {server}: {', '.join(tools)}"
-            for server, tools in grouped_tools.items()
-            if tools
+            f"- {server}: {', '.join(tools)}" for server, tools in grouped_tools.items() if tools
         )
         sections.append(
             text(language, "mcp_tools_list", items=tool_lines)

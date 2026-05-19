@@ -77,9 +77,7 @@ def render_session_compact_text(report: SessionCompactReport) -> str:
                 f"{report.estimate_source_before or 'n/a'} -> {report.estimate_source_after or 'n/a'}"
             )
     if report.budget_tokens is not None and report.target_tokens is not None:
-        lines.append(
-            f"Budget: {report.budget_tokens} tokens (target <= {report.target_tokens})"
-        )
+        lines.append(f"Budget: {report.budget_tokens} tokens (target <= {report.target_tokens})")
     lines.append(f"Result: {_status_message(report.status)}")
     return "\n".join(lines)
 

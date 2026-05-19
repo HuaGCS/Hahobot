@@ -90,7 +90,9 @@ class SelfInspectTool(Tool):
             "key": session.key,
             "channel": self._channel,
             "chat_id": self._chat_id,
-            "persona": self._loop._get_session_persona(session) if self._persona is None else self._persona,
+            "persona": self._loop._get_session_persona(session)
+            if self._persona is None
+            else self._persona,
             "language": self._loop._get_session_language(session),
             "message_count": len(session.messages),
             "live_message_count": len(session.get_history(max_messages=0)),
@@ -137,7 +139,6 @@ class SelfInspectTool(Tool):
             target = snapshot.get(section)
             if target is None:
                 return (
-                    "Error: Unknown section. "
-                    "Use one of: all, runtime, session, tools, subagents."
+                    "Error: Unknown section. Use one of: all, runtime, session, tools, subagents."
                 )
         return json.dumps(target, ensure_ascii=False, indent=2, sort_keys=True)

@@ -62,18 +62,20 @@ async def test_decide_returns_skip_when_no_tool_call(tmp_path) -> None:
 async def test_trigger_now_executes_when_decision_is_run(tmp_path) -> None:
     (tmp_path / "HEARTBEAT.md").write_text("- [ ] do thing", encoding="utf-8")
 
-    provider = DummyProvider([
-        LLMResponse(
-            content="",
-            tool_calls=[
-                ToolCallRequest(
-                    id="hb_1",
-                    name="heartbeat",
-                    arguments={"action": "run", "tasks": "check open tasks"},
-                )
-            ],
-        )
-    ])
+    provider = DummyProvider(
+        [
+            LLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="hb_1",
+                        name="heartbeat",
+                        arguments={"action": "run", "tasks": "check open tasks"},
+                    )
+                ],
+            )
+        ]
+    )
 
     called_with: list[str] = []
 
@@ -97,18 +99,20 @@ async def test_trigger_now_executes_when_decision_is_run(tmp_path) -> None:
 async def test_trigger_now_returns_none_when_decision_is_skip(tmp_path) -> None:
     (tmp_path / "HEARTBEAT.md").write_text("- [ ] do thing", encoding="utf-8")
 
-    provider = DummyProvider([
-        LLMResponse(
-            content="",
-            tool_calls=[
-                ToolCallRequest(
-                    id="hb_1",
-                    name="heartbeat",
-                    arguments={"action": "skip"},
-                )
-            ],
-        )
-    ])
+    provider = DummyProvider(
+        [
+            LLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="hb_1",
+                        name="heartbeat",
+                        arguments={"action": "skip"},
+                    )
+                ],
+            )
+        ]
+    )
 
     async def _on_execute(tasks: str) -> str:
         return tasks
@@ -125,19 +129,21 @@ async def test_trigger_now_returns_none_when_decision_is_skip(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_decide_retries_transient_error_then_succeeds(tmp_path, monkeypatch) -> None:
-    provider = DummyProvider([
-        LLMResponse(content="429 rate limit", finish_reason="error"),
-        LLMResponse(
-            content="",
-            tool_calls=[
-                ToolCallRequest(
-                    id="hb_1",
-                    name="heartbeat",
-                    arguments={"action": "run", "tasks": "check open tasks"},
-                )
-            ],
-        ),
-    ])
+    provider = DummyProvider(
+        [
+            LLMResponse(content="429 rate limit", finish_reason="error"),
+            LLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="hb_1",
+                        name="heartbeat",
+                        arguments={"action": "run", "tasks": "check open tasks"},
+                    )
+                ],
+            ),
+        ]
+    )
 
     delays: list[int] = []
 
@@ -174,7 +180,8 @@ async def test_decide_prompt_includes_current_time(tmp_path) -> None:
                 content="",
                 tool_calls=[
                     ToolCallRequest(
-                        id="hb_1", name="heartbeat",
+                        id="hb_1",
+                        name="heartbeat",
                         arguments={"action": "skip"},
                     )
                 ],
@@ -200,18 +207,20 @@ async def test_decide_prompt_includes_current_time(tmp_path) -> None:
 async def test_tick_updates_status_snapshot_when_skipping(tmp_path) -> None:
     (tmp_path / "HEARTBEAT.md").write_text("- [ ] check inbox", encoding="utf-8")
 
-    provider = DummyProvider([
-        LLMResponse(
-            content="",
-            tool_calls=[
-                ToolCallRequest(
-                    id="hb_1",
-                    name="heartbeat",
-                    arguments={"action": "skip"},
-                )
-            ],
-        )
-    ])
+    provider = DummyProvider(
+        [
+            LLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="hb_1",
+                        name="heartbeat",
+                        arguments={"action": "skip"},
+                    )
+                ],
+            )
+        ]
+    )
 
     service = HeartbeatService(
         workspace=tmp_path,

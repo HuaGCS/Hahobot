@@ -503,7 +503,7 @@ def test_channel_manager_registers_mixed_single_and_multi_instance_channels(
                         },
                     ],
                 },
-            }
+            },
         }
     )
 
@@ -537,9 +537,7 @@ def test_channel_manager_skips_empty_multi_instance_channel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_registry(monkeypatch, ["telegram"])
-    config = Config.model_validate(
-        {"channels": {"telegram": {"enabled": True, "instances": []}}}
-    )
+    config = Config.model_validate({"channels": {"telegram": {"enabled": True, "instances": []}}})
 
     manager = ChannelManager(config, MessageBus())
 

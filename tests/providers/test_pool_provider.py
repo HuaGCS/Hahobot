@@ -67,8 +67,12 @@ async def test_pool_failover_uses_next_provider_after_error() -> None:
 
 @pytest.mark.asyncio
 async def test_pool_round_robin_rotates_starting_provider() -> None:
-    first = ScriptedProvider([LLMResponse(content="first turn"), LLMResponse(content="fallback turn")])
-    second = ScriptedProvider([LLMResponse(content="second turn"), LLMResponse(content="fourth turn")])
+    first = ScriptedProvider(
+        [LLMResponse(content="first turn"), LLMResponse(content="fallback turn")]
+    )
+    second = ScriptedProvider(
+        [LLMResponse(content="second turn"), LLMResponse(content="fourth turn")]
+    )
     pool = ProviderPoolProvider(
         [
             ProviderPoolEntry(name="openrouter", provider=first),

@@ -138,7 +138,11 @@ class MemoryStore:
         self._git = GitStore(
             workspace,
             tracked_files=[
-                "SOUL.md", "USER.md", "PROFILE.md", "INSIGHTS.md", "memory/MEMORY.md",
+                "SOUL.md",
+                "USER.md",
+                "PROFILE.md",
+                "INSIGHTS.md",
+                "memory/MEMORY.md",
             ],
             seed_missing_files=False,
         )
@@ -211,15 +215,17 @@ class MemoryStore:
             match = self._LEGACY_TIMESTAMP_RE.match(chunk)
             if match:
                 timestamp = match.group(1)
-                remainder = chunk[match.end():].lstrip()
+                remainder = chunk[match.end() :].lstrip()
                 if remainder:
                     content = remainder
 
-            entries.append({
-                "cursor": cursor,
-                "timestamp": timestamp,
-                "content": content,
-            })
+            entries.append(
+                {
+                    "cursor": cursor,
+                    "timestamp": timestamp,
+                    "content": content,
+                }
+            )
         return entries
 
     def _split_legacy_history_chunks(self, text: str) -> list[str]:
@@ -260,7 +266,7 @@ class MemoryStore:
         match = self._LEGACY_TIMESTAMP_RE.match(first_nonempty)
         if not match:
             return False
-        return first_nonempty[match.end():].lstrip().startswith("[RAW]")
+        return first_nonempty[match.end() :].lstrip().startswith("[RAW]")
 
     def _legacy_fallback_timestamp(self) -> str:
         try:
@@ -299,7 +305,8 @@ class MemoryStore:
         if len(fragment) > max_chars:
             logger.warning(
                 "Memory append fragment exceeded {} chars ({}); truncating",
-                max_chars, len(fragment),
+                max_chars,
+                len(fragment),
             )
             fragment = truncate_text(fragment, max_chars)
         current = self.read_memory().rstrip()
@@ -398,7 +405,7 @@ class MemoryStore:
         entries = self._read_entries()
         if len(entries) <= self.max_history_entries:
             return
-        kept = entries[-self.max_history_entries:]
+        kept = entries[-self.max_history_entries :]
         self._write_entries(kept)
 
     # -- JSONL helpers -------------------------------------------------------
@@ -464,7 +471,9 @@ class MemoryStore:
         for message in messages:
             if not message.get("content"):
                 continue
-            tools = f" [tools: {', '.join(message['tools_used'])}]" if message.get("tools_used") else ""
+            tools = (
+                f" [tools: {', '.join(message['tools_used'])}]" if message.get("tools_used") else ""
+            )
             lines.append(
                 f"[{message.get('timestamp', '?')[:16]}] {message['role'].upper()}{tools}: {message['content']}"
             )
@@ -496,7 +505,10 @@ there is nothing new. Do not restate or rewrite existing memory.
 {self._format_messages(messages)}"""
 
         chat_messages = [
-            {"role": "system", "content": "You are a memory consolidation agent. Call the save_memory tool with your consolidation of the conversation."},
+            {
+                "role": "system",
+                "content": "You are a memory consolidation agent. Call the save_memory tool with your consolidation of the conversation.",
+            },
             {"role": "user", "content": prompt},
         ]
 
@@ -509,9 +521,7 @@ there is nothing new. Do not restate or rewrite existing memory.
                 tool_choice=forced,
             )
 
-            if response.finish_reason == "error" and _is_tool_choice_unsupported(
-                response.content
-            ):
+            if response.finish_reason == "error" and _is_tool_choice_unsupported(response.content):
                 logger.warning("Forced tool_choice unsupported, retrying with auto")
                 response = await provider.chat_with_retry(
                     messages=chat_messages,
@@ -595,10 +605,7 @@ there is nothing new. Do not restate or rewrite existing memory.
         """Fallback: dump raw messages to HISTORY.md without LLM summarization."""
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
         formatted = truncate_text(self._format_messages(messages), _RAW_ARCHIVE_MAX_CHARS)
-        entry = (
-            f"[{ts}] [RAW] {len(messages)} messages\n"
-            f"{formatted}"
-        )
+        entry = f"[{ts}] [RAW] {len(messages)} messages\n{formatted}"
         self.append_history(entry)
         if on_archive is not None:
             try:
@@ -611,14 +618,11 @@ there is nothing new. Do not restate or rewrite existing memory.
                 )
             except Exception:
                 logger.exception("History archive callback failed after raw archive fallback")
-        logger.warning(
-            "Memory consolidation degraded: raw-archived {} messages", len(messages)
-        )
+        logger.warning("Memory consolidation degraded: raw-archived {} messages", len(messages))
 
     def raw_archive(self, messages: list[dict]) -> None:
         """Backward-compatible raw archive entry point."""
         self._raw_archive(messages)
-
 
 
 # ---------------------------------------------------------------------------
@@ -666,7 +670,9 @@ class Consolidator:
 
     def _get_persona(self, session: Session) -> str:
         """Resolve the active persona for a session."""
-        return resolve_persona_name(self.workspace, session.metadata.get("persona")) or DEFAULT_PERSONA
+        return (
+            resolve_persona_name(self.workspace, session.metadata.get("persona")) or DEFAULT_PERSONA
+        )
 
     def _get_language(self, session: Session) -> str:
         """Resolve the active language for a session."""
@@ -688,7 +694,9 @@ class Consolidator:
         """Return the structured archive store for the active persona."""
         persona = self._get_persona(session) if session is not None else DEFAULT_PERSONA
         store_root = persona_workspace(self.workspace, persona)
-        return self._archive_stores.setdefault(store_root, HistoryArchiveStore(self.workspace, persona))
+        return self._archive_stores.setdefault(
+            store_root, HistoryArchiveStore(self.workspace, persona)
+        )
 
     def rebind_runtime(self, *, workspace: Path, sessions: SessionManager) -> None:
         """Update workspace/session bindings after a runtime workspace switch."""
@@ -763,7 +771,7 @@ class Consolidator:
     def estimate_session_prompt_tokens(self, session: Session) -> tuple[int, str]:
         """Estimate current prompt size for the normal session history view."""
         history = session.get_history(max_messages=0, include_timestamps=True)
-        channel, chat_id = (session.key.split(":", 1) if ":" in session.key else (None, None))
+        channel, chat_id = session.key.split(":", 1) if ":" in session.key else (None, None)
         probe_messages = self._build_messages(
             history=history,
             current_message="[token-probe]",
@@ -852,7 +860,7 @@ class Consolidator:
         """Archive the full unconsolidated tail for persona switch and similar rollover flows."""
         lock = self.get_lock(session.key)
         async with lock:
-            snapshot = session.messages[session.last_consolidated:]
+            snapshot = session.messages[session.last_consolidated :]
             if not snapshot:
                 return True
             return await self._archive_messages_locked(
@@ -906,7 +914,7 @@ class Consolidator:
                     return
 
                 end_idx = boundary[0]
-                chunk = session.messages[session.last_consolidated:end_idx]
+                chunk = session.messages[session.last_consolidated : end_idx]
                 if not chunk:
                     return
 
@@ -997,13 +1005,14 @@ class Dream:
         batch = entries[: self.max_batch_size]
         logger.info(
             "Dream: processing {} entries (cursor {}→{}), batch={}",
-            len(entries), last_cursor, batch[-1]["cursor"], len(batch),
+            len(entries),
+            last_cursor,
+            batch[-1]["cursor"],
+            len(batch),
         )
 
         # Build history text for LLM
-        history_text = "\n".join(
-            f"[{e['timestamp']}] {e['content']}" for e in batch
-        )
+        history_text = "\n".join(f"[{e['timestamp']}] {e['content']}" for e in batch)
 
         # Current file contents
         current_date = datetime.now().strftime("%Y-%m-%d")
@@ -1030,9 +1039,7 @@ class Dream:
         )
 
         # Phase 1: Analyze
-        phase1_prompt = (
-            f"## Conversation History\n{history_text}\n\n{file_context}"
-        )
+        phase1_prompt = f"## Conversation History\n{history_text}\n\n{file_context}"
 
         try:
             phase1_response = await self.provider.chat_with_retry(
@@ -1066,20 +1073,28 @@ class Dream:
         ]
 
         try:
-            result = await self._runner.run(AgentRunSpec(
-                initial_messages=messages,
-                tools=tools,
-                model=self.model,
-                max_iterations=self.max_iterations,
-                max_tool_result_chars=self.max_tool_result_chars,
-                fail_on_tool_error=False,
-            ))
+            result = await self._runner.run(
+                AgentRunSpec(
+                    initial_messages=messages,
+                    tools=tools,
+                    model=self.model,
+                    max_iterations=self.max_iterations,
+                    max_tool_result_chars=self.max_tool_result_chars,
+                    fail_on_tool_error=False,
+                )
+            )
             logger.debug(
                 "Dream Phase 2 complete: stop_reason={}, tool_events={}",
-                result.stop_reason, len(result.tool_events),
+                result.stop_reason,
+                len(result.tool_events),
             )
-            for ev in (result.tool_events or []):
-                logger.info("Dream tool_event: name={}, status={}, detail={}", ev.get("name"), ev.get("status"), ev.get("detail", "")[:200])
+            for ev in result.tool_events or []:
+                logger.info(
+                    "Dream tool_event: name={}, status={}, detail={}",
+                    ev.get("name"),
+                    ev.get("status"),
+                    ev.get("detail", "")[:200],
+                )
         except Exception:
             logger.exception("Dream Phase 2 failed")
             result = None
@@ -1099,13 +1114,15 @@ class Dream:
         if result and result.stop_reason == "completed":
             logger.info(
                 "Dream done: {} change(s), cursor advanced to {}",
-                len(changelog), new_cursor,
+                len(changelog),
+                new_cursor,
             )
         else:
             reason = result.stop_reason if result else "exception"
             logger.warning(
                 "Dream incomplete ({}): cursor advanced to {}",
-                reason, new_cursor,
+                reason,
+                new_cursor,
             )
 
         # Git auto-commit (only when there are actual changes)

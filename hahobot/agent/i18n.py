@@ -26,6 +26,7 @@ _LANGUAGE_ALIASES = {
     "中文": "zh",
 }
 
+
 @lru_cache(maxsize=len(SUPPORTED_LANGUAGES))
 def _load_locale(language: str) -> dict[str, Any]:
     """Load one locale file from packaged JSON resources."""

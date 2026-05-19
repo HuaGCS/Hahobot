@@ -80,7 +80,9 @@ class TurnRuntimeManager:
             message_id=msg.metadata.get("message_id"),
             persona=turn.state.persona,
         )
-        persisted_messages = self.loop._save_turn(turn.state.session, all_msgs, 1 + len(turn.history))
+        persisted_messages = self.loop._save_turn(
+            turn.state.session, all_msgs, 1 + len(turn.history)
+        )
         self._record_turn_skill_usage(all_msgs, stop_reason)
         self.loop.sessions.save(turn.state.session)
         await self.loop._commit_memory_turn(
@@ -194,11 +196,13 @@ class TurnRuntimeManager:
 
         from datetime import datetime
 
-        session.messages.append({
-            "role": "user",
-            "content": msg.content,
-            "timestamp": datetime.now().isoformat(),
-        })
+        session.messages.append(
+            {
+                "role": "user",
+                "content": msg.content,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
         self.loop._mark_pending_user_turn(session)
         self.loop.sessions.save(session)
         return True
@@ -236,12 +240,14 @@ class TurnRuntimeManager:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
-            await self.loop.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                content=content,
-                metadata=meta,
-            ))
+            await self.loop.bus.publish_outbound(
+                OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=content,
+                    metadata=meta,
+                )
+            )
 
         return _bus_progress
 
@@ -306,7 +312,8 @@ class TurnRuntimeManager:
             loader.record_skill_usage_batch(
                 used_names,
                 used_on=datetime.now(tz=UTC).date().isoformat(),
-                success=stop_reason not in {"error", "tool_error", "empty_final_response", "max_iterations"},
+                success=stop_reason
+                not in {"error", "tool_error", "empty_final_response", "max_iterations"},
             )
         except Exception:
             logger.exception("Skill usage writeback failed")

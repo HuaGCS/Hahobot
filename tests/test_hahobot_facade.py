@@ -38,8 +38,10 @@ def test_from_config_creates_instance(tmp_path):
 def test_from_config_default_path():
     from hahobot.config.schema import Config
 
-    with patch("hahobot.config.loader.load_config") as mock_load, \
-         patch("hahobot.hahobot._make_provider") as mock_prov:
+    with (
+        patch("hahobot.config.loader.load_config") as mock_load,
+        patch("hahobot.hahobot._make_provider") as mock_prov,
+    ):
         mock_load.return_value = Config()
         mock_prov.return_value = MagicMock()
         mock_prov.return_value.get_default_model.return_value = "test"
@@ -55,9 +57,7 @@ async def test_run_returns_result(tmp_path):
 
     from hahobot.bus.events import OutboundMessage
 
-    mock_response = OutboundMessage(
-        channel="cli", chat_id="direct", content="Hello back!"
-    )
+    mock_response = OutboundMessage(channel="cli", chat_id="direct", content="Hello back!")
     bot._loop.process_direct = AsyncMock(return_value=mock_response)
 
     result = await bot.run("hi")
@@ -79,9 +79,7 @@ async def test_run_with_hooks(tmp_path):
         async def before_iteration(self, context: AgentHookContext) -> None:
             pass
 
-    mock_response = OutboundMessage(
-        channel="cli", chat_id="direct", content="done"
-    )
+    mock_response = OutboundMessage(channel="cli", chat_id="direct", content="done")
     bot._loop.process_direct = AsyncMock(return_value=mock_response)
 
     result = await bot.run("hi", hooks=[TestHook()])
@@ -153,9 +151,7 @@ async def test_run_custom_session_key(tmp_path):
     config_path = _write_config(tmp_path)
     bot = Hahobot.from_config(config_path, workspace=tmp_path)
 
-    mock_response = OutboundMessage(
-        channel="cli", chat_id="direct", content="ok"
-    )
+    mock_response = OutboundMessage(channel="cli", chat_id="direct", content="ok")
     bot._loop.process_direct = AsyncMock(return_value=mock_response)
 
     await bot.run("hi", session_key="user-alice")

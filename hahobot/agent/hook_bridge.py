@@ -14,13 +14,15 @@ from loguru import logger
 from hahobot.agent.hook import AgentHook, AgentHookContext
 from hahobot.providers.base import LLMResponse, ToolCallRequest
 
-_ASYNC_EVENTS = frozenset({
-    "before_iteration",
-    "on_stream",
-    "on_stream_end",
-    "before_execute_tools",
-    "after_iteration",
-})
+_ASYNC_EVENTS = frozenset(
+    {
+        "before_iteration",
+        "on_stream",
+        "on_stream_end",
+        "before_execute_tools",
+        "after_iteration",
+    }
+)
 _BLOCKABLE_EVENTS = frozenset({"before_iteration", "before_execute_tools"})
 _DEFAULT_EVENTS = ("before_iteration", "before_execute_tools", "after_iteration")
 _STREAM_EVENTS = frozenset({"on_stream", "on_stream_end"})

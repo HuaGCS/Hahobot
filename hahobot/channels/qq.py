@@ -382,9 +382,7 @@ class QQChannel(BaseChannel):
                             media_path,
                             publish_error,
                         )
-                        fallback_lines.append(
-                            self._failed_media_notice(media_path, publish_error)
-                        )
+                        fallback_lines.append(self._failed_media_notice(media_path, publish_error))
                         continue
                 else:
                     ok, error = await validate_url_target(media_path)
@@ -477,9 +475,15 @@ class QQChannel(BaseChannel):
             attachments = getattr(data, "attachments", None) or []
             media_paths, recv_lines, att_meta = await self._handle_attachments(attachments)
             if recv_lines:
-                tag = "[Image]" if any(_is_image_name(Path(p).name) for p in media_paths) else "[File]"
+                tag = (
+                    "[Image]"
+                    if any(_is_image_name(Path(p).name) for p in media_paths)
+                    else "[File]"
+                )
                 file_block = "Received files:\n" + "\n".join(recv_lines)
-                content = f"{content}\n\n{file_block}".strip() if content else f"{tag}\n{file_block}"
+                content = (
+                    f"{content}\n\n{file_block}".strip() if content else f"{tag}\n{file_block}"
+                )
 
             if not content and not media_paths:
                 return
@@ -497,7 +501,9 @@ class QQChannel(BaseChannel):
         except Exception:
             logger.exception("Error handling QQ message")
 
-    async def _handle_attachments(self, attachments: list[Any]) -> tuple[list[str], list[str], list[dict[str, Any]]]:
+    async def _handle_attachments(
+        self, attachments: list[Any]
+    ) -> tuple[list[str], list[str], list[dict[str, Any]]]:
         """Extract, download, and format QQ attachments for downstream tools."""
         media_paths: list[str] = []
         recv_lines: list[str] = []

@@ -81,7 +81,9 @@ class RuntimeToolPolicy:
             tool_name="web",
             enabled=True,
             status="ok" if not issues else "warn",
-            summary="Web tools are ready." if not issues else "Web tools are enabled with incomplete search settings.",
+            summary="Web tools are ready."
+            if not issues
+            else "Web tools are enabled with incomplete search settings.",
             detail=" ".join(detail_parts),
             issues=tuple(issues),
         )
@@ -114,7 +116,9 @@ class RuntimeToolPolicy:
             tool_name="exec",
             enabled=True,
             status="ok" if not issues else "warn",
-            summary="Exec tool is ready." if not issues else "Exec tool is enabled but sandbox prerequisites are missing.",
+            summary="Exec tool is ready."
+            if not issues
+            else "Exec tool is enabled but sandbox prerequisites are missing.",
             detail=" ".join(detail_parts),
             issues=tuple(issues),
         )

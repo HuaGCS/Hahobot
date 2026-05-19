@@ -12,11 +12,14 @@ from hahobot.config.schema import Config
 
 def _fake_resolve(host: str, results: list[str]):
     """Return a getaddrinfo mock that maps the given host to fake IP results."""
+
     def _resolver(hostname, port, family=0, type_=0):
         if hostname == host:
             return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (ip, 0)) for ip in results]
         raise socket.gaierror(f"cannot resolve {hostname}")
+
     return _resolver
+
 
 runner = CliRunner()
 
@@ -111,9 +114,7 @@ def test_load_config_auto_corrects_compat_keys_in_place(tmp_path) -> None:
     assert "restrictToWorkspace" not in saved["tools"]["exec"]
 
 
-def test_load_config_copies_default_nanobot_config_to_hahobot_path(
-    tmp_path, monkeypatch
-) -> None:
+def test_load_config_copies_default_nanobot_config_to_hahobot_path(tmp_path, monkeypatch) -> None:
     import hahobot.config.loader as loader_mod
 
     hahobot_home = tmp_path / ".hahobot"
@@ -185,12 +186,14 @@ def test_load_config_prefers_existing_hahobot_config_over_nanobot_default(
 
     assert config._config_path == hahobot_path.resolve(strict=False)
     assert config.providers.openrouter.api_key == "sk-hahobot"
-    assert json.loads(hahobot_path.read_text(encoding="utf-8"))["providers"]["openrouter"][
-        "apiKey"
-    ] == "sk-hahobot"
-    assert json.loads(nanobot_path.read_text(encoding="utf-8"))["providers"]["openrouter"][
-        "apiKey"
-    ] == "sk-legacy"
+    assert (
+        json.loads(hahobot_path.read_text(encoding="utf-8"))["providers"]["openrouter"]["apiKey"]
+        == "sk-hahobot"
+    )
+    assert (
+        json.loads(nanobot_path.read_text(encoding="utf-8"))["providers"]["openrouter"]["apiKey"]
+        == "sk-legacy"
+    )
 
 
 def test_save_config_persists_memory_shadow_write_settings(tmp_path) -> None:
@@ -253,7 +256,7 @@ def test_load_config_parses_mem0_runtime_provider_api_fields(tmp_path) -> None:
                                 "headers": {"api-key": "qdrant-key"},
                                 "config": {"collectionName": "hahobot_user_memory"},
                             },
-                        }
+                        },
                     }
                 }
             }
@@ -272,9 +275,7 @@ def test_load_config_parses_mem0_runtime_provider_api_fields(tmp_path) -> None:
     assert config.memory.user.mem0.embedder.model == "text-embedding-3-small"
     assert config.memory.user.mem0.vector_store.url == "https://qdrant.example.com"
     assert config.memory.user.mem0.vector_store.headers == {"api-key": "qdrant-key"}
-    assert config.memory.user.mem0.vector_store.config == {
-        "collectionName": "hahobot_user_memory"
-    }
+    assert config.memory.user.mem0.vector_store.config == {"collectionName": "hahobot_user_memory"}
 
 
 def test_onboard_does_not_crash_with_legacy_memory_window(tmp_path, monkeypatch) -> None:
@@ -295,7 +296,9 @@ def test_onboard_does_not_crash_with_legacy_memory_window(tmp_path, monkeypatch)
     )
 
     monkeypatch.setattr("hahobot.config.loader.get_config_path", lambda: config_path)
-    monkeypatch.setattr("hahobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace)
+    monkeypatch.setattr(
+        "hahobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace
+    )
 
     result = runner.invoke(app, ["onboard"], input="n\n")
 
@@ -324,7 +327,9 @@ def test_onboard_refresh_backfills_missing_channel_fields(tmp_path, monkeypatch)
     )
 
     monkeypatch.setattr("hahobot.config.loader.get_config_path", lambda: config_path)
-    monkeypatch.setattr("hahobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace)
+    monkeypatch.setattr(
+        "hahobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace
+    )
     monkeypatch.setattr(
         "hahobot.channels.registry.discover_all",
         lambda: {
@@ -377,7 +382,9 @@ def test_onboard_refresh_skips_invalid_channel_default_configs(tmp_path, monkeyp
         raise RuntimeError("boom")
 
     monkeypatch.setattr("hahobot.config.loader.get_config_path", lambda: config_path)
-    monkeypatch.setattr("hahobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace)
+    monkeypatch.setattr(
+        "hahobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace
+    )
     monkeypatch.setattr(
         "hahobot.channels.registry.discover_all",
         lambda: {
