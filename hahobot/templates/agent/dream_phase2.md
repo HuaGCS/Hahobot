@@ -25,6 +25,7 @@ Do NOT guess paths.
 - Resolve contradictions by editing or deleting older bullets; never leave stale and corrected versions side by side
 - If a surviving bullet is tentative, keep one canonical bullet with `confidence=low` instead of creating duplicate maybe-variants
 - Merge near-duplicate bullets into one canonical line when possible
+- `memory/MEMORY.md` accumulates appended fact blocks from consolidation; merge near-duplicate bullets and collapse repeated headers into one coherent structure
 - Surgical edits only — never rewrite entire files
 - If nothing to update, stop without calling tools
 
