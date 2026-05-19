@@ -7,24 +7,18 @@
 
 # Python bytecode & caches
 *.pyc
-dist/
-build/
-docs/
-*.egg-info/
-*.egg
 *.pycs
 *.pyo
 *.pyd
 *.pyw
 *.pyz
 __pycache__/
-*.egg-info/
-*.egg
 .venv/
 venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.uv-cache/
 .pytype/
 .dmypy.json
 dmypy.json
@@ -35,6 +29,8 @@ dmypy.json
 # Build & packaging
 dist/
 build/
+*.egg-info/
+*.egg
 *.manifest
 *.spec
 pip-wheel-metadata/
