@@ -1,6 +1,6 @@
 """Tests for CronTool._list_jobs() output formatting."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from hahobot.agent.tools.cron import CronTool
 from hahobot.cron.service import CronService
@@ -318,7 +318,7 @@ def test_add_at_job_uses_default_timezone_for_naive_datetime(tmp_path) -> None:
 
     assert result.startswith("Created job")
     job = tool._cron.list_jobs()[0]
-    expected = int(datetime(2026, 3, 25, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+    expected = int(datetime(2026, 3, 25, 0, 0, 0, tzinfo=UTC).timestamp() * 1000)
     assert job.schedule.at_ms == expected
 
 

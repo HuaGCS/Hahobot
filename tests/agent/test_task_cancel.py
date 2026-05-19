@@ -200,7 +200,7 @@ class TestDispatch:
             assert on_stream_end is not None
             await on_stream("hi")
             await on_stream_end(resuming=False)
-            return None
+            return
 
         loop._process_message = fake_process
 

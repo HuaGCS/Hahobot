@@ -113,7 +113,7 @@ class StarOfficePushSettings:
         object.__setattr__(self, "mode", _normalize_push_mode(self.mode))
 
     @classmethod
-    def from_status_config(cls, status_config: Any) -> "StarOfficePushSettings":
+    def from_status_config(cls, status_config: Any) -> StarOfficePushSettings:
         push = getattr(status_config, "push", None)
         if push is None:
             return cls()

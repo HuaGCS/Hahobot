@@ -33,7 +33,7 @@ class _FakeAsyncClient:
         self.timeout = kwargs.get("timeout")
         self.follow_redirects = kwargs.get("follow_redirects")
 
-    async def __aenter__(self) -> "_FakeAsyncClient":
+    async def __aenter__(self) -> _FakeAsyncClient:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:

@@ -254,15 +254,15 @@ class TestFetchSearchUsageRouting:
 
 
 class TestBuildStatusContentWithSearchUsage:
-    _BASE_KWARGS = dict(
-        version="0.1.0",
-        model="claude-opus-4-5",
-        start_time=1_000_000.0,
-        last_usage={"prompt_tokens": 1000, "completion_tokens": 200},
-        context_window_tokens=65536,
-        session_msg_count=5,
-        context_tokens_estimate=3000,
-    )
+    _BASE_KWARGS = {
+        "version": "0.1.0",
+        "model": "claude-opus-4-5",
+        "start_time": 1_000_000.0,
+        "last_usage": {"prompt_tokens": 1000, "completion_tokens": 200},
+        "context_window_tokens": 65536,
+        "session_msg_count": 5,
+        "context_tokens_estimate": 3000,
+    }
 
     def test_no_search_usage_unchanged(self):
         """Omitting search_usage_text keeps existing behaviour."""

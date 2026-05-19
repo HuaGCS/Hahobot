@@ -52,9 +52,7 @@ def _extract_docx(path: Path) -> str:
             parts = [
                 name
                 for name in zf.namelist()
-                if name == "word/document.xml"
-                or name.startswith("word/header")
-                or name.startswith("word/footer")
+                if name == "word/document.xml" or name.startswith(("word/header", "word/footer"))
             ]
             chunks = [_paragraph_texts(zf.read(name)) for name in parts]
         return _truncate("\n\n".join(chunk for chunk in chunks if chunk), _MAX_TEXT_LENGTH)

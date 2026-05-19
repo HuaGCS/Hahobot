@@ -48,7 +48,7 @@ class _DummyChannel(BaseChannel):
 def _patch_registry(monkeypatch: pytest.MonkeyPatch, channel_names: list[str]) -> None:
     monkeypatch.setattr(
         "hahobot.channels.registry.discover_all",
-        lambda: {name: _DummyChannel for name in channel_names},
+        lambda: dict.fromkeys(channel_names, _DummyChannel),
     )
 
 

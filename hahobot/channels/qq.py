@@ -61,8 +61,7 @@ _SAFE_NAME_RE = re.compile(r"[^\w.\-()\[\]（）【】\u4e00-\u9fff]+", re.UNICO
 def _sanitize_filename(name: str) -> str:
     """Sanitize filename to avoid traversal and problematic characters."""
     name = Path(name or "").name.strip()
-    name = _SAFE_NAME_RE.sub("_", name).strip("._ ")
-    return name
+    return _SAFE_NAME_RE.sub("_", name).strip("._ ")
 
 
 def _is_image_name(name: str) -> bool:
@@ -115,7 +114,7 @@ class QQChannel(BaseChannel):
             config = QQConfig.model_validate(config)
         super().__init__(config, bus)
         self.config: QQConfig | QQInstanceConfig = config
-        self._client: "botpy.Client | None" = None
+        self._client: botpy.Client | None = None
         self._http: aiohttp.ClientSession | None = None
         self._processed_ids: deque[str] = deque(maxlen=1000)
         self._msg_seq: int = 1  # 消息序列号，避免被 QQ API 去重

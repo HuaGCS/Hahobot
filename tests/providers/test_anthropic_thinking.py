@@ -13,16 +13,16 @@ def _make_provider(model: str = "claude-sonnet-4-6") -> AnthropicProvider:
 
 
 def _build(provider: AnthropicProvider, reasoning_effort: str | None, **overrides):
-    defaults = dict(
-        messages=[{"role": "user", "content": "hello"}],
-        tools=None,
-        model=None,
-        max_tokens=4096,
-        temperature=0.7,
-        reasoning_effort=reasoning_effort,
-        tool_choice=None,
-        supports_caching=False,
-    )
+    defaults = {
+        "messages": [{"role": "user", "content": "hello"}],
+        "tools": None,
+        "model": None,
+        "max_tokens": 4096,
+        "temperature": 0.7,
+        "reasoning_effort": reasoning_effort,
+        "tool_choice": None,
+        "supports_caching": False,
+    }
     defaults.update(overrides)
     return provider._build_kwargs(**defaults)
 

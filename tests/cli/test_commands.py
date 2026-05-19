@@ -206,7 +206,7 @@ def test_onboard_uses_explicit_config_and_workspace_paths(tmp_path, monkeypatch)
     config_path = tmp_path / "instance" / "config.json"
     workspace_path = tmp_path / "workspace"
 
-    monkeypatch.setattr("hahobot.channels.registry.discover_all", lambda: {})
+    monkeypatch.setattr("hahobot.channels.registry.discover_all", dict)
 
     result = runner.invoke(
         app,
@@ -230,7 +230,7 @@ def test_onboard_explicit_config_uses_matching_default_workspace_when_not_overri
     config_path = tmp_path / "instance" / "config.json"
     expected_workspace = config_path.parent / "workspace"
 
-    monkeypatch.setattr("hahobot.channels.registry.discover_all", lambda: {})
+    monkeypatch.setattr("hahobot.channels.registry.discover_all", dict)
 
     result = runner.invoke(app, ["onboard", "--config", str(config_path)])
 
@@ -251,7 +251,7 @@ def test_onboard_wizard_preserves_explicit_config_in_next_steps(tmp_path, monkey
         "hahobot.cli.onboard.run_onboard",
         lambda initial_config: OnboardResult(config=initial_config, should_save=True),
     )
-    monkeypatch.setattr("hahobot.channels.registry.discover_all", lambda: {})
+    monkeypatch.setattr("hahobot.channels.registry.discover_all", dict)
 
     result = runner.invoke(
         app,

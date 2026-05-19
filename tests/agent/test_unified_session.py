@@ -28,13 +28,12 @@ def _make_loop(tmp_path: Path, *, unified_session: bool = False):
         patch("hahobot.agent.loop.SubagentManager") as mock_sub_mgr,
     ):
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
-        loop = AgentLoop(
+        return AgentLoop(
             bus=bus,
             provider=provider,
             workspace=tmp_path,
             unified_session=unified_session,
         )
-    return loop
 
 
 def _make_msg(
@@ -61,7 +60,7 @@ async def test_unified_session_rewrites_key_to_unified_default(tmp_path: Path):
 
     async def fake_process(msg, **_kwargs):
         captured.append(msg.session_key)
-        return None
+        return
 
     loop._process_message = fake_process  # type: ignore[method-assign]
     await loop._dispatch(_make_msg())
@@ -76,7 +75,7 @@ async def test_unified_session_respects_existing_override(tmp_path: Path):
 
     async def fake_process(msg, **_kwargs):
         captured.append(msg.session_key)
-        return None
+        return
 
     loop._process_message = fake_process  # type: ignore[method-assign]
     await loop._dispatch(_make_msg(session_key_override="telegram:thread:42"))

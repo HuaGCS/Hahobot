@@ -123,9 +123,9 @@ class CronTool(Tool):
             if _in_cron_context.get():
                 return "Error: cannot schedule new jobs from within a cron job execution"
             return self._add_job(name, message, every_seconds, cron_expr, tz, at, deliver)
-        elif action == "list":
+        if action == "list":
             return self._list_jobs()
-        elif action == "remove":
+        if action == "remove":
             return self._remove_job(job_id)
         return f"Unknown action: {action}"
 

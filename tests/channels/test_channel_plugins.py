@@ -59,8 +59,7 @@ class _FakeTelegram(BaseChannel):
 
 def _make_entry_point(name: str, cls: type):
     """Create a mock entry point that returns *cls* on load()."""
-    ep = SimpleNamespace(name=name, load=lambda _cls=cls: _cls)
-    return ep
+    return SimpleNamespace(name=name, load=lambda _cls=cls: _cls)
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +320,7 @@ def test_channels_status_sets_custom_config_path(monkeypatch, tmp_path):
         "hahobot.config.loader.set_config_path",
         lambda path: seen.__setitem__("config_path", path),
     )
-    monkeypatch.setattr("hahobot.channels.registry.discover_all", lambda: {})
+    monkeypatch.setattr("hahobot.channels.registry.discover_all", dict)
 
     result = runner.invoke(app, ["channels", "status", "--config", str(config_path)])
 

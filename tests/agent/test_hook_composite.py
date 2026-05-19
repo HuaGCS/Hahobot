@@ -299,13 +299,12 @@ def _make_loop(tmp_path, hooks=None):
         patch("hahobot.agent.loop.Dream"),
     ):
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
-        loop = AgentLoop(
+        return AgentLoop(
             bus=bus,
             provider=provider,
             workspace=tmp_path,
             hooks=hooks,
         )
-    return loop
 
 
 @pytest.mark.asyncio

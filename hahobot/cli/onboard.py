@@ -484,9 +484,8 @@ def _input_context_window_with_recommendation(
                 f"[green]+ Recommended context window: {format_token_count(context_limit)} tokens[/green]"
             )
             return context_limit
-        else:
-            console.print("[yellow]! Could not fetch model info, please enter manually[/yellow]")
-            # Fall through to manual input
+        console.print("[yellow]! Could not fetch model info, please enter manually[/yellow]")
+        # Fall through to manual input
 
     # Manual input
     value = (

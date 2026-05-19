@@ -6,7 +6,7 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -364,7 +364,6 @@ class LLMProvider(ABC):
         Returns:
             LLMResponse with content and/or tool calls.
         """
-        pass
 
     @classmethod
     def _is_transient_error(cls, content: str | None) -> bool:
@@ -583,16 +582,16 @@ class LLMProvider(ABC):
         if reasoning_effort is self._SENTINEL:
             reasoning_effort = self.generation.reasoning_effort
 
-        kw: dict[str, Any] = dict(
-            messages=messages,
-            tools=tools,
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            reasoning_effort=reasoning_effort,
-            tool_choice=tool_choice,
-            on_content_delta=on_content_delta,
-        )
+        kw: dict[str, Any] = {
+            "messages": messages,
+            "tools": tools,
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "reasoning_effort": reasoning_effort,
+            "tool_choice": tool_choice,
+            "on_content_delta": on_content_delta,
+        }
         return await self._run_with_retry(
             self._safe_chat_stream,
             kw,
@@ -626,15 +625,15 @@ class LLMProvider(ABC):
         if reasoning_effort is self._SENTINEL:
             reasoning_effort = self.generation.reasoning_effort
 
-        kw: dict[str, Any] = dict(
-            messages=messages,
-            tools=tools,
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            reasoning_effort=reasoning_effort,
-            tool_choice=tool_choice,
-        )
+        kw: dict[str, Any] = {
+            "messages": messages,
+            "tools": tools,
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "reasoning_effort": reasoning_effort,
+            "tool_choice": tool_choice,
+        }
         return await self._run_with_retry(
             self._safe_chat,
             kw,
@@ -712,7 +711,7 @@ class LLMProvider(ABC):
         except Exception:
             return None
         if retry_at.tzinfo is None:
-            retry_at = retry_at.replace(tzinfo=timezone.utc)
+            retry_at = retry_at.replace(tzinfo=UTC)
         remaining = (retry_at - datetime.now(retry_at.tzinfo)).total_seconds()
         return max(0.1, remaining)
 
@@ -818,4 +817,3 @@ class LLMProvider(ABC):
     @abstractmethod
     def get_default_model(self) -> str:
         """Get the default model for this provider."""
-        pass

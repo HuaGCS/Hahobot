@@ -16,8 +16,8 @@ class UserMemoryBackend(ABC):
 
     async def commit_turn(self, request: MemoryCommitRequest) -> None:
         """Persist a completed turn to the backend."""
-        return None
+        return
 
     async def flush_session(self, scope: MemoryScope) -> None:
         """Flush any buffered memory writes for the given scope."""
-        return None
+        return

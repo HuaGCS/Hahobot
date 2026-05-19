@@ -314,7 +314,7 @@ class MatrixChannel(BaseChannel):
                     self.session_path,
                 )
                 try:
-                    with open(self.session_path, "r", encoding="utf-8") as f:
+                    with open(self.session_path, encoding="utf-8") as f:
                         session = json.load(f)
                     self.client.user_id = self.config.user_id
                     self.client.access_token = session["access_token"]
@@ -366,7 +366,7 @@ class MatrixChannel(BaseChannel):
                 await asyncio.wait_for(
                     asyncio.shield(self._sync_task), timeout=self.config.sync_stop_grace_seconds
                 )
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except (TimeoutError, asyncio.CancelledError):
                 self._sync_task.cancel()
                 try:
                     await self._sync_task
@@ -460,8 +460,7 @@ class MatrixChannel(BaseChannel):
 
         if self.config.e2ee_enabled:
             kwargs["ignore_unverified_devices"] = True
-        response = await self.client.room_send(**kwargs)
-        return response
+        return await self.client.room_send(**kwargs)
 
     async def _resolve_server_upload_limit_bytes(self) -> int | None:
         """Query homeserver upload limit once per channel lifecycle."""
@@ -633,7 +632,6 @@ class MatrixChannel(BaseChannel):
                     buf.event_id = response.event_id
             except Exception:
                 await self._stop_typing_keepalive(chat_id, clear_typing=True)
-                pass
 
     def _register_event_callbacks(self) -> None:
         self.client.add_event_callback(self._on_message, RoomMessageText)

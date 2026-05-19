@@ -93,12 +93,10 @@ class BaseChannel(ABC):
         2. Listens for incoming messages
         3. Forwards messages to the bus via _handle_message()
         """
-        pass
 
     @abstractmethod
     async def stop(self) -> None:
         """Stop the channel and clean up resources."""
-        pass
 
     @abstractmethod
     async def send(self, msg: OutboundMessage) -> None:
@@ -111,7 +109,6 @@ class BaseChannel(ABC):
         Implementations should raise on delivery failure so the channel manager
         can apply any retry policy in one place.
         """
-        pass
 
     async def send_delta(
         self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
@@ -125,7 +122,6 @@ class BaseChannel(ABC):
         the current segment, and stateful implementations must key buffers by
         ``_stream_id`` rather than only by ``chat_id``.
         """
-        pass
 
     @property
     def supports_streaming(self) -> bool:

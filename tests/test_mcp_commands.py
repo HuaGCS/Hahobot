@@ -75,14 +75,13 @@ def _make_loop(
     provider.get_default_model.return_value = "test-model"
 
     with patch("hahobot.agent.loop.SubagentManager"):
-        loop = AgentLoop(
+        return AgentLoop(
             bus=bus,
             provider=provider,
             workspace=workspace,
             config_path=config_path,
             mcp_servers=mcp_servers,
         )
-    return loop
 
 
 @pytest.mark.asyncio

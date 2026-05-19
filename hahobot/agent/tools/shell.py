@@ -134,7 +134,7 @@ class ExecTool(Tool):
                     process.communicate(),
                     timeout=effective_timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 await self._kill_process(process)
                 return f"Error: Command timed out after {effective_timeout} seconds"
             except asyncio.CancelledError:
@@ -205,7 +205,7 @@ class ExecTool(Tool):
         process.kill()
         try:
             await asyncio.wait_for(process.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         finally:
             if not _IS_WINDOWS:

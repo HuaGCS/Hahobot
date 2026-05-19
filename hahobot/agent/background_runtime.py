@@ -61,7 +61,7 @@ class BackgroundRuntimeManager:
                 asyncio.shield(task),
                 timeout=self.loop._PREFLIGHT_CONSOLIDATION_BUDGET_SECONDS,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "Token consolidation still running for {} after {:.1f}s; continuing in background",
                 session.key,

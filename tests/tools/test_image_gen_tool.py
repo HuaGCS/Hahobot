@@ -65,7 +65,7 @@ async def test_image_gen_tool_uses_persona_default_reference_for_edits(
             self.proxy = kwargs.get("proxy")
             self.timeout = kwargs.get("timeout")
 
-        async def __aenter__(self) -> "_FakeAsyncClient":
+        async def __aenter__(self) -> _FakeAsyncClient:
             return self
 
         async def __aexit__(self, exc_type, exc, tb) -> None:

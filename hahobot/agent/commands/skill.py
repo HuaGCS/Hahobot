@@ -262,7 +262,7 @@ class SkillCommandHandler:
             )
         except FileNotFoundError:
             raise
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if proc is not None and proc.returncode is None:
                 proc.kill()
                 await proc.communicate()
@@ -369,7 +369,7 @@ class SkillCommandHandler:
                     )
         except FileNotFoundError:
             return 127, text(language, "skill_npx_missing")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return 124, text(language, "skill_command_timeout")
         except asyncio.CancelledError:
             raise

@@ -4,9 +4,10 @@ import asyncio
 import json
 import time
 import uuid
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Literal
+from typing import Any, Literal
 
 from loguru import logger
 
