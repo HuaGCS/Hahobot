@@ -3,7 +3,7 @@
 Surrogate characters in CLI input must not crash history file writes.
 """
 
-from hahobot.cli.commands import SafeFileHistory, _sanitize_surrogates
+from hahobot.cli.commands.interactive import SafeFileHistory, _sanitize_surrogates
 
 
 class TestSafeFileHistory:

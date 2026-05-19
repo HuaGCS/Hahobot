@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from hahobot.cli import commands
 from hahobot.cli.commands import app
+from hahobot.cli.commands import interactive as commands
 from hahobot.config.schema import Config
 from hahobot.providers.base import LLMResponse, ToolCallRequest
 from hahobot.session.manager import SessionManager
@@ -87,7 +87,7 @@ def test_sessions_compact_json_compacts_saved_session(tmp_path: Path, monkeypatc
     )
 
     provider = _FakeCompactProvider()
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: provider)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: provider)
 
     result = runner.invoke(
         app,
@@ -113,7 +113,7 @@ def test_sessions_compact_missing_session_returns_error(tmp_path: Path, monkeypa
     workspace.mkdir()
     config_path = _write_config(tmp_path / "config.json", workspace)
     monkeypatch.setattr(
-        "hahobot.cli.commands._make_provider", lambda _config: _FakeCompactProvider()
+        "hahobot.cli.commands.runtime._make_provider", lambda _config: _FakeCompactProvider()
     )
 
     result = runner.invoke(
