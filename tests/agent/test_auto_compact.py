@@ -33,7 +33,7 @@ class _FakeConsolidator:
             on_archive(
                 {
                     "history_entry": "summary one",
-                    "memory_update": "",
+                    "new_facts": "",
                     "raw_archive": False,
                 }
             )

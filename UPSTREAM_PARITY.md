@@ -13,6 +13,7 @@ Primary upstreams tracked here:
 - `HKUDS/nanobot`
 - `lsdefine/GenericAgent`
 - `thedotmack/claude-mem`
+- `Dataojitori/nocturne_memory`
 
 Related inspiration that is intentionally **not** treated as a parity target:
 
@@ -31,12 +32,18 @@ These upstreams are not tracked in the same way:
   ideas such as structured observations, progressive-disclosure recall, file timelines, and private
   tags through its existing archive/Dream/admin surfaces rather than copying the AGPL-licensed
   implementation or Claude Code hook layout.
+- `nocturne_memory` is tracked as a memory-architecture inspiration source (MIT-licensed). It is a
+  graph-backed long-term memory MCP server (Node→Memory→Edge→Path, URI addressing, per-entry
+  disclosure triggers, patch-only updates). Hahobot evaluates its ideas against the local
+  file-first memory model: the graph/DB backend and separate service are intentional divergences,
+  but individual write-safety/recall ideas such as patch-only memory writes are tracked for
+  adoption through the existing Markdown/Dream/Consolidator surfaces.
 
 This file therefore records both:
 
 - direct upstream parity work for `nanobot`
-- explicit adoption / divergence decisions for `GenericAgent` and `claude-mem` where the ideas are
-  relevant to hahobot's local runtime
+- explicit adoption / divergence decisions for `GenericAgent`, `claude-mem`, and `nocturne_memory`
+  where the ideas are relevant to hahobot's local runtime
 
 ## Status Legend
 
@@ -57,6 +64,12 @@ This file therefore records both:
 - `claude-mem`: upstream GitHub response returned unrelated content during this audit pass; re-check
   deferred. Previously adopted behaviors (private tags, structured observations, progressive recall,
   SQLite FTS index) remain unchanged locally.
+- `nocturne_memory`: first reviewed at the project's `main` (`2026-05-19`, release v2.5.0). It is a
+  graph-backed long-term memory MCP server. The single concrete borrow candidate is patch-only /
+  append-only memory writes (no full-replacement mode) to harden the Consolidator `save_memory`
+  path; the graph-DB backend, separate FastAPI service, mandatory boot protocol, and active-recall
+  discipline are intentional divergences against hahobot's file-first, always-on, Dream-maintained
+  memory.
 
 ## Current Snapshot
 
@@ -120,6 +133,10 @@ This file therefore records both:
 | Memory architecture | `local_extension` | Dream maintenance, archive sidecars, Mem0 backend/shadow-write, and structured profile/insight hygiene go beyond upstream nanobot. |
 | claude-mem SQLite FTS archive index | `synced` | Hahobot now supports `memory.archive.indexBackend="sqlite"` as a persona-local derived FTS cache for `history_search` / `history_timeline`, rebuildable with `hahobot memory index rebuild` from JSON sidecars. |
 | claude-mem Chroma/service backend | `intentional_divergence` | Hahobot keeps markdown/archive JSON sidecars as the source of truth plus optional Mem0 instead of adopting a separate Chroma/vector memory service; local recall remains inspectable and persona-scoped. |
+| nocturne patch-only memory writes | `synced` | The Consolidator `save_memory` tool no longer takes a full `memory_update` rewrite of `MEMORY.md`. It now takes an optional `new_facts` fragment that is *appended* via `MemoryStore.append_memory` (capped, private-stripped); deduplication/compaction is left to Dream's incremental edits. `write_memory` is also atomic now. A truncated or lossy LLM response can no longer overwrite existing long-term memory. |
+| nocturne disclosure triggers | `watchlist` | nocturne attaches a "recall when X" condition to each memory unit. hahobot loads core memory files always-on and uses query-aware top-k for skills; per-entry recall triggers for `PROFILE.md` / `INSIGHTS.md` bullets could help prompt budget but add a retrieval step and complexity. Low priority. |
+| nocturne graph memory backend | `intentional_divergence` | nocturne stores memory in a graph DB (Node/Memory/Edge/Path) behind a FastAPI/MCP service. hahobot keeps human-readable, git-diffable Markdown as the source of truth; a graph/DB backend is rejected for the same source-first reason as the claude-mem Chroma divergence. |
+| nocturne boot protocol / active recall | `intentional_divergence` | nocturne requires every session to call `read_memory("system://boot")` and depends on the agent reliably invoking recall tools. hahobot loads identity/relationship/profile layers into the system prompt always-on, which does not depend on model recall discipline. |
 | Gateway/admin/runtime ops | `local_extension` | Admin UI, `/status`, Star-Office push, companion doctor, runtime doctor, session inspection, and gateway-backed `/session` / `/repo` / `/review` / `/compact` controls are local operational surfaces. |
 | Standalone browser WebUI | `intentional_divergence` | Upstream now ships a separate browser chat SPA over WebSocket; local web surfaces still stay in the existing gateway admin and `/status` shell rather than adopting a second chat frontend stack. |
 | Extension model | `local_extension` | Skills, MCP, built-in companion helpers, and `ExternalHookBridge` are the main extension surfaces; there is no separate plugin framework today. |
@@ -317,6 +334,40 @@ Reviewed and intentionally skipped / left on watch:
   choices to avoid introducing unattended self-modification or an extra autonomous loop before the
   operational need is proven.
 
+## nocturne_memory Memory-Architecture Review (2026-05-19)
+
+`Dataojitori/nocturne_memory` is a graph-backed long-term memory MCP server: `Node` (concept,
+persistent UUID) → `Memory` (versioned content, chained via `migrated_to`) → `Edge` (parent→child
+relationship) → `Path` (materialized URI cache). It uses URI addressing (`core://nocturne/identity`),
+per-entry disclosure triggers, patch-only updates, a changeset audit trail, and a React review
+dashboard. It explicitly rejects vector RAG in favor of agent-controlled first-person memory.
+
+Decisions from this review:
+
+- **Adopted: append-only memory writes.** nocturne's `update_memory` has no full-replacement mode
+  by design. hahobot's Consolidator `save_memory` previously requested a full `memory_update`
+  markdown blob, so a truncated or malformed LLM response could overwrite all of `MEMORY.md`.
+  `save_memory` now takes an optional `new_facts` fragment appended via `MemoryStore.append_memory`
+  (length-capped, private-stripped), and `MemoryStore.write_memory` is atomic. The Consolidator
+  path is fast append-only archival; deduplication and compaction stay with Dream's incremental
+  edits. Implemented 2026-05-19.
+- **Consider later (watchlist): addressable memory entries.** Making each `PROFILE.md` /
+  `INSIGHTS.md` bullet a unit with a stable id + metadata (extending the existing `hahobot-meta`
+  comment) would enable per-entry versioning, ranked recall, and optional disclosure triggers
+  without leaving Markdown. Larger scope; pair with a recall refactor in `context.py`.
+- **Reject (intentional divergence): graph DB backend.** Same source-first reasoning as the
+  claude-mem Chroma divergence — human-readable, git-diffable Markdown stays the source of truth;
+  any index (FTS, embeddings, relationships) must be a rebuildable derived layer.
+- **Reject (intentional divergence): separate memory service + mandatory boot protocol.** hahobot's
+  memory is the workspace (zero runtime dependency) and core layers load always-on, which does not
+  depend on the model remembering to call a recall tool.
+
+Net: nocturne validates hahobot's layered, file-first memory direction. The actionable takeaway is
+write safety on the Consolidator path, not a backend replacement. The optimal target stays the
+four-layer model (always-on identity / Dream-maintained semantic layer / append-only episodic
+archive / rebuildable derived index) over inspectable Markdown — an in-place evolution, not a
+replacement.
+
 ## Already Synced From Upstream nanobot
 
 These are the upstream-facing items that are already present locally and should normally be treated
@@ -428,6 +479,11 @@ These are local choices. When upstream behaves differently, that is not automati
   controls even though upstream parity is tracked primarily at the runtime/tool layer.
 - Extension priority is currently `skills + MCP + hook bridge`; do not add a separate plugin
   framework unless there is a concrete gap those surfaces cannot cover cleanly.
+- Memory stays file-first: human-readable, git-diffable Markdown is the source of truth, and any
+  index (FTS, embeddings, graph relationships) is a rebuildable derived layer. Graph-DB or
+  separate-service memory backends (nocturne_memory style) are rejected for the same reason as the
+  claude-mem Chroma divergence; core memory layers also load always-on rather than behind a
+  model-invoked boot/recall protocol.
 
 ## Watchlist For Next Upstream Sync
 
@@ -437,6 +493,12 @@ These are local choices. When upstream behaves differently, that is not automati
   streaming is added to the interactive CLI).
 - Re-check `thedotmack/claude-mem` directly on the next pass; the 2026-05-19 audit could not
   fetch reliable content and was deferred.
+- The `nocturne_memory` append-only memory-write idea is now synced (Consolidator `save_memory`
+  appends `new_facts` instead of full-rewriting `MEMORY.md`). The remaining nocturne idea on watch
+  is addressable memory entries (stable id + metadata per `PROFILE.md` / `INSIGHTS.md` bullet for
+  per-entry versioning and ranked recall); pair it with a `context.py` recall refactor if pursued.
+  Re-review `nocturne_memory` itself only if it grows runtime ideas beyond the graph-DB/service
+  model already evaluated.
 - The 2026-04-27 high-priority nanobot candidates (`pathAppend` hardening, finite LLM request
   timeout, session timestamp anchors, proactive delivery continuity) are now synced; next pass should
   focus on optional consolidation-ratio/media/provider-factory polish.

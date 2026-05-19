@@ -57,7 +57,7 @@ class _FakeWorkspaceProvider:
                         name="save_memory",
                         arguments={
                             "history_entry": f"summary {self.compaction_calls}",
-                            "memory_update": "",
+                            "new_facts": "",
                         },
                     )
                 ],

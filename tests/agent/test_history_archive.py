@@ -62,7 +62,7 @@ def _make_memory_tool_response(summary: str) -> LLMResponse:
                 name="save_memory",
                 arguments={
                     "history_entry": summary,
-                    "memory_update": "# Memory\n- providerPool takes precedence when configured.",
+                    "new_facts": "# Memory\n- providerPool takes precedence when configured.",
                 },
             )
         ],
