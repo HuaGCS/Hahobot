@@ -4,8 +4,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from hahobot.bus.events import OutboundMessage
-from hahobot.cli import commands
 from hahobot.cli.commands import app
+from hahobot.cli.commands import interactive as commands
 from hahobot.config.schema import Config
 from hahobot.session.manager import SessionManager
 
@@ -222,15 +222,15 @@ def test_agent_continue_uses_latest_cli_session(tmp_path: Path, monkeypatch) -> 
 
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda loaded: loaded)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr(
         "hahobot.cron.service.CronService",
         lambda _store, **_kwargs: object(),
     )
     monkeypatch.setattr(
-        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "hahobot.cli.commands.interactive._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     class _FakeAgentLoop:
@@ -270,7 +270,7 @@ def test_agent_rejects_continue_and_explicit_session_together(tmp_path: Path, mo
 
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda loaded: loaded)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
 
     result = runner.invoke(
         app,
@@ -298,15 +298,15 @@ def test_agent_pick_session_uses_selected_cli_session(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda loaded: loaded)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr(
         "hahobot.cron.service.CronService",
         lambda _store, **_kwargs: object(),
     )
     monkeypatch.setattr(
-        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "hahobot.cli.commands.interactive._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     class _FakeAgentLoop:
@@ -347,7 +347,7 @@ def test_agent_pick_session_conflicts_with_continue(tmp_path: Path, monkeypatch)
 
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda loaded: loaded)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
 
     result = runner.invoke(
         app,

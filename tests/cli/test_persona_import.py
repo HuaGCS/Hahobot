@@ -48,7 +48,7 @@ def test_persona_import_st_card_creates_persona_files(tmp_path, monkeypatch) -> 
     )
 
     monkeypatch.setattr(
-        "hahobot.cli.commands._load_runtime_config",
+        "hahobot.cli.commands.runtime._load_runtime_config",
         lambda _config=None, workspace_override=None: _config_for_workspace(
             Path(workspace_override) if workspace_override else workspace
         ),
@@ -97,7 +97,7 @@ def test_persona_import_st_card_accepts_legacy_nanobot_extension_key(tmp_path, m
     )
 
     monkeypatch.setattr(
-        "hahobot.cli.commands._load_runtime_config",
+        "hahobot.cli.commands.runtime._load_runtime_config",
         lambda _config=None, workspace_override=None: _config_for_workspace(
             Path(workspace_override) if workspace_override else workspace
         ),
@@ -130,7 +130,7 @@ def test_persona_import_st_card_rejects_existing_persona_without_force(
     card_path.write_text(json.dumps({"name": "Aria"}), encoding="utf-8")
 
     monkeypatch.setattr(
-        "hahobot.cli.commands._load_runtime_config",
+        "hahobot.cli.commands.runtime._load_runtime_config",
         lambda _config=None, workspace_override=None: _config_for_workspace(
             Path(workspace_override) if workspace_override else workspace
         ),
@@ -158,7 +158,7 @@ def test_persona_import_st_card_force_overwrites_managed_files(tmp_path, monkeyp
     )
 
     monkeypatch.setattr(
-        "hahobot.cli.commands._load_runtime_config",
+        "hahobot.cli.commands.runtime._load_runtime_config",
         lambda _config=None, workspace_override=None: _config_for_workspace(
             Path(workspace_override) if workspace_override else workspace
         ),
@@ -214,7 +214,7 @@ def test_persona_import_st_preset_creates_style_file(tmp_path, monkeypatch) -> N
     )
 
     monkeypatch.setattr(
-        "hahobot.cli.commands._load_runtime_config",
+        "hahobot.cli.commands.runtime._load_runtime_config",
         lambda _config=None, workspace_override=None: _config_for_workspace(
             Path(workspace_override) if workspace_override else workspace
         ),
@@ -248,7 +248,7 @@ def test_persona_import_st_preset_requires_existing_persona(tmp_path, monkeypatc
     preset_path.write_text(json.dumps({"prompts": []}), encoding="utf-8")
 
     monkeypatch.setattr(
-        "hahobot.cli.commands._load_runtime_config",
+        "hahobot.cli.commands.runtime._load_runtime_config",
         lambda _config=None, workspace_override=None: _config_for_workspace(
             Path(workspace_override) if workspace_override else workspace
         ),
@@ -307,7 +307,7 @@ def test_persona_import_st_worldinfo_creates_lore_file(tmp_path, monkeypatch) ->
     )
 
     monkeypatch.setattr(
-        "hahobot.cli.commands._load_runtime_config",
+        "hahobot.cli.commands.runtime._load_runtime_config",
         lambda _config=None, workspace_override=None: _config_for_workspace(
             Path(workspace_override) if workspace_override else workspace
         ),

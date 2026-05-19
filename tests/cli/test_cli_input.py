@@ -5,8 +5,8 @@ import pytest
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import HTML
 
-from hahobot.cli import commands
 from hahobot.cli import stream as stream_mod
+from hahobot.cli.commands import interactive as commands
 
 
 @pytest.fixture(autouse=True)
@@ -22,8 +22,8 @@ def mock_prompt_session():
     mock_session = MagicMock()
     mock_session.prompt_async = AsyncMock()
     with (
-        patch("hahobot.cli.commands._PROMPT_SESSION", mock_session),
-        patch("hahobot.cli.commands.patch_stdout"),
+        patch("hahobot.cli.commands.interactive._PROMPT_SESSION", mock_session),
+        patch("hahobot.cli.commands.interactive.patch_stdout"),
     ):
         yield mock_session
 
@@ -364,8 +364,8 @@ def test_init_prompt_session_creates_session():
     commands._PROMPT_SESSION = None
 
     with (
-        patch("hahobot.cli.commands.PromptSession") as mock_session_cls,
-        patch("hahobot.cli.commands.FileHistory"),
+        patch("hahobot.cli.commands.interactive.PromptSession") as mock_session_cls,
+        patch("hahobot.cli.commands.interactive.FileHistory"),
         patch("pathlib.Path.home") as mock_home,
     ):
         mock_home.return_value = MagicMock()
@@ -430,7 +430,7 @@ async def test_print_interactive_progress_line_pauses_spinner_before_printing():
     async def fake_print(_text: str) -> None:
         order.append("print")
 
-    with patch("hahobot.cli.commands._print_interactive_line", side_effect=fake_print):
+    with patch("hahobot.cli.commands.interactive._print_interactive_line", side_effect=fake_print):
         thinking = stream_mod.ThinkingSpinner(console=mock_console)
         with thinking:
             await commands._print_interactive_progress_line("tool running", thinking)

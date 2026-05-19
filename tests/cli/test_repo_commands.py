@@ -4,8 +4,8 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from hahobot.cli import commands
 from hahobot.cli.commands import app
+from hahobot.cli.commands import interactive as commands
 from hahobot.config.schema import Config
 
 runner = CliRunner()

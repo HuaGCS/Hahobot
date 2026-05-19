@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from hahobot.cli import commands
 from hahobot.cli.commands import app
+from hahobot.cli.commands import interactive as commands
 from hahobot.config.schema import Config
 from hahobot.providers.base import LLMResponse
 
@@ -65,7 +65,7 @@ def test_review_command_runs_provider_on_unstaged_diff(tmp_path: Path, monkeypat
     (workspace / "tracked.txt").write_text("one\ntwo\n", encoding="utf-8")
 
     provider = _FakeReviewProvider("Findings:\n- [medium] `tracked.txt`: missing regression test.")
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: provider)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: provider)
 
     result = runner.invoke(app, ["review", "--config", str(config_path), "--no-markdown"])
 
@@ -85,7 +85,7 @@ def test_review_command_skips_provider_when_diff_is_empty(tmp_path: Path, monkey
     config_path = _write_config(tmp_path / "config.json", workspace)
 
     provider = _FakeReviewProvider("should not be used")
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: provider)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: provider)
 
     result = runner.invoke(app, ["review", "--config", str(config_path), "--no-markdown"])
 
@@ -100,7 +100,7 @@ def test_review_command_non_repo_returns_error(tmp_path: Path, monkeypatch) -> N
     config_path = _write_config(tmp_path / "config.json", workspace)
 
     provider = _FakeReviewProvider("unused")
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: provider)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: provider)
 
     result = runner.invoke(app, ["review", "--config", str(config_path)])
 

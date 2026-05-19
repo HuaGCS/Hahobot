@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from hahobot.cli.commands import _resolve_channel_default_config, app
+from hahobot.cli.commands import app
+from hahobot.cli.commands.runtime import _resolve_channel_default_config
 from hahobot.config.loader import load_config, save_config
 from hahobot.config.schema import Config
 
@@ -297,7 +298,7 @@ def test_onboard_does_not_crash_with_legacy_memory_window(tmp_path, monkeypatch)
 
     monkeypatch.setattr("hahobot.config.loader.get_config_path", lambda: config_path)
     monkeypatch.setattr(
-        "hahobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace
+        "hahobot.cli.commands.runtime.get_workspace_path", lambda _workspace=None: workspace
     )
 
     result = runner.invoke(app, ["onboard"], input="n\n")
@@ -328,7 +329,7 @@ def test_onboard_refresh_backfills_missing_channel_fields(tmp_path, monkeypatch)
 
     monkeypatch.setattr("hahobot.config.loader.get_config_path", lambda: config_path)
     monkeypatch.setattr(
-        "hahobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace
+        "hahobot.cli.commands.runtime.get_workspace_path", lambda _workspace=None: workspace
     )
     monkeypatch.setattr(
         "hahobot.channels.registry.discover_all",
@@ -383,7 +384,7 @@ def test_onboard_refresh_skips_invalid_channel_default_configs(tmp_path, monkeyp
 
     monkeypatch.setattr("hahobot.config.loader.get_config_path", lambda: config_path)
     monkeypatch.setattr(
-        "hahobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace
+        "hahobot.cli.commands.runtime.get_workspace_path", lambda _workspace=None: workspace
     )
     monkeypatch.setattr(
         "hahobot.channels.registry.discover_all",

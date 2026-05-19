@@ -83,7 +83,7 @@ def mock_paths():
         patch("hahobot.config.loader.find_compatible_config_source", return_value=None),
         patch("hahobot.config.loader.save_config") as mock_sc,
         patch("hahobot.config.loader.load_config") as mock_lc,
-        patch("hahobot.cli.commands.get_workspace_path") as mock_ws,
+        patch("hahobot.cli.commands.runtime.get_workspace_path") as mock_ws,
     ):
         base_dir = Path("./test_onboard_data").resolve()
         if base_dir.exists():
@@ -581,9 +581,9 @@ def mock_agent_runtime(tmp_path):
     with (
         patch("hahobot.config.loader.load_config", return_value=config) as mock_load_config,
         patch("hahobot.config.loader.resolve_config_env_vars", side_effect=lambda c: c),
-        patch("hahobot.cli.commands.sync_workspace_templates") as mock_sync_templates,
-        patch("hahobot.cli.commands._make_provider", return_value=object()),
-        patch("hahobot.cli.commands._print_agent_response") as mock_print_response,
+        patch("hahobot.cli.commands.runtime.sync_workspace_templates") as mock_sync_templates,
+        patch("hahobot.cli.commands.runtime._make_provider", return_value=object()),
+        patch("hahobot.cli.commands.interactive._print_agent_response") as mock_print_response,
         patch("hahobot.bus.queue.MessageBus"),
         patch("hahobot.cron.service.CronService"),
         patch("hahobot.agent.loop.AgentLoop") as mock_agent_loop_cls,
@@ -661,8 +661,8 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
         lambda path: seen.__setitem__("config_path", path),
     )
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr(
         "hahobot.cron.service.CronService",
@@ -684,7 +684,7 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr(
-        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "hahobot.cli.commands.interactive._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
@@ -705,8 +705,8 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
 
     monkeypatch.setattr("hahobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
 
     class _FakeCron:
@@ -727,7 +727,7 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
     monkeypatch.setattr("hahobot.cron.service.CronService", _FakeCron)
     monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr(
-        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "hahobot.cli.commands.interactive._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
@@ -753,8 +753,8 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_
 
     monkeypatch.setattr("hahobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("hahobot.config.paths.get_cron_dir", lambda: legacy_dir)
 
@@ -775,7 +775,7 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_
     monkeypatch.setattr("hahobot.cron.service.CronService", _FakeCron)
     monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr(
-        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "hahobot.cli.commands.interactive._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     result = runner.invoke(
@@ -808,8 +808,8 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
 
     monkeypatch.setattr("hahobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("hahobot.config.paths.get_cron_dir", lambda: legacy_dir)
 
@@ -830,7 +830,7 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
     monkeypatch.setattr("hahobot.cron.service.CronService", _FakeCron)
     monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr(
-        "hahobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "hahobot.cli.commands.interactive._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
@@ -942,11 +942,11 @@ def _patch_cli_command_runtime(
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda c: c)
     monkeypatch.setattr(
-        "hahobot.cli.commands.sync_workspace_templates",
+        "hahobot.cli.commands.runtime.sync_workspace_templates",
         sync_templates or (lambda _path: None),
     )
     monkeypatch.setattr(
-        "hahobot.cli.commands._make_provider",
+        "hahobot.cli.commands.runtime._make_provider",
         make_provider or (lambda _config: object()),
     )
 
@@ -1054,9 +1054,9 @@ def test_gateway_warns_about_deprecated_memory_window(monkeypatch, tmp_path: Pat
 
     monkeypatch.setattr("hahobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr(
-        "hahobot.cli.commands._make_provider",
+        "hahobot.cli.commands.runtime._make_provider",
         lambda _config: (_ for _ in ()).throw(_StopGatewayError("stop")),
     )
 
@@ -1111,8 +1111,8 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
 
     monkeypatch.setattr("hahobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: provider)
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: provider)
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: bus)
     monkeypatch.setattr("hahobot.session.manager.SessionManager", lambda _workspace: object())
 
@@ -1368,8 +1368,8 @@ def test_gateway_constructs_http_server_without_public_file_options(
 
     monkeypatch.setattr("hahobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("hahobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("hahobot.session.manager.SessionManager", lambda _workspace: MagicMock())
 
@@ -1444,9 +1444,9 @@ def test_gateway_registers_dream_job_from_config(monkeypatch, tmp_path: Path) ->
     monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda c: c)
     monkeypatch.setattr(
-        "hahobot.cli.commands.sync_workspace_templates", lambda _path, silent=False: None
+        "hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path, silent=False: None
     )
-    monkeypatch.setattr("hahobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("hahobot.cli.commands.runtime._make_provider", lambda _config: object())
     monkeypatch.setattr("hahobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("hahobot.session.manager.SessionManager", lambda _workspace: MagicMock())
 
