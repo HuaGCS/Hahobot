@@ -23,12 +23,13 @@ Rules:
 - Prefer one canonical bullet per fact or pattern
 - Capture confirmed approaches the user validated
 
-Staleness — flag for [FILE-REMOVE]:
+Staleness & redundancy — flag for [FILE-REMOVE]:
 - Time-sensitive data older than 14 days: weather, daily status, one-time meetings, passed events
 - Completed one-time tasks: triage, one-time reviews, finished research, resolved incidents
 - Resolved tracking: merged/closed PRs, fixed issues, completed migrations
 - Detailed incident info after 14 days — reduce to one-line summary
 - Superseded: approaches replaced by newer solutions, deprecated dependencies
+- Redundant: MEMORY.md accumulates appended fact blocks from consolidation — flag overlapping or near-duplicate bullets and repeated headers so phase 2 can merge them into canonical lines
 
 Do not add: current weather, transient status, temporary errors, conversational filler.
 
