@@ -844,6 +844,10 @@ class Consolidator:
 
         lock = self.get_lock(session.key)
         async with lock:
+            # Refresh session reference: AutoCompact may have truncated it while we waited for the lock.
+            session = self.sessions.get_or_create(session.key)
+            if not session.messages:
+                return
             budget = self.context_window_tokens - self.max_completion_tokens - self._SAFETY_BUFFER
             target = budget // 2
             estimated, source = self.estimate_session_prompt_tokens(session)

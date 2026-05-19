@@ -10,7 +10,7 @@
 - `uv run pytest tests/test_skill_commands.py -q`: run the ClawHub slash-command regression tests.
 - `uv run ruff check .`: lint Python code and normalize import ordering.
 - `uv run hahobot agent`: start the local CLI agent.
-- `uv run hahobot sessions list --json`: inspect recent saved sessions in the active workspace.
+- `uv run hahobot sessions list -c-json`: inspect recent saved sessions in the active workspace.
 - `uv run hahobot sessions export cli:direct --format md`: export one saved session to a local artifact.
 - `uv run hahobot sessions compact cli:direct --json`: manually run session token consolidation for one saved session.
 - `uv run hahobot memory index rebuild --json`: rebuild the optional SQLite FTS archive index from JSON sidecars.
