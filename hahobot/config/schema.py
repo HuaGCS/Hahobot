@@ -178,6 +178,7 @@ class MatrixConfig(Base):
     access_token: str = ""
     user_id: str = ""  # @bot:matrix.org
     device_id: str = ""
+    password: str = ""  # password login; takes precedence over access_token/device_id when set
     e2ee_enabled: bool = True  # Enable Matrix E2EE support (encryption + encrypted room handling).
     sync_stop_grace_seconds: int = (
         2  # Max seconds to wait for sync_forever to stop gracefully before cancellation fallback.
