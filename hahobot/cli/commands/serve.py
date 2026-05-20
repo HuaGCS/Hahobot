@@ -31,7 +31,7 @@ def serve(
         from aiohttp import web  # noqa: F401
     except ImportError:
         console.print("[red]aiohttp is required. Install with: pip install -e '.[api]'[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     from loguru import logger
 

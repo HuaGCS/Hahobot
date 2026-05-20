@@ -96,7 +96,7 @@ def _render_table_box(table_lines: list[str]) -> str:
     widths = [max(dw(r[c]) for r in rows) for c in range(ncols)]
 
     def dr(cells: list[str]) -> str:
-        return "  ".join(f"{c}{' ' * (w - dw(c))}" for c, w in zip(cells, widths))
+        return "  ".join(f"{c}{' ' * (w - dw(c))}" for c, w in zip(cells, widths, strict=False))
 
     out = [dr(rows[0])]
     out.append("  ".join("─" * w for w in widths))

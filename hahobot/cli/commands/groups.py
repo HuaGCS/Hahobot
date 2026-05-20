@@ -581,7 +581,7 @@ def _get_bridge_dir() -> Path:
         console.print(f"[red]Build failed: {e}[/red]")
         if e.stderr:
             console.print(f"[dim]{e.stderr.decode()[:500]}[/dim]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     return user_bridge
 
@@ -760,7 +760,7 @@ def _login_openai_codex() -> None:
         )
     except ImportError:
         console.print("[red]oauth_cli_kit not installed. Run: pip install oauth-cli-kit[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 @_register_login("github_copilot")
@@ -777,4 +777,4 @@ def _login_github_copilot() -> None:
         console.print(f"[green]✓ Authenticated with GitHub Copilot[/green]  [dim]{account}[/dim]")
     except Exception as e:
         console.print(f"[red]Authentication error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None

@@ -219,7 +219,7 @@ def _load_runtime_config(
         loaded = resolve_config_env_vars(load_config(config_path))
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     loaded.bind_config_path(config_path or loaded._config_path)
     _warn_deprecated_config_keys(config_path, quiet=quiet)
     if workspace:

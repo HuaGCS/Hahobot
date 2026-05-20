@@ -659,7 +659,7 @@ def _try_auto_fill_context_window(model: BaseModel, new_model_name: str) -> None
     context_limit = get_model_context_limit(new_model_name, provider)
 
     if context_limit:
-        setattr(model, "context_window_tokens", context_limit)
+        model.context_window_tokens = context_limit
         console.print(
             f"[green]+ Auto-filled context window: {format_token_count(context_limit)} tokens[/green]"
         )
