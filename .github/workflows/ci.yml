@@ -31,7 +31,10 @@ jobs:
       run: uv sync --all-extras
 
     - name: Lint with ruff
-      run: uv run ruff check hahobot --select F401,F841
+      run: uv run ruff check
+
+    - name: Check ruff format
+      run: uv run ruff format --check
 
     - name: Run tests
       run: uv run pytest tests/
