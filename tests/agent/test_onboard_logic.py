@@ -394,7 +394,7 @@ class TestProviderChannelInfo:
         info = _get_provider_info()
         assert isinstance(info, dict)
         # Each value should be a tuple with expected structure
-        for provider_name, value in info.items():
+        for _provider_name, value in info.items():
             assert isinstance(value, tuple)
             assert len(value) == 4  # (display_name, needs_api_key, needs_api_base, env_var)
 

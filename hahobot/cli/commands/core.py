@@ -111,7 +111,7 @@ def onboard(
         except Exception as e:
             console.print(f"[red]✗[/red] Error during configuration: {e}")
             console.print("[yellow]Please run 'hahobot onboard' again to complete setup.[/yellow]")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
     _onboard_plugins(config_path)
 
     # Create workspace, preferring the configured workspace path.

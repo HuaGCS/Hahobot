@@ -119,7 +119,7 @@ class CheckpointRuntimeManager:
             restored = restored_messages[:size]
             if all(
                 self.checkpoint_message_key(left) == self.checkpoint_message_key(right)
-                for left, right in zip(existing, restored)
+                for left, right in zip(existing, restored, strict=False)
             ):
                 overlap = size
                 break

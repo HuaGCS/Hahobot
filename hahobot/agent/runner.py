@@ -192,7 +192,7 @@ class AgentRunner:
                     await hook.after_iteration(context)
                     break
                 completed_tool_results: list[dict[str, Any]] = []
-                for tool_call, result in zip(response.tool_calls, results):
+                for tool_call, result in zip(response.tool_calls, results, strict=True):
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_call.id,

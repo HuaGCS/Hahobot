@@ -110,7 +110,7 @@ class BaseChannel(ABC):
         can apply any retry policy in one place.
         """
 
-    async def send_delta(
+    async def send_delta(  # noqa: B027 -- intentional no-op default; channels opt in to streaming
         self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
     ) -> None:
         """Deliver a streaming text chunk.

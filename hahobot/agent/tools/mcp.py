@@ -337,10 +337,14 @@ async def connect_mcp_servers(
                     headers: dict[str, str] | None = None,
                     timeout: httpx.Timeout | None = None,
                     auth: httpx.Auth | None = None,
+                    # Capture cfg.headers by value: this factory escapes the loop
+                    # iteration via sse_client and may be invoked after the loop
+                    # has advanced (e.g. for SSE reconnects).
+                    _cfg_headers: dict[str, str] | None = cfg.headers,
                 ) -> httpx.AsyncClient:
                     merged_headers = {
                         "Accept": "application/json, text/event-stream",
-                        **(cfg.headers or {}),
+                        **(_cfg_headers or {}),
                         **(headers or {}),
                     }
                     return httpx.AsyncClient(

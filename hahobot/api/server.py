@@ -132,7 +132,7 @@ def _response_text(value: Any) -> str:
     if value is None:
         return ""
     if hasattr(value, "content"):
-        return str(getattr(value, "content") or "")
+        return str(value.content or "")
     return str(value)
 
 
