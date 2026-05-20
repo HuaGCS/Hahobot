@@ -125,6 +125,8 @@ include = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# nanobot is vendored from upstream; keep it diff-clean for parity audits.
+extend-exclude = ["nanobot"]
 
 [tool.ruff.lint]
 select = ["B", "C4", "E", "F", "I", "N", "PIE", "RET", "UP", "W"]
