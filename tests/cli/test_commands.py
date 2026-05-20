@@ -606,17 +606,22 @@ def mock_agent_runtime(tmp_path):
         }
 
 
-def test_agent_help_shows_workspace_and_config_options():
+def test_agent_help_shows_workspace_and_config_options(monkeypatch):
+    # Force a wide terminal so typer's rich-rendered options panel does not
+    # truncate option names. Without this, newer typer/rich versions on CI
+    # squeeze the panel and drop "--workspace" from the output entirely.
+    monkeypatch.setenv("COLUMNS", "200")
     result = runner.invoke(app, ["agent", "--help"])
 
     assert result.exit_code == 0
-    assert "--workspace" in result.stdout
-    assert "-w" in result.stdout
-    assert "--config" in result.stdout
-    assert "-c" in result.stdout
-    assert "--continue" in result.stdout
-    assert "--pick-session" in result.stdout
-    assert "--multiline" in result.stdout
+    stripped = _strip_ansi(result.stdout)
+    assert "--workspace" in stripped
+    assert "-w" in stripped
+    assert "--config" in stripped
+    assert "-c" in stripped
+    assert "--continue" in stripped
+    assert "--pick-session" in stripped
+    assert "--multiline" in stripped
 
 
 def test_agent_uses_default_config_when_no_workspace_or_config_flags(mock_agent_runtime):
