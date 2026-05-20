@@ -436,21 +436,6 @@ def _parse_json_object_text(raw: str, *, object_required_message: str) -> dict[s
     return data
 
 
-def _manifest_map_to_text(value: Any) -> str:
-    if not isinstance(value, dict):
-        return ""
-    items: list[str] = []
-    for key in sorted(value):
-        raw_value = value.get(key)
-        if not isinstance(key, str) or not isinstance(raw_value, str):
-            continue
-        cleaned_key = key.strip()
-        cleaned_value = raw_value.strip()
-        if cleaned_key and cleaned_value:
-            items.append(f"{cleaned_key} = {cleaned_value}")
-    return "\n".join(items)
-
-
 def _manifest_tags_to_text(value: Any) -> str:
     return ", ".join(normalize_response_filter_tags(value))
 
