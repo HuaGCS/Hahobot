@@ -526,6 +526,45 @@ def test_openai_compat_preserves_message_level_reasoning_fields() -> None:
     }
 
 
+def test_openai_compat_deduplicates_duplicate_tool_call_ids_in_history() -> None:
+    """Providers that reuse one id for parallel calls must not produce an
+    ambiguous pairing between assistant tool_calls and their tool results."""
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI"):
+        provider = OpenAICompatProvider()
+
+    sanitized = provider._sanitize_messages(
+        [
+            {"role": "user", "content": "check both files"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "dup_call",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
+                    },
+                    {
+                        "id": "dup_call",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
+                    },
+                ],
+            },
+            {"role": "tool", "tool_call_id": "dup_call", "content": "a contents"},
+            {"role": "tool", "tool_call_id": "dup_call", "content": "b contents"},
+            {"role": "user", "content": "thanks"},
+        ]
+    )
+
+    tc_ids = [tc["id"] for tc in sanitized[1]["tool_calls"]]
+    assert len(tc_ids) == 2
+    assert tc_ids[0] != tc_ids[1]
+
+    result_ids = [m["tool_call_id"] for m in sanitized if m.get("role") == "tool"]
+    assert result_ids == tc_ids
+
+
 @pytest.mark.asyncio
 async def test_openai_compat_stream_watchdog_returns_error_on_stall(monkeypatch) -> None:
     monkeypatch.setenv("NANOBOT_STREAM_IDLE_TIMEOUT_S", "0")
