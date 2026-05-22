@@ -5,6 +5,7 @@ strategy, and sandbox behaviour per platform — without actually running
 platform-specific binaries (all subprocess calls are mocked).
 """
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -122,6 +123,7 @@ class TestSpawnUnix:
         assert "-l" in args
         assert "-c" in args
         assert "echo hi" in args
+        assert mock_exec.call_args[1]["stdin"] == asyncio.subprocess.DEVNULL
 
 
 class TestSpawnWindows:
@@ -139,6 +141,7 @@ class TestSpawnWindows:
         assert "cmd.exe" in args[0]
         assert "/c" in args
         assert "dir" in args
+        assert mock_exec.call_args[1]["stdin"] == asyncio.subprocess.DEVNULL
 
     @pytest.mark.asyncio
     async def test_falls_back_to_default_comspec(self):

@@ -54,13 +54,20 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `7411afa` (`2026-05-18`). This pass adopted the
-  Chinese rate-limit transient error markers (`访问量过大`, `速率限制`) and the Consolidator
-  session-refresh guard that prevents AutoCompact/consolidator race conditions. The WebUI streaming
-  refactor, live file-edit activity, and Ant Ling provider are still not local parity targets.
-- `GenericAgent`: re-checked against upstream `main` at `e95bc5c` (`2026-05-19`). All visible
-  deltas are TUI v2, ACP/BBS, and hive-worker frontend churn — no new runtime or memory ideas to
-  adopt this pass.
+- `nanobot`: re-checked against upstream `main` at `9b2f452b` (`2026-05-22`). This pass adopted
+  three provider/exec hardening fixes: shell subprocesses now detach stdin (`stdin=DEVNULL`) so a
+  command that reads stdin cannot hang on the inherited terminal; streaming responses deduplicate
+  tool_call ids when a provider (e.g. Zhipu/GLM) reuses one id for parallel calls; and history
+  sanitization gives each tool_call within a message a unique id, pairing tool results back through
+  a FIFO so duplicate ids no longer make the pairing ambiguous. New providers (Novita, Skywork,
+  APIFree), the new image-generation providers (Gemini, StepFun, MiniMax), the Signal channel, the
+  Kimi/MiMo OpenRouter `reasoning.effort` injection, the gateway cold-start optimization, and the
+  weixin silent-message-drop fix are reviewed but left on the watchlist. The WebUI sidebar/streaming
+  refactor and live file-edit activity are still not local parity targets.
+- `GenericAgent`: re-checked against upstream `main` at `2506387f` (`2026-05-22`). All visible
+  deltas are TUI v3 scrollback, Feishu interface churn, goal-mode prompt rewrites, an agent
+  lifecycle hook trigger, and llmcore key-loading cleanup — no new runtime or memory ideas to adopt
+  this pass.
 - `claude-mem`: upstream GitHub response returned unrelated content during this audit pass; re-check
   deferred. Previously adopted behaviors (private tags, structured observations, progressive recall,
   SQLite FTS index) remain unchanged locally.
@@ -89,6 +96,8 @@ This file therefore records both:
 | Anthropic message alternation recovery | `synced` | Anthropic request normalization now also enforces leading-user, strips trailing assistant prefill, and recovers the empty-array edge case without rerouting `tool_use`-carrying assistant blocks into invalid user turns. |
 | Tool hint formatting / length control | `synced` | Exec hints handle quoted paths, path abbreviation, duplicate collapse, and hot-reloadable `agents.defaults.toolHintMaxLength` for channels that expose tool-call hints. |
 | Exec `pathAppend` safety | `synced` | Local POSIX `tools.exec.pathAppend` now passes the appended path through `HAHOBOT_PATH_APPEND` instead of interpolating the raw config value into shell syntax, while Windows still appends through the subprocess env. |
+| Exec stdin isolation | `synced` | `ExecTool._spawn` launches both the POSIX bash and Windows COMSPEC subprocesses with `stdin=asyncio.subprocess.DEVNULL`, so a shell command that reads from stdin returns immediately instead of hanging on the inherited terminal. |
+| Tool-call id uniqueness | `synced` | Streaming responses deduplicate reused `tool_call` ids before building `LLMResponse` (some providers reuse one id for parallel calls), and `_sanitize_messages` assigns each `tool_call` within a message a unique normalized id while routing tool results back through a per-id FIFO so duplicate ids cannot create an ambiguous assistant/tool pairing. |
 | Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
 | Session timestamp anchors in model context | `synced` | `Session.get_history(..., include_timestamps=True)` can annotate user/assistant text with `[Message Time: ...]`, and normal prompt assembly plus compaction probes use that timestamped view while persisted session format stays unchanged. |
 | Ask-user clarification tool | `watchlist` | Upstream added an `ask_user` tool plus CLI/WebUI choice rendering. Local hahobot should only adopt this after mapping the UX across CLI, gateway channels, buttons, and session-lock semantics. |
@@ -144,6 +153,11 @@ This file therefore records both:
 | Consolidator session-refresh guard | `synced` | `maybe_consolidate_by_tokens` now refreshes the session reference with `get_or_create` after acquiring the consolidation lock, preventing stale-reference overwrites when AutoCompact truncates concurrently. |
 | Background task LLM runtime resolver | `watchlist` | nanobot introduced `LLMRuntime`/`LLMRuntimeResolver` so heartbeat/background tasks fetch a fresh provider+model at call time. hahobot's `apply_runtime_config` covers model hot-reload; pool-provider rotation benefit remains. |
 | Ant Ling provider | `watchlist` | Upstream added `ant_ling` as an OpenAI-compatible provider (`https://api.ant-ling.com/v1`, models `Ling-2.6-flash`, `Ling-2.6-1T`). Add when there is real demand with schema/docs/admin wiring. |
+| Novita / Skywork / APIFree providers | `watchlist` | Upstream added three more OpenAI-compatible providers (Novita AI, Skywork via the APIFree agent endpoint, APIFree). Same stance as Ant Ling: add per-provider only with real demand plus schema/docs/admin wiring, not as speculative breadth. |
+| Image-generation provider breadth | `watchlist` | Upstream added Gemini, StepFun, and MiniMax image-generation providers behind a provider registry. Local `tools.imageGen` has its own contract; adopt new backends only with config/docs/admin treatment and per-provider delivery tests. |
+| Signal channel | `watchlist` | Upstream added a Signal channel (signal-cli SSE receive loop, DM pairing-code flow, configurable attachments dir, UTF-16 textStyle offsets). Local channel set does not include Signal; add only with a concrete operator need and full schema/docs/multi-instance treatment. |
+| Kimi/MiMo OpenRouter reasoning injection | `watchlist` | Upstream injects OpenRouter's unified `reasoning.effort` for Kimi/MiMo thinking models and drops the redundant top-level `reasoning_effort` for Moonshot Kimi (which 400s on both). Local `moonshot`/`xiaomi_mimo` specs carry no `thinking_style`, so there is no native thinking injection to reconcile yet; revisit if Kimi/MiMo thinking toggles are added locally. |
+| Weixin silent message-drop hardening | `watchlist` | Upstream hardened the weixin iLink channel against silent drops (log inbound poll exceptions, check both `ret` and `errcode` on send, proactively refresh `context_token` via `getconfig` when older than 60s). Re-check local `channels/weixin.py` against this if weixin message loss is reported in practice. |
 | Future upstream channel/provider churn | `watchlist` | Re-audit `channels/`, `providers/`, `cron/`, `agent/hook.py`, `config/schema.py`, and runtime doctor whenever upstream lands new runtime toggles or transport behavior. |
 
 ## GenericAgent Detailed Matrix
@@ -279,6 +293,43 @@ Reviewed and intentionally skipped:
   additionally benefit pool-provider rotation. Port as part of a broader hot-reload or pool-provider
   improvement rather than in isolation.
 - **GenericAgent TUI v2, ACP/BBS, hive-worker changes**: no runtime or memory ideas to adopt.
+
+## Borrow Candidates From 2026-05-22 Audit
+
+Implemented locally in this pass:
+
+- **Exec stdin isolation**: `ExecTool._spawn` now launches the POSIX bash and Windows COMSPEC
+  subprocesses with `stdin=asyncio.subprocess.DEVNULL`. A shell command that reads from stdin
+  previously inherited the parent terminal and could hang the per-session lock; it now sees EOF
+  immediately.
+- **Streaming tool_call id dedup**: `OpenAICompatProvider.chat_stream` deduplicates reused
+  `tool_call` ids before building `LLMResponse`. Some providers (Zhipu/GLM) reuse one id for
+  parallel streaming tool calls, which would otherwise collide downstream tool messages.
+- **History tool_call id dedup**: `_sanitize_messages` now assigns each `tool_call` within a
+  message a unique normalized id and routes tool results back through a per-raw-id FIFO, so an
+  assistant message carrying duplicate `tool_call` ids no longer produces an ambiguous
+  assistant/tool-result pairing.
+
+Reviewed and intentionally skipped / left on watchlist:
+
+- **Shell guard URL path detection**: upstream added a negative lookbehind so `https://` URLs are
+  not extracted as Windows drive paths. The local `_extract_absolute_paths` Windows regex still
+  requires a backslash after the drive letter (`[A-Za-z]:\\...`), so URLs never matched locally and
+  no change is needed.
+- **Novita / Skywork / APIFree providers, Gemini/StepFun/MiniMax image generation, Signal
+  channel**: new provider/channel surfaces; tracked on the watchlist, add only with real demand and
+  full schema/docs/admin wiring.
+- **Kimi/MiMo OpenRouter `reasoning.effort` injection and the Moonshot `reasoning_effort` drop**:
+  both depend on upstream's Kimi/MiMo native-thinking injection, which has no local equivalent
+  (`moonshot`/`xiaomi_mimo` carry no `thinking_style`). Revisit only if Kimi/MiMo thinking toggles
+  are added locally.
+- **Gateway cold-start optimization**: useful upstream perf work, but it is entangled with the
+  WebUI/lazy-import boundary churn; re-check only if local gateway startup latency becomes a
+  measured problem.
+- **Coding-workflow tool contract / patch+session workflow changes**: upstream internalized a
+  general tool-workflow contract prompt and tightened apply-patch/session tooling. Hahobot keeps
+  workflow guidance in bundled skills (`workflow-core`, `plan`, `verify`); re-check only if a
+  concrete local tool-recovery gap appears.
 
 ## Borrow Candidates From 2026-05-09 Audit
 
@@ -451,6 +502,11 @@ as "do not re-port unless upstream changes again":
 - `maybe_consolidate_by_tokens` refreshes its session reference after acquiring the consolidation
   lock, preventing AutoCompact from being silently undone by a concurrent consolidation run holding
   a stale session object.
+- Shell exec subprocesses are spawned with `stdin=asyncio.subprocess.DEVNULL` so a command reading
+  from stdin sees EOF immediately instead of hanging on the inherited terminal.
+- Reused `tool_call` ids are deduplicated both in streaming responses and during history
+  sanitization, so providers that emit one id for parallel calls cannot create an ambiguous
+  assistant/tool-result pairing.
 
 ## Intentional Local Differences
 
@@ -491,10 +547,13 @@ These are local choices. When upstream behaves differently, that is not automati
 
 ## Watchlist For Next Upstream Sync
 
-- The 2026-05-19 pass synced Chinese rate-limit markers and the Consolidator session-refresh guard;
-  next pass should track the background-task LLM runtime resolver (pool-provider rotation benefit),
-  Ant Ling provider (when demand arises), and CLI reasoning token buffering (when reasoning
-  streaming is added to the interactive CLI).
+- The 2026-05-22 pass synced exec stdin isolation and streaming/history `tool_call` id dedup; next
+  pass should track the background-task LLM runtime resolver (pool-provider rotation benefit), the
+  new Novita/Skywork/APIFree providers and Gemini/StepFun/MiniMax image-generation backends (when
+  demand arises), the Signal channel (when there is an operator need), the weixin silent
+  message-drop hardening (if weixin message loss is reported), and CLI reasoning token buffering
+  (when reasoning streaming is added to the interactive CLI).
+- The 2026-05-19 pass synced Chinese rate-limit markers and the Consolidator session-refresh guard.
 - Re-check `thedotmack/claude-mem` directly on the next pass; the 2026-05-19 audit could not
   fetch reliable content and was deferred.
 - The `nocturne_memory` append-only memory-write idea is now synced (Consolidator `save_memory`
