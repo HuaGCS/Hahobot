@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import socket
 from unittest.mock import patch
@@ -16,7 +17,14 @@ def _fake_resolve_private(hostname, port, family=0, type_=0):
 
 
 def _fake_resolve_public(hostname, port, family=0, type_=0):
-    return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
+    # Literal IPs round-trip as themselves (so a redirect to ``127.0.0.1`` is
+    # still recognized as loopback by per-hop SSRF validation), and unknown
+    # hostnames pretend to be a public example.com.
+    try:
+        ip = ipaddress.ip_address(hostname)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (str(ip), 0))]
+    except (ValueError, TypeError):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
 
 
 @pytest.mark.asyncio
@@ -49,23 +57,19 @@ async def test_web_fetch_result_contains_untrusted_flag():
 
     fake_html = "<html><head><title>Test</title></head><body><p>Hello world</p></body></html>"
 
-    class FakeStreamResponse:
+    class FakeResponse:
+        is_redirect = False
         status_code = 200
         url = "https://example.com/page"
         headers = {"content-type": "text/html"}
         encoding = "utf-8"
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
+        content = fake_html.encode("utf-8")
 
         def raise_for_status(self):
             pass
 
-        async def aread(self):
-            return fake_html.encode("utf-8")
+        async def aclose(self):
+            return None
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
@@ -77,8 +81,8 @@ async def test_web_fetch_result_contains_untrusted_flag():
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        def stream(self, method, url, headers=None):
-            return FakeStreamResponse()
+        async def get(self, url, headers=None, follow_redirects=False):
+            return FakeResponse()
 
     with (
         patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_public),
@@ -93,23 +97,16 @@ async def test_web_fetch_result_contains_untrusted_flag():
 
 @pytest.mark.asyncio
 async def test_web_fetch_blocks_private_redirect_before_returning_image(monkeypatch):
+    """Per-hop SSRF check must reject a redirect Location that resolves to private space."""
     tool = WebFetchTool()
 
-    class FakeStreamResponse:
-        headers = {"content-type": "image/png"}
-        url = "http://127.0.0.1/secret.png"
-        content = b"\x89PNG\r\n\x1a\n"
+    class FakeRedirectResponse:
+        is_redirect = True
+        status_code = 302
+        url = "https://example.com/image.png"
+        headers = {"location": "http://127.0.0.1/secret.png"}
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        async def aread(self):
-            return self.content
-
-        def raise_for_status(self):
+        async def aclose(self):
             return None
 
     class FakeClient:
@@ -122,8 +119,8 @@ async def test_web_fetch_blocks_private_redirect_before_returning_image(monkeypa
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        def stream(self, method, url, headers=None):
-            return FakeStreamResponse()
+        async def get(self, url, headers=None, follow_redirects=False):
+            return FakeRedirectResponse()
 
     monkeypatch.setattr("hahobot.agent.tools.web.httpx.AsyncClient", FakeClient)
 

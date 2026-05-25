@@ -694,7 +694,7 @@ class OpenAICompatProvider(LLMProvider):
                 ec, prov, fn_prov = _extract_tc_extras(tc)
                 parsed_tool_calls.append(
                     ToolCallRequest(
-                        id=_short_tool_id(),
+                        id=str(tc_map.get("id") or _short_tool_id()),
                         name=str(fn.get("name") or ""),
                         arguments=args if isinstance(args, dict) else {},
                         extra_content=ec,
@@ -739,7 +739,7 @@ class OpenAICompatProvider(LLMProvider):
             ec, prov, fn_prov = _extract_tc_extras(tc)
             tool_calls.append(
                 ToolCallRequest(
-                    id=_short_tool_id(),
+                    id=str(getattr(tc, "id", None) or _short_tool_id()),
                     name=tc.function.name,
                     arguments=args,
                     extra_content=ec,

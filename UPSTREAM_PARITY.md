@@ -54,29 +54,33 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `9b2f452b` (`2026-05-22`). This pass adopted
-  three provider/exec hardening fixes: shell subprocesses now detach stdin (`stdin=DEVNULL`) so a
-  command that reads stdin cannot hang on the inherited terminal; streaming responses deduplicate
-  tool_call ids when a provider (e.g. Zhipu/GLM) reuses one id for parallel calls; and history
-  sanitization gives each tool_call within a message a unique id, pairing tool results back through
-  a FIFO so duplicate ids no longer make the pairing ambiguous. New providers (Novita, Skywork,
-  APIFree), the new image-generation providers (Gemini, StepFun, MiniMax), the Signal channel, the
-  Kimi/MiMo OpenRouter `reasoning.effort` injection, the gateway cold-start optimization, and the
-  weixin silent-message-drop fix are reviewed but left on the watchlist. The WebUI sidebar/streaming
-  refactor and live file-edit activity are still not local parity targets.
-- `GenericAgent`: re-checked against upstream `main` at `2506387f` (`2026-05-22`). All visible
-  deltas are TUI v3 scrollback, Feishu interface churn, goal-mode prompt rewrites, an agent
-  lifecycle hook trigger, and llmcore key-loading cleanup — no new runtime or memory ideas to adopt
-  this pass.
-- `claude-mem`: upstream GitHub response returned unrelated content during this audit pass; re-check
-  deferred. Previously adopted behaviors (private tags, structured observations, progressive recall,
-  SQLite FTS index) remain unchanged locally.
-- `nocturne_memory`: first reviewed at the project's `main` (`2026-05-19`, release v2.5.0). It is a
-  graph-backed long-term memory MCP server. The single concrete borrow candidate is patch-only /
-  append-only memory writes (no full-replacement mode) to harden the Consolidator `save_memory`
-  path; the graph-DB backend, separate FastAPI service, mandatory boot protocol, and active-recall
-  discipline are intentional divergences against hahobot's file-first, always-on, Dream-maintained
-  memory.
+- `nanobot`: re-checked against upstream `main` at `92f2ff3a` (`2026-05-25`). This pass adopted
+  three contract-stable fixes: the non-streaming OpenAI-compat response parser now preserves the
+  upstream `tool_call` id when present (instead of always minting a fresh `_short_tool_id`); the
+  Responses replay converter dedupes generated `msg_*` / `fc_*` item ids so Codex no longer rejects
+  resumed conversations with duplicate `rs_*` ids while `call_id` linkage stays intact; and
+  `WebFetchTool` now validates every redirect hop's resolved IP before issuing the next request
+  (per-hop SSRF check), rather than only checking the final URL after httpx silently followed
+  redirects. The exec-config timeout uncap (config `timeout=0` = no limit), per-subagent sampling
+  temperature, OpenAI `apiType` + `extraBody`, transcription `apiBase` normalization, MCP preset
+  setup, Codex / OpenAI image-gen providers, Zhipu image-gen, apply-patch edits-only refactor, and
+  the various WebUI / settings churn are all reviewed but intentionally skipped or left on the
+  watchlist (see borrow-candidates section below).
+- `GenericAgent`: re-checked against upstream `main` at `a33b2259` (`2026-05-25`). All visible
+  deltas are a QQApp Markdown message-type tweak, a Python <3.10 `from __future__ import
+  annotations` compat fix for cost-tracker, and an A3Agent workbench docs link — no runtime or
+  memory ideas to adopt this pass.
+- `claude-mem`: re-checked against upstream `main` at `c3d2af7c` (`2026-05-21`, release v13.3.0).
+  Two new workflow skills (`oh-my-issues` for GitHub issue clustering, `weekly-digests` for
+  ISO-week serial narrative) plus an MCP root-config fix and a Codex transcript replay fix after
+  the hooks migration. Both new skills are skill-layer ideas that could be ported into hahobot's
+  bundled skill set; tracked on watchlist pending operator demand.
+- `nocturne_memory`: re-checked against upstream `main` at `68f0ebf3` (`2026-05-24`, release
+  v2.5.3). New surface area is "boot URI presets management" (database-backed CRUD over boot URIs,
+  promoted from legacy `config.json`) and an "AntiGravity heartbeat" engine for the AntiGravity
+  IDE via Chrome DevTools Protocol. Boot URI presets sit on top of nocturne's mandatory boot
+  protocol — already an intentional divergence locally — so nothing to adopt there. The
+  AntiGravity heartbeat is IDE-integration-specific and outside hahobot's scope.
 
 ## Current Snapshot
 
@@ -97,7 +101,9 @@ This file therefore records both:
 | Tool hint formatting / length control | `synced` | Exec hints handle quoted paths, path abbreviation, duplicate collapse, and hot-reloadable `agents.defaults.toolHintMaxLength` for channels that expose tool-call hints. |
 | Exec `pathAppend` safety | `synced` | Local POSIX `tools.exec.pathAppend` now passes the appended path through `HAHOBOT_PATH_APPEND` instead of interpolating the raw config value into shell syntax, while Windows still appends through the subprocess env. |
 | Exec stdin isolation | `synced` | `ExecTool._spawn` launches both the POSIX bash and Windows COMSPEC subprocesses with `stdin=asyncio.subprocess.DEVNULL`, so a shell command that reads from stdin returns immediately instead of hanging on the inherited terminal. |
-| Tool-call id uniqueness | `synced` | Streaming responses deduplicate reused `tool_call` ids before building `LLMResponse` (some providers reuse one id for parallel calls), and `_sanitize_messages` assigns each `tool_call` within a message a unique normalized id while routing tool results back through a per-id FIFO so duplicate ids cannot create an ambiguous assistant/tool pairing. |
+| Tool-call id uniqueness | `synced` | Streaming responses deduplicate reused `tool_call` ids before building `LLMResponse` (some providers reuse one id for parallel calls), and `_sanitize_messages` assigns each `tool_call` within a message a unique normalized id while routing tool results back through a per-id FIFO so duplicate ids cannot create an ambiguous assistant/tool pairing. Non-streaming response parsing now also preserves the original upstream `tool_call` id when present (instead of always minting a fresh `_short_tool_id`), so log correlation and downstream tool-result linkage stay readable. |
+| OpenAI Responses replay item id dedup | `synced` | `openai_responses.converters.convert_messages` now routes every assistant `message` and `function_call` item id through `_unique_item_id`, so resumed conversations with duplicate `msg_*` / `fc_*` items no longer get rejected by the Responses API while `call_id` (tool-result linkage) remains untouched. |
+| Per-hop WebFetch redirect SSRF check | `synced` | `WebFetchTool` now walks redirect chains manually via `_get_with_safe_redirects`, validating each `Location` against the SSRF policy before issuing the next request. httpx's `follow_redirects=True` could otherwise briefly hit a disallowed intermediate hop even when the final URL passed validation. |
 | Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
 | Session timestamp anchors in model context | `synced` | `Session.get_history(..., include_timestamps=True)` can annotate user/assistant text with `[Message Time: ...]`, and normal prompt assembly plus compaction probes use that timestamped view while persisted session format stays unchanged. |
 | Ask-user clarification tool | `watchlist` | Upstream added an `ask_user` tool plus CLI/WebUI choice rendering. Local hahobot should only adopt this after mapping the UX across CLI, gateway channels, buttons, and session-lock semantics. |
@@ -158,6 +164,13 @@ This file therefore records both:
 | Signal channel | `watchlist` | Upstream added a Signal channel (signal-cli SSE receive loop, DM pairing-code flow, configurable attachments dir, UTF-16 textStyle offsets). Local channel set does not include Signal; add only with a concrete operator need and full schema/docs/multi-instance treatment. |
 | Kimi/MiMo OpenRouter reasoning injection | `watchlist` | Upstream injects OpenRouter's unified `reasoning.effort` for Kimi/MiMo thinking models and drops the redundant top-level `reasoning_effort` for Moonshot Kimi (which 400s on both). Local `moonshot`/`xiaomi_mimo` specs carry no `thinking_style`, so there is no native thinking injection to reconcile yet; revisit if Kimi/MiMo thinking toggles are added locally. |
 | Weixin silent message-drop hardening | `watchlist` | Upstream hardened the weixin iLink channel against silent drops (log inbound poll exceptions, check both `ret` and `errcode` on send, proactively refresh `context_token` via `getconfig` when older than 60s). Re-check local `channels/weixin.py` against this if weixin message loss is reported in practice. |
+| Exec config timeout uncap (`timeout=0` = no limit) | `watchlist` | Upstream lifted the 600s `_MAX_TIMEOUT` cap from the **config-level** exec timeout so operators can set `tools.exec.timeout=0` to disable the limit entirely (per-call LLM-supplied timeout still caps at `_MAX_TIMEOUT`). Local `ExecToolConfig.timeout` still clamps via `min(timeout or self.timeout, self._MAX_TIMEOUT)`; this loosens a safety boundary, so adopt only with explicit operator docs and an admin-surface explanation. |
+| Per-subagent sampling temperature | `watchlist` | Upstream `spawn` now accepts an optional `temperature` argument so a model can pick determinism per subtask. Local `spawn(mode=...)` already enforces role boundaries through tool registry; add only if there is a concrete persona/subagent need that the model-level temperature default can't cover. |
+| OpenAI provider `apiType` + `extraBody` | `watchlist` | Upstream added an `apiType` (chat-completions vs responses) selector and `extraBody` passthrough for the OpenAI provider, with admin/WebUI settings wiring. Local `openai_compat_provider` already routes GPT-5/o-series to Responses via heuristics + circuit breaker; an explicit `apiType` would make it operator-controllable. Adopt with schema/admin/docs treatment together. |
+| OpenAI / OpenAI Codex / Zhipu / Ollama image-generation providers | `watchlist` | Upstream landed image-gen for OpenAI, OpenAI-Codex, Zhipu (智谱), and Ollama plus an HTTP-handling refactor and MiniMax mime-detection fix. Local `tools.imageGen` has its own contract — adopt per-provider only with config/docs/admin treatment and per-provider delivery tests. |
+| Transcription `apiBase` normalization | `watchlist` | Upstream now accepts chat-style transcription bases (e.g. `https://api.groq.com/openai/v1`) and appends `audio/transcriptions` automatically, with `OPENAI_TRANSCRIPTION_BASE_URL` / `GROQ_BASE_URL` env hooks. Local `OpenAITranscriptionProvider` / `GroqTranscriptionProvider` use hardcoded URLs and do not expose `apiBase` config; adopt only when a `channels.transcriptionApiBase` (or equivalent) is added with schema/admin/docs treatment. |
+| Apply-patch edits-only tool | `intentional_divergence` | Upstream removed the legacy unified-diff `patch` mode from `apply_patch` and now accepts only the structured `edits` array. Hahobot does not ship the `apply_patch` tool — file edits go through `notebook_edit` (for `.ipynb`) plus general `read_file` / shell write flows — so there is nothing to converge here. |
+| MCP preset setup / capability mentions | `intentional_divergence` | Upstream added a Settings-UI driven MCP preset wizard (`mcp_presets_api` + WebUI). Hahobot keeps MCP wiring under `tools.mcpServers.*` (file-first config with `enabledTools`); adopting a preset wizard would imply pulling in the WebUI settings stack and is rejected for the same reason as the standalone browser SPA divergence. |
 | Future upstream channel/provider churn | `watchlist` | Re-audit `channels/`, `providers/`, `cron/`, `agent/hook.py`, `config/schema.py`, and runtime doctor whenever upstream lands new runtime toggles or transport behavior. |
 
 ## GenericAgent Detailed Matrix
@@ -358,6 +371,57 @@ Reviewed and intentionally skipped / left on watch:
 - **claude-mem homepage metadata fix**: tracked for audit freshness; no memory architecture change
   to adopt.
 
+## Borrow Candidates From 2026-05-25 Audit
+
+Implemented locally in this pass:
+
+- **Preserve OpenAI-compat `tool_call` ids in non-streaming responses**: nanobot's
+  `openai_compat_provider` non-streaming response parser now passes the upstream `tc_map.get("id")`
+  (or `getattr(tc, "id", None)`) into `ToolCallRequest` instead of always minting a fresh
+  `_short_tool_id`. Local `_sanitize_messages` will still normalize/dedupe ids before the next
+  outbound request, so this is purely a "preserve correlation in the first stored assistant turn"
+  change — useful for logs and any downstream consumer that compares pre-/post-sanitization ids.
+- **Responses replay item-id dedup**: ported the upstream `_unique_item_id` helper into
+  `hahobot/providers/openai_responses/converters.py`. Resumed conversations with duplicate
+  `msg_*` / `fc_*` ids no longer get rejected by Codex while `call_id` (tool-result linkage)
+  stays unchanged.
+- **Per-hop WebFetch redirect SSRF check**: replaced the existing "validate only the final
+  resolved URL after httpx followed redirects" behavior with `_get_with_safe_redirects`, which
+  walks the chain manually (`follow_redirects=False`) and revalidates each `Location` against
+  the SSRF policy before issuing the next request. Applied to both the image-pre-fetch and the
+  readability fallback paths in `WebFetchTool`.
+
+Reviewed and intentionally skipped / left on watchlist:
+
+- **Exec config `timeout=0` = no limit** (`5b71f61f`): loosens a safety boundary
+  (`_MAX_TIMEOUT=600` no longer caps the config-level value). Adopt only with explicit operator
+  docs and admin-surface explanation; per-call LLM-supplied timeout stays capped either way.
+- **Per-subagent sampling `temperature`** (`7a6cc657`): nice-to-have; `spawn(mode=...)` already
+  enforces role boundaries via tool registry. Add only with a concrete persona/subagent need.
+- **OpenAI `apiType` + `extraBody`** (`d4725954`, `c433d606`): operator-controllable Responses-vs-
+  Chat-Completions selection plus an `extraBody` passthrough. Local routing already prefers
+  Responses for GPT-5/o-series via heuristics + circuit breaker; adopt with schema/admin/docs
+  treatment together.
+- **Transcription `apiBase` normalization** (`ef2ef4f7`): only matters if a `channels.transcriptionApiBase`
+  is added; local providers use hardcoded URLs today.
+- **Image-gen provider breadth** (`3483121e` OpenAI/Codex, `3e6f9907` Zhipu, `84603f4c` Ollama,
+  `e6587a8d` MiniMax mime, `a7b34422` Gemini base): per-provider adopt only with config/docs/admin
+  treatment plus per-provider delivery tests.
+- **MCP preset setup + capability mentions** (`704ac558`): WebUI Settings-driven flow. Same
+  stance as the standalone browser-chat SPA divergence.
+- **Apply-patch refactor + edits-only tightening** (`3d9f50a0`, `b0d30696`): hahobot does not
+  ship the `apply_patch` tool; nothing to converge.
+- **CLI Apps settings MVP + WebUI churn** (`e2d00ffc`, locale fills, activity-cluster polish):
+  WebUI-only; hahobot keeps local ops in CLI/gateway/admin/status.
+- **Shell-guard URL path detection revert** (`3f789bd9` revert of `65cecc01`): no change to
+  port either direction; local regex was already URL-safe.
+- **`claude-mem` `oh-my-issues` + `weekly-digests` skills** (v13.3.0): potentially portable as
+  hahobot bundled workflow skills (GitHub issue clustering, ISO-week serial narrative). Track on
+  watchlist pending operator demand; do not import claude-mem AGPL files verbatim.
+- **`nocturne_memory` boot URI presets + AntiGravity heartbeat** (v2.5.3): boot URI presets sit
+  on top of the mandatory boot protocol that hahobot has already rejected as intentional
+  divergence; AntiGravity heartbeat is IDE-integration-specific. Nothing to adopt.
+
 ## GenericAgent Adoption Notes
 
 - Hahobot now covers the two previously open GenericAgent gaps that motivated adding it as an
@@ -507,6 +571,15 @@ as "do not re-port unless upstream changes again":
 - Reused `tool_call` ids are deduplicated both in streaming responses and during history
   sanitization, so providers that emit one id for parallel calls cannot create an ambiguous
   assistant/tool-result pairing.
+- Non-streaming OpenAI-compat response parsing preserves the original upstream `tool_call` id
+  when present (instead of always minting a fresh `_short_tool_id`), so log correlation and
+  downstream tool-result linkage stay readable.
+- Responses-API converter routes assistant `message` and `function_call` items through
+  `_unique_item_id`, so resumed Codex conversations with duplicate `msg_*` / `fc_*` items no
+  longer get rejected while `call_id` linkage stays intact.
+- `WebFetchTool` validates every redirect hop's resolved IP via `_get_with_safe_redirects`
+  before issuing the next request, not just the final URL after httpx has silently followed
+  the chain.
 
 ## Intentional Local Differences
 
@@ -547,12 +620,22 @@ These are local choices. When upstream behaves differently, that is not automati
 
 ## Watchlist For Next Upstream Sync
 
-- The 2026-05-22 pass synced exec stdin isolation and streaming/history `tool_call` id dedup; next
-  pass should track the background-task LLM runtime resolver (pool-provider rotation benefit), the
-  new Novita/Skywork/APIFree providers and Gemini/StepFun/MiniMax image-generation backends (when
-  demand arises), the Signal channel (when there is an operator need), the weixin silent
-  message-drop hardening (if weixin message loss is reported), and CLI reasoning token buffering
-  (when reasoning streaming is added to the interactive CLI).
+- The 2026-05-25 pass synced non-streaming `tool_call` id preservation, Responses replay item-id
+  dedup, and per-hop WebFetch redirect SSRF validation. Next pass should track the exec config
+  timeout uncap (loosens a safety boundary; needs operator-facing docs first), per-subagent
+  sampling temperature, OpenAI `apiType` + `extraBody` (with schema/admin/docs treatment), the
+  transcription `apiBase` normalization (only if `channels.transcriptionApiBase` is added), and
+  the OpenAI/Codex/Zhipu/Ollama image-generation providers (only with per-provider delivery
+  tests). The MCP preset wizard and CLI Apps settings MVP are explicit WebUI divergences and
+  should not be ported as parity work.
+- The 2026-05-22 pass synced exec stdin isolation and streaming/history `tool_call` id dedup; the
+  background-task LLM runtime resolver (pool-provider rotation benefit), the Novita/Skywork/APIFree
+  providers and Signal channel (when there is an operator need), the weixin silent message-drop
+  hardening (if weixin message loss is reported), and CLI reasoning token buffering (when reasoning
+  streaming is added to the interactive CLI) remain on the watchlist.
+- claude-mem v13.3.0 added two new workflow skills (`oh-my-issues` for GitHub issue clustering,
+  `weekly-digests` for ISO-week serial narrative). Consider porting as hahobot bundled workflow
+  skills only when operator demand exists; do not import the AGPL implementation verbatim.
 - The 2026-05-19 pass synced Chinese rate-limit markers and the Consolidator session-refresh guard.
 - Re-check `thedotmack/claude-mem` directly on the next pass; the 2026-05-19 audit could not
   fetch reliable content and was deferred.
