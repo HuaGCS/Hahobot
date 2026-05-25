@@ -5,7 +5,7 @@ import json
 import os
 import re
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx
 from loguru import logger
@@ -60,6 +60,44 @@ async def _validate_url_safe(url: str) -> tuple[bool, str]:
     from hahobot.security.network import validate_url_target
 
     return await validate_url_target(url)
+
+
+async def _get_with_safe_redirects(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str] | None = None,
+) -> tuple[httpx.Response | None, str | None]:
+    """GET ``url`` while validating every redirect target before requesting it.
+
+    httpx's ``follow_redirects=True`` will issue requests to intermediate hops
+    before we can vet them, so a chain like ``allowed-host -> internal-host``
+    can briefly hit the disallowed target. Walk the chain manually instead and
+    revalidate each ``Location`` against the SSRF policy.
+    """
+    current_url = url
+    for _ in range(MAX_REDIRECTS + 1):
+        is_valid, error_msg = await _validate_url_safe(current_url)
+        if not is_valid:
+            return None, f"Redirect blocked: {error_msg}"
+
+        response = await client.get(current_url, headers=headers, follow_redirects=False)
+        if not response.is_redirect:
+            return response, None
+
+        location = response.headers.get("location")
+        if not location:
+            return response, None
+
+        next_url = urljoin(str(response.url), location)
+        is_valid, error_msg = await _validate_url_safe(next_url)
+        if not is_valid:
+            await response.aclose()
+            return None, f"Redirect blocked: {error_msg}"
+
+        await response.aclose()
+        current_url = next_url
+
+    return None, f"Too many redirects: exceeded limit of {MAX_REDIRECTS}"
 
 
 class WebSearchTool(Tool):
@@ -331,23 +369,19 @@ class WebFetchTool(Tool):
 
         # Detect and fetch images directly to avoid Jina's textual image captioning
         try:
-            async with httpx.AsyncClient(
-                proxy=self.proxy, follow_redirects=True, max_redirects=MAX_REDIRECTS, timeout=15.0
-            ) as client:
-                async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as r:
-                    from hahobot.security.network import validate_resolved_url
-
-                    redir_ok, redir_err = await validate_resolved_url(str(r.url))
-                    if not redir_ok:
-                        return json.dumps(
-                            {"error": f"Redirect blocked: {redir_err}", "url": url},
-                            ensure_ascii=False,
-                        )
-
+            async with httpx.AsyncClient(proxy=self.proxy, timeout=15.0) as client:
+                r, redirect_error = await _get_with_safe_redirects(
+                    client, url, headers={"User-Agent": USER_AGENT}
+                )
+                if redirect_error:
+                    return json.dumps(
+                        {"error": redirect_error, "url": url}, ensure_ascii=False
+                    )
+                if r is not None:
                     ctype = r.headers.get("content-type", "")
                     if ctype.startswith("image/"):
                         r.raise_for_status()
-                        raw = await r.aread()
+                        raw = r.content
                         return build_image_content_blocks(
                             raw, ctype, url, f"(Image fetched from: {url})"
                         )
@@ -407,31 +441,28 @@ class WebFetchTool(Tool):
         """Local fallback using readability-lxml."""
         from readability import Document
 
-        from hahobot.security.network import validate_resolved_url
-
         try:
             logger.debug("WebFetch: {}", "proxy enabled" if self.proxy else "direct connection")
-            async with httpx.AsyncClient(
-                follow_redirects=True,
-                max_redirects=MAX_REDIRECTS,
-                timeout=30.0,
-                proxy=self.proxy,
-            ) as client:
-                # Use streaming to validate the resolved URL BEFORE reading the
-                # response body, preventing SSRF via open redirects.
-                async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as r:
-                    redir_ok, redir_err = await validate_resolved_url(str(r.url))
-                    if not redir_ok:
-                        return json.dumps(
-                            {"error": f"Redirect blocked: {redir_err}", "url": url},
-                            ensure_ascii=False,
-                        )
+            async with httpx.AsyncClient(timeout=30.0, proxy=self.proxy) as client:
+                # Validate each redirect hop's resolved IP before issuing the
+                # next request, so SSRF can't sneak through a permissive chain.
+                r, redirect_error = await _get_with_safe_redirects(
+                    client, url, headers={"User-Agent": USER_AGENT}
+                )
+                if redirect_error:
+                    return json.dumps(
+                        {"error": redirect_error, "url": url}, ensure_ascii=False
+                    )
+                if r is None:
+                    return json.dumps(
+                        {"error": "Fetch failed", "url": url}, ensure_ascii=False
+                    )
 
-                    r.raise_for_status()
-                    raw_bytes = await r.aread()
-                    status_code = r.status_code
-                    final_url = str(r.url)
-                    headers = r.headers
+                r.raise_for_status()
+                raw_bytes = r.content
+                status_code = r.status_code
+                final_url = str(r.url)
+                headers = r.headers
 
             ctype = headers.get("content-type", "")
             if ctype.startswith("image/"):
