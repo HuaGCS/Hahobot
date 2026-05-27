@@ -1090,6 +1090,67 @@ async def test_gateway_admin_channel_cards_preserve_multi_instance_config(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_gateway_admin_skill_proposal_approve_and_reject(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    proposed_root = workspace / "skills" / "proposed"
+    for name in ("image-extract", "discard-me"):
+        skill_dir = proposed_root / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: proposed skill {name}\n---\nbody for {name}\n",
+            encoding="utf-8",
+        )
+
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    cookie = login.cookies["hahobot_admin_session"].value
+
+    list_page = await _call_route(
+        app,
+        "GET",
+        "/admin/skills",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert list_page.status == 200
+    assert "image-extract" in list_page.text
+    assert "discard-me" in list_page.text
+    assert "/admin/skills/proposed/image-extract/approve" in list_page.text
+
+    approve = await _call_route(
+        app,
+        "POST",
+        "/admin/skills/proposed/image-extract/approve",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert approve.status == 302
+    assert approve.headers["Location"] == "/admin/skills?proposed_approved=image-extract"
+    assert (workspace / "skills" / "image-extract" / "SKILL.md").is_file()
+    assert not (proposed_root / "image-extract").exists()
+
+    reject = await _call_route(
+        app,
+        "POST",
+        "/admin/skills/proposed/discard-me/reject",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert reject.status == 302
+    assert reject.headers["Location"] == "/admin/skills?proposed_rejected=discard-me"
+    assert not (proposed_root / "discard-me").exists()
+
+
+@pytest.mark.asyncio
 async def test_gateway_admin_memory_migrate_legacy_endpoint(tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
     workspace = tmp_path / "workspace"

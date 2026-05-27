@@ -56,6 +56,17 @@ def test_unknown_tag_falls_back_to_default() -> None:
     assert fragments[0]["tag"] == "preference"
 
 
+def test_experience_tag_is_preserved() -> None:
+    text = (
+        "<!-- tag:experience -->\n"
+        "For image-to-text tasks, run image_gen first, then ffmpeg, then web_search.\n"
+    )
+    out = _format_new_facts_as_fragments(text, src="dream", now_iso=NOW)
+    fragments = parse_memory_fragments(out, default_ts="ignored")
+    assert fragments[0]["tag"] == "experience"
+    assert fragments[0]["src"] == "dream"
+
+
 def test_multiple_blank_separated_blocks_become_multiple_fragments() -> None:
     text = "first fact\n\nsecond fact\n\n\nthird fact"
     out = _format_new_facts_as_fragments(text, src="turn", now_iso=NOW)

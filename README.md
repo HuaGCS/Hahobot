@@ -437,8 +437,10 @@ User prefers concise replies.
 ```
 
 The LLM only proposes the optional `tag:` token (one of `preference`, `project`,
-`reference`, `feedback`, `user`); `ts` and `src` are filled by code. Fragments
-without a header are still readable and become `tag=legacy`/`src=unknown`.
+`reference`, `feedback`, `user`, `experience`); `ts` and `src` are filled by code.
+`experience` is reserved for distilled task patterns (e.g. a successful tool
+sequence for a class of problem), not one-off facts. Fragments without a header
+are still readable and become `tag=legacy`/`src=unknown`.
 
 ### Consolidation and archive recall
 

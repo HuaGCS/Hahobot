@@ -25,6 +25,8 @@ from hahobot.gateway.admin.dashboard import (
     _admin_cron_page,
     _admin_index,
     _admin_sessions_page,
+    _admin_skill_proposal_approve,
+    _admin_skill_proposal_reject,
     _admin_skills_page,
 )
 from hahobot.gateway.admin.personas import (
@@ -73,6 +75,14 @@ def register_admin_routes(
     app.router.add_post("/admin/memory/migrate-legacy", _admin_memory_migrate_legacy)
     app.router.add_get("/admin/sessions", _admin_sessions_page)
     app.router.add_get("/admin/skills", _admin_skills_page)
+    app.router.add_post(
+        "/admin/skills/proposed/{name:[A-Za-z0-9][A-Za-z0-9._-]{0,63}}/approve",
+        _admin_skill_proposal_approve,
+    )
+    app.router.add_post(
+        "/admin/skills/proposed/{name:[A-Za-z0-9][A-Za-z0-9._-]{0,63}}/reject",
+        _admin_skill_proposal_reject,
+    )
     app.router.add_get("/admin/cron", _admin_cron_page)
     app.router.add_get("/admin/weixin", _admin_weixin_page)
     app.router.add_post("/admin/weixin/start", _admin_weixin_start)
