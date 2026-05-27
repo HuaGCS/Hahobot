@@ -91,7 +91,7 @@ class RuntimeConfigManager:
         config: MemoryConfig,
         primary: UserMemoryBackend,
     ) -> UserMemoryBackend | None:
-        """Keep file-backed memory as the conservative fallback when Mem0 is primary."""
+        """Build an optional fallback memory backend for the active primary."""
         return self.loop._memory_runtime.build_fallback_backend(config, primary)
 
     def build_shadow_memory_backends(

@@ -20,12 +20,12 @@ class MemoryRuntimeManager:
         *,
         config: MemoryConfig,
         file_backend_factory: Callable[[], UserMemoryBackend],
-        mem0_backend_type: type[UserMemoryBackend],
+        sqlite_backend_factory: Callable[[], UserMemoryBackend],
         memory_router_factory: Callable[..., MemoryRouter],
     ) -> None:
         self.config = config
         self._file_backend_factory = file_backend_factory
-        self._mem0_backend_type = mem0_backend_type
+        self._sqlite_backend_factory = sqlite_backend_factory
         self._memory_router_factory = memory_router_factory
 
     def update_runtime(self, config: MemoryConfig | None = None) -> None:
@@ -36,8 +36,8 @@ class MemoryRuntimeManager:
     def build_user_backend(self, config: MemoryConfig | None = None) -> UserMemoryBackend:
         """Create the configured primary user-memory backend."""
         resolved = config or self.config
-        if resolved.user.backend == "mem0":
-            return self._mem0_backend_type(resolved.user.mem0)
+        if resolved.user.backend == "sqlite":
+            return self._sqlite_backend_factory()
         return self._file_backend_factory()
 
     def build_fallback_backend(
@@ -45,9 +45,9 @@ class MemoryRuntimeManager:
         config: MemoryConfig | None = None,
         primary: UserMemoryBackend | None = None,
     ) -> UserMemoryBackend | None:
-        """Keep file-backed memory as the conservative fallback when Mem0 is primary."""
+        """Use the file backend as a conservative fallback when SQLite is primary."""
         resolved = config or self.config
-        if resolved.user.backend == "mem0":
+        if resolved.user.backend == "sqlite":
             return self._file_backend_factory()
         return None
 
@@ -56,13 +56,7 @@ class MemoryRuntimeManager:
         config: MemoryConfig | None = None,
         primary: UserMemoryBackend | None = None,
     ) -> list[UserMemoryBackend]:
-        """Create optional shadow backends that receive writes in parallel."""
-        resolved = config or self.config
-        current_primary = primary or self.build_user_backend(resolved)
-        if resolved.user.shadow_write_mem0 and not isinstance(
-            current_primary, self._mem0_backend_type
-        ):
-            return [self._mem0_backend_type(resolved.user.mem0)]
+        """No shadow backends configured."""
         return []
 
     def build_router(self, config: MemoryConfig | None = None):

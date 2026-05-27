@@ -32,7 +32,7 @@ Prefer structured archive tools first. Fall back to targeted command-line search
 
 ## Private Memory Tags
 
-Content inside `<private>...</private>` is stripped before session, archive, and Mem0 persistence. Use it for secrets, one-off credentials, or details that should not become long-term memory.
+Content inside `<private>...</private>` is stripped before session, archive, and long-term memory persistence. Use it for secrets, one-off credentials, or details that should not become long-term memory.
 
 ## When to Update MEMORY.md
 

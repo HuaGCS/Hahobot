@@ -382,16 +382,11 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert "data-provider-pool-editor" in config_page.text
     assert "data-provider-pool-move-up" in config_page.text
     assert "data-provider-pool-move-down" in config_page.text
-    assert 'name="memory_user_backend"' in config_page.text
-    assert 'name="memory_user_mem0_llm_api_key"' in config_page.text
-    assert 'name="memory_user_mem0_llm_headers"' in config_page.text
-    assert 'name="memory_user_mem0_metadata"' in config_page.text
     assert 'name="tools_mcp_memorix_enabled"' in config_page.text
     assert 'name="channels_transcription_provider"' in config_page.text
     assert "tooltip-anchor" in config_page.text
     assert "默认工作区路径" in config_page.text
     assert "工具调用提示的最大显示长度" in config_page.text
-    assert "Mem0 用户记忆" in config_page.text
     assert "Memorix MCP" in config_page.text
     assert "Star Office 推送" in config_page.text
     assert "Shell 执行" in config_page.text
@@ -436,15 +431,12 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
         data=[
             ("mode", "visual"),
             ("__bool_fields", "tools_mcp_memorix_enabled"),
-            ("__bool_fields", "memory_user_shadow_write_mem0"),
             ("__bool_fields", "gateway_status_enabled"),
             ("__bool_fields", "gateway_status_push_enabled"),
             ("__bool_fields", "channels_telegram_enabled"),
             ("__bool_fields", "channels_discord_streaming"),
             ("__bool_fields", "channels_weixin_enabled"),
             ("__bool_fields", "tools_exec_enable"),
-            ("memory_user_backend", "mem0"),
-            ("memory_user_shadow_write_mem0", "1"),
             ("gateway_status_enabled", "1"),
             ("gateway_status_auth_key", "status-secret"),
             ("gateway_status_push_enabled", "1"),
@@ -475,24 +467,6 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
             ("channels_weixin_state_dir", "/tmp/hahobot-weixin"),
             ("channels_weixin_poll_timeout", "42"),
             ("channels_transcription_provider", "openai"),
-            ("memory_user_mem0_llm_provider", "openai"),
-            ("memory_user_mem0_llm_api_key", "mem0-llm-key"),
-            ("memory_user_mem0_llm_url", "https://api.mem0.ai/v1"),
-            ("memory_user_mem0_llm_model", "gpt-4.1-mini"),
-            ("memory_user_mem0_llm_headers", '{"Authorization":"Bearer llm-header"}'),
-            ("memory_user_mem0_llm_config", '{"temperature":0.1}'),
-            ("memory_user_mem0_embedder_provider", "openai"),
-            ("memory_user_mem0_embedder_api_key", "mem0-embed-key"),
-            ("memory_user_mem0_embedder_url", "https://embed.mem0.ai/v1"),
-            ("memory_user_mem0_embedder_model", "text-embedding-3-small"),
-            ("memory_user_mem0_embedder_headers", '{"X-Embed":"1"}'),
-            ("memory_user_mem0_embedder_config", '{"dimensions":1536}'),
-            ("memory_user_mem0_vector_store_provider", "qdrant"),
-            ("memory_user_mem0_vector_store_api_key", "mem0-vs-key"),
-            ("memory_user_mem0_vector_store_url", "https://qdrant.mem0.ai"),
-            ("memory_user_mem0_vector_store_headers", '{"api-key":"vector-header"}'),
-            ("memory_user_mem0_vector_store_config", '{"collectionName":"hahobot_user_memory"}'),
-            ("memory_user_mem0_metadata", '{"tenant":"paid-mem0","env":"prod"}'),
             ("tools_mcp_memorix_enabled", "1"),
             ("tools_mcp_memorix_type", "streamableHttp"),
             ("tools_mcp_memorix_url", "http://127.0.0.1:3211/mcp"),
@@ -529,28 +503,6 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert saved["agents"]["defaults"]["model"] == "openai/gpt-4.1"
     assert saved["channels"]["voiceReply"]["provider"] == "sovits"
     assert saved["channels"]["voiceReply"]["sovitsApiUrl"] == "http://127.0.0.1:9880"
-    assert saved["memory"]["user"]["backend"] == "mem0"
-    assert saved["memory"]["user"]["shadowWriteMem0"] is True
-    assert saved["memory"]["user"]["mem0"]["llm"]["provider"] == "openai"
-    assert saved["memory"]["user"]["mem0"]["llm"]["apiKey"] == "mem0-llm-key"
-    assert saved["memory"]["user"]["mem0"]["llm"]["url"] == "https://api.mem0.ai/v1"
-    assert saved["memory"]["user"]["mem0"]["llm"]["model"] == "gpt-4.1-mini"
-    assert saved["memory"]["user"]["mem0"]["llm"]["headers"] == {
-        "Authorization": "Bearer llm-header"
-    }
-    assert saved["memory"]["user"]["mem0"]["llm"]["config"] == {"temperature": 0.1}
-    assert saved["memory"]["user"]["mem0"]["embedder"]["apiKey"] == "mem0-embed-key"
-    assert saved["memory"]["user"]["mem0"]["embedder"]["url"] == "https://embed.mem0.ai/v1"
-    assert saved["memory"]["user"]["mem0"]["embedder"]["headers"] == {"X-Embed": "1"}
-    assert saved["memory"]["user"]["mem0"]["embedder"]["config"] == {"dimensions": 1536}
-    assert saved["memory"]["user"]["mem0"]["vectorStore"]["provider"] == "qdrant"
-    assert saved["memory"]["user"]["mem0"]["vectorStore"]["apiKey"] == "mem0-vs-key"
-    assert saved["memory"]["user"]["mem0"]["vectorStore"]["url"] == "https://qdrant.mem0.ai"
-    assert saved["memory"]["user"]["mem0"]["vectorStore"]["headers"] == {"api-key": "vector-header"}
-    assert saved["memory"]["user"]["mem0"]["vectorStore"]["config"] == {
-        "collectionName": "hahobot_user_memory"
-    }
-    assert saved["memory"]["user"]["mem0"]["metadata"] == {"tenant": "paid-mem0", "env": "prod"}
     assert saved["tools"]["mcpServers"]["memorix"]["type"] == "streamableHttp"
     assert saved["tools"]["mcpServers"]["memorix"]["command"] == "memorix"
     assert saved["gateway"]["status"]["enabled"] is True
@@ -778,11 +730,6 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
     assert 'name="channels_weixin_allow_from"' in config_page.text
     assert "data-provider-pool-move-up" in config_page.text
     assert "data-provider-pool-move-down" in config_page.text
-    assert 'name="memory_user_backend"' in config_page.text
-    assert "Mem0 User Memory" in config_page.text
-    assert 'name="memory_user_mem0_llm_api_key"' in config_page.text
-    assert 'name="memory_user_mem0_llm_headers"' in config_page.text
-    assert 'name="memory_user_mem0_metadata"' in config_page.text
     assert "Memorix MCP" in config_page.text
     assert 'name="tools_mcp_memorix_enabled"' in config_page.text
     assert "Hot reload" in config_page.text
