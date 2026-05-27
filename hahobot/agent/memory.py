@@ -63,9 +63,11 @@ _SAVE_MEMORY_TOOL = [
                         "Format: one fragment per blank-line-separated block. Optionally prefix "
                         "each block with a tag header on its own line, e.g. "
                         "'<!-- tag:preference -->' (tag is one of preference, project, reference, "
-                        "feedback, user). Leave empty if nothing new. Do NOT restate or rewrite "
-                        "existing memory; deduplication and cleanup happen later during Dream "
-                        "reflection.",
+                        "feedback, user, experience). Use 'experience' only for a successful task "
+                        "pattern that should guide future similar requests (sequence of tools, "
+                        "common pitfall, workaround). Leave empty if nothing new. Do NOT restate "
+                        "or rewrite existing memory; deduplication and cleanup happen later "
+                        "during Dream reflection.",
                     },
                 },
                 "required": ["history_entry"],
@@ -104,7 +106,7 @@ _MEMORY_APPEND_MAX_CHARS = 4_000
 _FRAGMENT_TAG_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _FRAGMENT_DEFAULT_TAG = "preference"
 _FRAGMENT_KNOWN_TAGS = frozenset(
-    {"preference", "project", "reference", "feedback", "user", "legacy"}
+    {"preference", "project", "reference", "feedback", "user", "experience", "legacy"}
 )
 
 
@@ -658,7 +660,10 @@ there is nothing new. Do not restate or rewrite existing memory.
 Fragment format for `new_facts`:
 - One fragment per blank-line-separated block.
 - Optionally prefix each block with a tag on its own line: `<!-- tag:WORD -->`
-  where WORD is one of preference, project, reference, feedback, user.
+  where WORD is one of preference, project, reference, feedback, user, experience.
+- Use `experience` only for a successful task pattern worth reusing later
+  (e.g. "for image-to-text tasks, run image_gen → ffmpeg → web_search"),
+  not for plain facts.
 - Server-side ts and src are filled in automatically — do not emit them.
 
 ## Current Long-term Memory

@@ -13,6 +13,11 @@ from aiohttp import web
 from hahobot.agent.personas import (
     DEFAULT_PERSONA,
 )
+from hahobot.agent.skill_proposals import (
+    approve_proposed_skill,
+    list_proposed_skills,
+    reject_proposed_skill,
+)
 from hahobot.agent.skills import SkillsLoader
 from hahobot.agent.working_checkpoint import normalize_working_checkpoint
 from hahobot.cli.session_inspector import (
@@ -442,11 +447,34 @@ async def _admin_skills_page(request: web.Request) -> web.Response:
             else "admin_skills_source_builtin"
         )
         groups.append({**group, "title": _t(request, source_key)})
+    workspace = _runtime_workspace(request)
+    proposals = [
+        {
+            "name": p.name,
+            "description": p.description,
+            "preview": p.body_preview,
+            "path": str(p.path),
+        }
+        for p in list_proposed_skills(workspace)
+    ]
+    flash = None
+    error = None
+    approved = request.query.get("proposed_approved")
+    rejected = request.query.get("proposed_rejected")
+    failed = request.query.get("proposed_error")
+    if approved:
+        flash = _t(request, "admin_skills_proposal_approved", name=approved)
+    elif rejected:
+        flash = _t(request, "admin_skills_proposal_rejected", name=rejected)
+    if failed:
+        error = _t(request, "admin_skills_proposal_failed", reason=failed)
     return _page(
         template_name="gateway/admin/skills.html",
         title=_t(request, "admin_skills_title"),
         heading=_t(request, "admin_skills_heading"),
         request=request,
+        flash=flash,
+        error=error,
         skills_nav_label=_t(request, "admin_nav_skills"),
         skills_intro_html=_markup(
             _th(request, "admin_skills_intro", path=skill_data["workspace_path"])
@@ -466,8 +494,40 @@ async def _admin_skills_page(request: web.Request) -> web.Response:
         always_label=_t(request, "admin_skills_always_label"),
         hidden_label=_t(request, "admin_skills_hidden_label"),
         no_skills_label=_t(request, "admin_skills_empty"),
+        proposed_title=_t(request, "admin_skills_proposed_title"),
+        proposed_desc=_t(request, "admin_skills_proposed_desc"),
+        proposed_empty=_t(request, "admin_skills_proposed_empty"),
+        proposed_approve_label=_t(request, "admin_skills_proposed_approve"),
+        proposed_reject_label=_t(request, "admin_skills_proposed_reject"),
+        proposals=proposals,
         groups=groups,
     )
+
+
+async def _admin_skill_proposal_approve(request: web.Request) -> web.Response:
+    _require_admin_auth(request)
+    name = request.match_info.get("name", "")
+    workspace = _runtime_workspace(request)
+    try:
+        approve_proposed_skill(workspace, name)
+    except ValueError as exc:
+        from urllib.parse import quote
+
+        raise web.HTTPFound(f"/admin/skills?proposed_error={quote(str(exc), safe='')}") from None
+    raise web.HTTPFound(f"/admin/skills?proposed_approved={name}")
+
+
+async def _admin_skill_proposal_reject(request: web.Request) -> web.Response:
+    _require_admin_auth(request)
+    name = request.match_info.get("name", "")
+    workspace = _runtime_workspace(request)
+    try:
+        reject_proposed_skill(workspace, name)
+    except ValueError as exc:
+        from urllib.parse import quote
+
+        raise web.HTTPFound(f"/admin/skills?proposed_error={quote(str(exc), safe='')}") from None
+    raise web.HTTPFound(f"/admin/skills?proposed_rejected={name}")
 
 
 async def _admin_cron_page(request: web.Request) -> web.Response:

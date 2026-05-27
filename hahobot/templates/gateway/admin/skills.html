@@ -32,6 +32,37 @@
   </section>
 </div>
 
+<section class="card stack">
+  <div class="section-head">
+    <h2>{{ proposed_title }}</h2>
+    <div class="muted">{{ proposed_desc }}</div>
+  </div>
+  {% if proposals %}
+  <div class="skill-grid">
+    {% for proposal in proposals %}
+    <article class="skill-card">
+      <div class="skill-card-head">
+        <strong>{{ proposal.name }}</strong>
+      </div>
+      <div class="muted">{{ proposal.description }}</div>
+      <pre class="muted" style="white-space: pre-wrap; max-height: 12rem; overflow: auto;">{{ proposal.preview }}</pre>
+      <div class="actions">
+        <form method="post" action="/admin/skills/proposed/{{ proposal.name }}/approve" class="inline-form">
+          <button type="submit">{{ proposed_approve_label }}</button>
+        </form>
+        <form method="post" action="/admin/skills/proposed/{{ proposal.name }}/reject" class="inline-form">
+          <button type="submit" class="ghost">{{ proposed_reject_label }}</button>
+        </form>
+      </div>
+      <div class="muted"><code>{{ proposal.path }}</code></div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="muted">{{ proposed_empty }}</div>
+  {% endif %}
+</section>
+
 {% if groups %}
 <div class="stack">
   {% for group in groups %}
