@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from aiohttp import web
 
+from hahobot.agent.memory import migrate_legacy_memory_workspace
 from hahobot.config.loader import _migrate_config, load_config
 from hahobot.config.schema import Config
 from hahobot.gateway.admin.base import (
@@ -22,6 +23,7 @@ from hahobot.gateway.admin.base import (
     _pretty_json,
     _redirect,
     _require_admin_auth,
+    _runtime_workspace,
     _save_raw_config_data,
     _t,
     _th,
@@ -1114,12 +1116,26 @@ def _render_config_page(
         jump_links_html=_markup("".join(jump_links)),
         sections_html=_markup(sections),
         save_visual_label=_t(request, "admin_config_save_visual"),
+        memory_migrate_card_html=_markup(_render_memory_migrate_card(request)),
         advanced_title=_t(request, "admin_config_advanced_title"),
         advanced_desc_html=_markup(_th(request, "admin_config_advanced_desc")),
         raw_label=_t(request, "admin_config_raw_label"),
         raw_text=raw_text,
         save_raw_label=_t(request, "admin_config_save_raw"),
         raw_open=active_mode == "raw",
+    )
+
+
+def _render_memory_migrate_card(request: web.Request) -> str:
+    """Render the standalone form that triggers the MEMORY.md legacy migration."""
+    return (
+        '<div class="card stack">'
+        f'<h2>{escape(_t(request, "admin_memory_migration_title"))}</h2>'
+        f'<p class="muted">{_th(request, "admin_memory_migration_desc")}</p>'
+        '<form method="post" action="/admin/memory/migrate-legacy" class="actions">'
+        f'<button type="submit" class="ghost">{escape(_t(request, "admin_memory_migration_button"))}</button>'
+        "</form>"
+        "</div>"
     )
 
 
@@ -1137,11 +1153,47 @@ async def _admin_config_page(request: web.Request) -> web.Response:
             if request.query.get("reloaded") == "1"
             else _t(request, "admin_config_saved")
         )
+    migrated_param = request.query.get("memory_migrated")
+    if migrated_param is not None:
+        try:
+            migrated_count = int(migrated_param)
+            files_count = int(request.query.get("memory_files", "0"))
+        except ValueError:
+            migrated_count = 0
+            files_count = 0
+        if migrated_count > 0:
+            flash = _t(
+                request,
+                "admin_memory_migration_success",
+                migrated=migrated_count,
+                files=files_count,
+            )
+        else:
+            flash = _t(request, "admin_memory_migration_none")
+    error = None
+    if request.query.get("memory_migrate_error") == "1":
+        error = _t(request, "admin_memory_migration_failed")
     return _render_config_page(
         request,
         visual_values=_config_form_values(config),
         raw_text=_pretty_json(raw_data),
         flash=flash,
+        error=error,
+    )
+
+
+async def _admin_memory_migrate_legacy(request: web.Request) -> web.Response:
+    """Re-emit every persona's MEMORY.md so legacy fragments get structured headers."""
+    _require_admin_auth(request)
+    workspace = _runtime_workspace(request)
+    try:
+        summary = migrate_legacy_memory_workspace(workspace)
+    except Exception:
+        raise _redirect(request, "/admin/config?memory_migrate_error=1") from None
+    raise _redirect(
+        request,
+        f"/admin/config?memory_migrated={summary['total_migrated']}"
+        f"&memory_files={summary['files_changed']}",
     )
 
 

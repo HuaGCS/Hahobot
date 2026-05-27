@@ -17,9 +17,14 @@ from loguru import logger
 
 from hahobot.agent.history_archive import HistoryArchiveStore
 from hahobot.agent.i18n import DEFAULT_LANGUAGE, resolve_language
-from hahobot.agent.memory_facts_sqlite import extract_fragment_header
+from hahobot.agent.memory_facts_sqlite import extract_fragment_header, parse_memory_fragments
 from hahobot.agent.memory_metadata import format_memory_metadata_summary
-from hahobot.agent.personas import DEFAULT_PERSONA, persona_workspace, resolve_persona_name
+from hahobot.agent.personas import (
+    DEFAULT_PERSONA,
+    list_personas,
+    persona_workspace,
+    resolve_persona_name,
+)
 from hahobot.agent.privacy import strip_private_text
 from hahobot.agent.runner import AgentRunner, AgentRunSpec
 from hahobot.agent.tools.registry import ToolRegistry
@@ -154,6 +159,107 @@ def _atomic_write_text(path: Path, content: str) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     os.replace(tmp, path)
+
+
+def migrate_legacy_memory_file(
+    path: Path,
+    *,
+    src: str = "migration",
+    backup: bool = True,
+) -> dict[str, Any]:
+    """Rewrite *path* so every fragment carries a structured header.
+
+    Legacy fragments (those without a recognized ``<!-- ts:... tag:... src:... -->``
+    header) are wrapped with ``tag:legacy src:{src}`` and the file's mtime as ``ts``.
+    Already-structured fragments are re-emitted unchanged. The file is left
+    untouched (and ``changed=False``) when there is nothing legacy to migrate.
+
+    Returns a summary dict with ``path``, ``exists``, ``migrated``, ``preserved``,
+    ``changed``, and an optional ``backup`` path.
+    """
+    summary: dict[str, Any] = {
+        "path": str(path),
+        "exists": False,
+        "migrated": 0,
+        "preserved": 0,
+        "changed": False,
+        "backup": None,
+    }
+    try:
+        text = path.read_text(encoding="utf-8")
+        mtime_ns = path.stat().st_mtime_ns
+    except FileNotFoundError:
+        return summary
+    summary["exists"] = True
+    default_ts = datetime.fromtimestamp(mtime_ns / 1_000_000_000).strftime("%Y-%m-%dT%H:%M")
+    fragments = parse_memory_fragments(text, default_ts=default_ts)
+    if not fragments:
+        return summary
+
+    parts: list[str] = []
+    migrated = 0
+    preserved = 0
+    for fragment in fragments:
+        is_legacy = fragment["tag"] == "legacy" and fragment["src"] == "unknown"
+        if is_legacy:
+            header = f"<!-- ts:{fragment['ts']} tag:legacy src:{src} -->"
+            migrated += 1
+        else:
+            header = (
+                f"<!-- ts:{fragment['ts']} tag:{fragment['tag']} src:{fragment['src']} -->"
+            )
+            preserved += 1
+        parts.append(f"{header}\n{fragment['fragment']}")
+    summary["migrated"] = migrated
+    summary["preserved"] = preserved
+
+    if migrated == 0:
+        return summary
+
+    rewritten = "\n\n".join(parts) + "\n"
+    if rewritten == text:
+        return summary
+
+    if backup:
+        stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+        backup_path = path.with_name(f"{path.name}.bak.{stamp}")
+        backup_path.write_text(text, encoding="utf-8")
+        summary["backup"] = str(backup_path)
+    _atomic_write_text(path, rewritten)
+    summary["changed"] = True
+    return summary
+
+
+def migrate_legacy_memory_workspace(workspace: Path) -> dict[str, Any]:
+    """Migrate every persona's ``memory/MEMORY.md`` under *workspace*."""
+    personas: list[str | None] = [None]
+    personas.extend(list_personas(workspace))
+
+    results: list[dict[str, Any]] = []
+    total_migrated = 0
+    total_preserved = 0
+    files_changed = 0
+    seen: set[Path] = set()
+    for persona in personas:
+        pw = persona_workspace(workspace, persona)
+        memory_file = pw / "memory" / "MEMORY.md"
+        if memory_file in seen:
+            continue
+        seen.add(memory_file)
+        summary = migrate_legacy_memory_file(memory_file)
+        summary["persona"] = persona or DEFAULT_PERSONA
+        results.append(summary)
+        if summary["changed"]:
+            files_changed += 1
+        total_migrated += summary.get("migrated", 0)
+        total_preserved += summary.get("preserved", 0)
+    return {
+        "total_migrated": total_migrated,
+        "total_preserved": total_preserved,
+        "files_changed": files_changed,
+        "personas_checked": len(seen),
+        "results": results,
+    }
 
 
 # ---------------------------------------------------------------------------

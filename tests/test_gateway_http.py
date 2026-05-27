@@ -387,6 +387,8 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert 'name="memory_user_sqlite_top_k"' in config_page.text
     assert 'name="memory_user_sqlite_max_context_chars"' in config_page.text
     assert 'name="memory_user_sqlite_max_fragment_chars"' in config_page.text
+    assert 'action="/admin/memory/migrate-legacy"' in config_page.text
+    assert "立即迁移旧片段" in config_page.text
     assert 'name="channels_transcription_provider"' in config_page.text
     assert "tooltip-anchor" in config_page.text
     assert "默认工作区路径" in config_page.text
@@ -1085,6 +1087,59 @@ async def test_gateway_admin_channel_cards_preserve_multi_instance_config(tmp_pa
     assert "streamEditInterval" not in saved["channels"]["telegram"]
     assert saved["channels"]["telegram"]["instances"][0]["token"] == "instance-token"
     assert saved["channels"]["telegram"]["instances"][0]["proxy"] == "socks5://127.0.0.1:7890"
+
+
+@pytest.mark.asyncio
+async def test_gateway_admin_memory_migrate_legacy_endpoint(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    memory_dir = workspace / "memory"
+    memory_dir.mkdir()
+    memory_file = memory_dir / "MEMORY.md"
+    memory_file.write_text("plain legacy fact one.\n\nplain legacy fact two.\n", encoding="utf-8")
+
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    cookie = login.cookies["hahobot_admin_session"].value
+
+    response = await _call_route(
+        app,
+        "POST",
+        "/admin/memory/migrate-legacy",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert response.status == 302
+    assert response.headers["Location"] == "/admin/config?memory_migrated=2&memory_files=1"
+
+    migrated_text = memory_file.read_text(encoding="utf-8")
+    assert "<!-- ts:" in migrated_text
+    assert "tag:legacy" in migrated_text
+    assert "src:migration" in migrated_text
+    assert "plain legacy fact one." in migrated_text
+
+    backups = list(memory_dir.glob("MEMORY.md.bak.*"))
+    assert len(backups) == 1
+    assert "plain legacy fact one." in backups[0].read_text(encoding="utf-8")
+
+    follow_up = await _call_route(
+        app,
+        "GET",
+        "/admin/config?memory_migrated=2&memory_files=1",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert follow_up.status == 200
+    assert "2" in follow_up.text  # success banner mentions migrated count
 
 
 @pytest.mark.asyncio
