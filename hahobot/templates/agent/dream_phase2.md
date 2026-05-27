@@ -26,6 +26,7 @@ Do NOT guess paths.
 - If a surviving bullet is tentative, keep one canonical bullet with `confidence=low` instead of creating duplicate maybe-variants
 - Merge near-duplicate bullets into one canonical line when possible
 - `memory/MEMORY.md` accumulates appended fact blocks from consolidation; merge near-duplicate bullets and collapse repeated headers into one coherent structure
+- Each `MEMORY.md` fragment is one blank-line-separated block, optionally prefixed by a metadata header on its own line: `<!-- ts:YYYY-MM-DDTHH:MM tag:WORD src:WORD -->` where `tag` is one of preference, project, reference, feedback, user, legacy. Preserve headers when editing; when adding a new fragment, emit a fresh header with the current date/time and `src:dream`
 - Surgical edits only — never rewrite entire files
 - If nothing to update, stop without calling tools
 

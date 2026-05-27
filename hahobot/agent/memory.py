@@ -17,6 +17,7 @@ from loguru import logger
 
 from hahobot.agent.history_archive import HistoryArchiveStore
 from hahobot.agent.i18n import DEFAULT_LANGUAGE, resolve_language
+from hahobot.agent.memory_facts_sqlite import extract_fragment_header
 from hahobot.agent.memory_metadata import format_memory_metadata_summary
 from hahobot.agent.personas import DEFAULT_PERSONA, persona_workspace, resolve_persona_name
 from hahobot.agent.privacy import strip_private_text
@@ -53,10 +54,13 @@ _SAVE_MEMORY_TOOL = [
                     },
                     "new_facts": {
                         "type": "string",
-                        "description": "Only durable facts newly learned in this conversation, as "
-                        "short markdown bullets — or an empty string if nothing new. Do NOT restate "
-                        "or rewrite existing memory; deduplication and cleanup happen later during "
-                        "Dream reflection.",
+                        "description": "Only durable facts newly learned in this conversation. "
+                        "Format: one fragment per blank-line-separated block. Optionally prefix "
+                        "each block with a tag header on its own line, e.g. "
+                        "'<!-- tag:preference -->' (tag is one of preference, project, reference, "
+                        "feedback, user). Leave empty if nothing new. Do NOT restate or rewrite "
+                        "existing memory; deduplication and cleanup happen later during Dream "
+                        "reflection.",
                     },
                 },
                 "required": ["history_entry"],
@@ -91,6 +95,52 @@ _RAW_ARCHIVE_MAX_CHARS = 16_000
 _ARCHIVE_SUMMARY_MAX_CHARS = 8_000
 _HISTORY_ENTRY_HARD_CAP = 64_000
 _MEMORY_APPEND_MAX_CHARS = 4_000
+
+_FRAGMENT_TAG_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+_FRAGMENT_DEFAULT_TAG = "preference"
+_FRAGMENT_KNOWN_TAGS = frozenset(
+    {"preference", "project", "reference", "feedback", "user", "legacy"}
+)
+
+
+def _normalize_tag(tag: str | None) -> str:
+    """Coerce *tag* into a safe lowercase enum token; fall back to default."""
+    if not tag:
+        return _FRAGMENT_DEFAULT_TAG
+    token = tag.strip().lower()
+    if not _FRAGMENT_TAG_RE.match(token):
+        return _FRAGMENT_DEFAULT_TAG
+    if token not in _FRAGMENT_KNOWN_TAGS:
+        return _FRAGMENT_DEFAULT_TAG
+    return token
+
+
+def _format_new_facts_as_fragments(text: str, *, src: str, now_iso: str) -> str:
+    """Wrap each blank-line-separated block with a server-controlled metadata header.
+
+    LLM-emitted ``<!-- tag:WORD -->`` headers are honored for the ``tag`` field;
+    ``ts`` and ``src`` are always overwritten with server values so the persisted
+    fragments carry trustworthy provenance.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return ""
+    blocks = [block for block in re.split(r"\n\s*\n", stripped) if block.strip()]
+    formatted: list[str] = []
+    for block in blocks:
+        first_line, _, remainder = block.partition("\n")
+        tokens = extract_fragment_header(first_line)
+        if tokens is not None:
+            tag = _normalize_tag(tokens.get("tag"))
+            body = remainder.strip()
+        else:
+            tag = _FRAGMENT_DEFAULT_TAG
+            body = block.strip()
+        if not body:
+            continue
+        header = f"<!-- ts:{now_iso} tag:{tag} src:{src} -->"
+        formatted.append(f"{header}\n{body}")
+    return "\n\n".join(formatted)
 
 
 def _is_tool_choice_unsupported(content: str | None) -> bool:
@@ -499,6 +549,12 @@ Write `history_entry` summarizing what happened. In `new_facts`, list ONLY durab
 learned in this conversation that are not already in current memory below — leave it empty if
 there is nothing new. Do not restate or rewrite existing memory.
 
+Fragment format for `new_facts`:
+- One fragment per blank-line-separated block.
+- Optionally prefix each block with a tag on its own line: `<!-- tag:WORD -->`
+  where WORD is one of preference, project, reference, feedback, user.
+- Server-side ts and src are filled in automatically — do not emit them.
+
 ## Current Long-term Memory
 {current_memory or "(empty)"}
 
@@ -563,7 +619,12 @@ there is nothing new. Do not restate or rewrite existing memory.
             self.append_history(entry, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
             new_facts = _ensure_text(args.get("new_facts") or "").strip()
             if new_facts:
-                self.append_memory(new_facts)
+                wrapped = _format_new_facts_as_fragments(
+                    new_facts,
+                    src="turn",
+                    now_iso=datetime.now().strftime("%Y-%m-%dT%H:%M"),
+                )
+                self.append_memory(wrapped or new_facts)
             if on_archive is not None:
                 try:
                     on_archive(
