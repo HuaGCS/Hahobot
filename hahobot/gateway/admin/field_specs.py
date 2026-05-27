@@ -760,6 +760,35 @@ _CONFIG_FIELDS = (
         placeholder="__default__",
     ),
     ConfigFieldSpec(
+        "memory_user_backend",
+        ("memory", "user", "backend"),
+        "select",
+        "admin_config_memory_backend_label",
+        "admin_config_memory_backend_tooltip",
+        options=("sqlite", "file"),
+    ),
+    ConfigFieldSpec(
+        "memory_user_sqlite_top_k",
+        ("memory", "user", "sqlite", "topK"),
+        "int",
+        "admin_config_memory_sqlite_top_k_label",
+        "admin_config_memory_sqlite_top_k_tooltip",
+    ),
+    ConfigFieldSpec(
+        "memory_user_sqlite_max_context_chars",
+        ("memory", "user", "sqlite", "maxContextChars"),
+        "int",
+        "admin_config_memory_sqlite_max_context_chars_label",
+        "admin_config_memory_sqlite_max_context_chars_tooltip",
+    ),
+    ConfigFieldSpec(
+        "memory_user_sqlite_max_fragment_chars",
+        ("memory", "user", "sqlite", "maxFragmentChars"),
+        "int",
+        "admin_config_memory_sqlite_max_fragment_chars_label",
+        "admin_config_memory_sqlite_max_fragment_chars_tooltip",
+    ),
+    ConfigFieldSpec(
         "tools_mcp_memorix_enabled",
         (),
         "bool",
@@ -1308,6 +1337,16 @@ _CONFIG_SECTIONS = (
             "tools_image_gen_proxy",
             "tools_image_gen_timeout",
             "tools_image_gen_reference_image",
+        ),
+    ),
+    (
+        "admin_config_section_memory_title",
+        "admin_config_section_memory_desc",
+        (
+            "memory_user_backend",
+            "memory_user_sqlite_top_k",
+            "memory_user_sqlite_max_context_chars",
+            "memory_user_sqlite_max_fragment_chars",
         ),
     ),
     (

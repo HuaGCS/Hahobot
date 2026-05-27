@@ -271,6 +271,10 @@ def _config_form_values(config: Config) -> dict[str, Any]:
         "tools_image_gen_proxy": config.tools.image_gen.proxy or "",
         "tools_image_gen_timeout": str(config.tools.image_gen.timeout),
         "tools_image_gen_reference_image": config.tools.image_gen.reference_image,
+        "memory_user_backend": config.memory.user.backend,
+        "memory_user_sqlite_top_k": str(config.memory.user.sqlite.top_k),
+        "memory_user_sqlite_max_context_chars": str(config.memory.user.sqlite.max_context_chars),
+        "memory_user_sqlite_max_fragment_chars": str(config.memory.user.sqlite.max_fragment_chars),
         "tools_mcp_memorix_enabled": memorix is not None,
         "tools_mcp_memorix_type": memorix.type if memorix and memorix.type else "",
         "tools_mcp_memorix_command": (

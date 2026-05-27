@@ -870,10 +870,19 @@ class ToolsConfig(Base):
     )  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 
+class SQLiteUserMemoryConfig(Base):
+    """Tuning knobs for the SQLite-FTS user memory backend."""
+
+    top_k: int = 8
+    max_context_chars: int = 4_000
+    max_fragment_chars: int = 500
+
+
 class UserMemoryConfig(Base):
     """User-scoped long-term memory settings."""
 
     backend: Literal["file", "sqlite"] = "sqlite"
+    sqlite: SQLiteUserMemoryConfig = Field(default_factory=SQLiteUserMemoryConfig)
 
 
 class ArchiveMemoryConfig(Base):

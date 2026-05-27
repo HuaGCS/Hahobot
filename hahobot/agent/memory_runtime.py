@@ -20,7 +20,7 @@ class MemoryRuntimeManager:
         *,
         config: MemoryConfig,
         file_backend_factory: Callable[[], UserMemoryBackend],
-        sqlite_backend_factory: Callable[[], UserMemoryBackend],
+        sqlite_backend_factory: Callable[..., UserMemoryBackend],
         memory_router_factory: Callable[..., MemoryRouter],
     ) -> None:
         self.config = config
@@ -37,7 +37,12 @@ class MemoryRuntimeManager:
         """Create the configured primary user-memory backend."""
         resolved = config or self.config
         if resolved.user.backend == "sqlite":
-            return self._sqlite_backend_factory()
+            sqlite_cfg = resolved.user.sqlite
+            return self._sqlite_backend_factory(
+                top_k=sqlite_cfg.top_k,
+                max_context_chars=sqlite_cfg.max_context_chars,
+                max_fragment_chars=sqlite_cfg.max_fragment_chars,
+            )
         return self._file_backend_factory()
 
     def build_fallback_backend(
