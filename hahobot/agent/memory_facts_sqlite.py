@@ -20,6 +20,19 @@ _LEGACY_TAG = "legacy"
 _UNKNOWN_SRC = "unknown"
 
 
+def extract_fragment_header(line: str) -> dict[str, str] | None:
+    """Parse a metadata header line if present, returning its token dict.
+
+    Returns ``None`` when *line* is not a valid ``<!-- ts:... tag:... src:... -->``
+    header (so the caller can treat the whole line as fragment body).
+    """
+    match = _HEADER_RE.match(line.strip())
+    if not match:
+        return None
+    tokens = {m.group("key"): m.group("value") for m in _TOKEN_RE.finditer(match.group("body"))}
+    return tokens or None
+
+
 def parse_memory_fragments(text: str, *, default_ts: str) -> list[dict[str, Any]]:
     """Split MEMORY.md *text* by blank-line boundaries, returning fragment dicts.
 
