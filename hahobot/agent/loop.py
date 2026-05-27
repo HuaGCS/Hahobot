@@ -60,7 +60,13 @@ from hahobot.session.manager import Session, SessionManager
 from hahobot.utils.helpers import estimate_message_tokens, estimate_prompt_tokens_chain
 
 if TYPE_CHECKING:
-    from hahobot.config.schema import ChannelsConfig, ExecToolConfig, ImageGenConfig, MemoryConfig
+    from hahobot.config.schema import (
+        ChannelsConfig,
+        ExecToolConfig,
+        ImageGenConfig,
+        MemoryConfig,
+        SubagentConfig,
+    )
     from hahobot.cron.service import CronService
 
 
@@ -207,6 +213,7 @@ class AgentLoop:
         exec_config: ExecToolConfig | None = None,
         image_gen_config: ImageGenConfig | None = None,
         memory_config: MemoryConfig | None = None,
+        subagent_config: SubagentConfig | None = None,
         cron_service: CronService | None = None,
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
@@ -218,7 +225,12 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
     ):
-        from hahobot.config.schema import ExecToolConfig, ImageGenConfig, MemoryConfig
+        from hahobot.config.schema import (
+            ExecToolConfig,
+            ImageGenConfig,
+            MemoryConfig,
+            SubagentConfig,
+        )
 
         if web_config is not None:
             web_proxy = getattr(web_config, "proxy", web_proxy) or None
@@ -264,6 +276,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.image_gen_config = image_gen_config or ImageGenConfig()
         self.memory_config = memory_config or MemoryConfig()
+        self.subagent_config = subagent_config or SubagentConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self._start_time = time.time()
@@ -319,6 +332,7 @@ class AgentLoop:
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
             disabled_skills=self._disabled_skills,
+            model_roles=dict(self.subagent_config.models),
         )
         self._tool_runtime = ToolRuntimeManager(
             loop=self,

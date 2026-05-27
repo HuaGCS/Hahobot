@@ -611,6 +611,34 @@ class DreamConfig(Base):
         return f"every {self.interval_h}h"
 
 
+class SubagentConfig(Base):
+    """Per-subagent runtime knobs (currently: role-based model routing)."""
+
+    models: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("models", mode="before")
+    @classmethod
+    def _coerce_models(cls, value: Any) -> Any:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            return value
+        cleaned: dict[str, str] = {}
+        for role, model in value.items():
+            if not isinstance(role, str):
+                continue
+            normalized_role = role.strip()
+            if not normalized_role:
+                continue
+            if not isinstance(model, str):
+                continue
+            normalized_model = model.strip()
+            if not normalized_model:
+                continue
+            cleaned[normalized_role] = normalized_model
+        return cleaned
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -652,6 +680,7 @@ class AgentDefaults(Base):
         default=None,
         exclude_if=lambda value: value is None or not value.targets,
     )
+    subagent: SubagentConfig = Field(default_factory=SubagentConfig)
 
     @field_validator("provider_pool", mode="before")
     @classmethod
