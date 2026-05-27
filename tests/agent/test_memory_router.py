@@ -14,7 +14,6 @@ from hahobot.agent.memory_backends.file_backend import FileUserMemoryBackend
 from hahobot.agent.memory_models import MemoryCommitRequest, MemoryScope, ResolvedMemoryContext
 from hahobot.agent.memory_router import MemoryRouter
 from hahobot.bus.events import InboundMessage
-from hahobot.config.schema import Config
 
 
 def _make_workspace(tmp_path: Path) -> Path:
@@ -192,7 +191,9 @@ async def test_memory_router_fans_out_shadow_writes() -> None:
 @pytest.mark.asyncio
 async def test_memory_router_falls_back_to_file_when_primary_returns_empty() -> None:
     primary = MagicMock()
-    primary.resolve_context = AsyncMock(return_value=ResolvedMemoryContext(block="", source="mem0"))
+    primary.resolve_context = AsyncMock(
+        return_value=ResolvedMemoryContext(block="", source="primary")
+    )
 
     fallback = MagicMock()
     fallback.resolve_context = AsyncMock(
@@ -221,7 +222,7 @@ async def test_memory_router_falls_back_to_file_when_primary_returns_empty() -> 
 @pytest.mark.asyncio
 async def test_memory_router_falls_back_to_file_when_primary_raises() -> None:
     primary = MagicMock()
-    primary.resolve_context = AsyncMock(side_effect=RuntimeError("mem0 unavailable"))
+    primary.resolve_context = AsyncMock(side_effect=RuntimeError("primary unavailable"))
 
     fallback = MagicMock()
     fallback.resolve_context = AsyncMock(
@@ -245,106 +246,3 @@ async def test_memory_router_falls_back_to_file_when_primary_raises() -> None:
     assert "file memory" in resolved.block
     primary.resolve_context.assert_awaited_once_with(scope)
     fallback.resolve_context.assert_awaited_once_with(scope)
-
-
-@pytest.mark.asyncio
-async def test_reload_runtime_config_enables_mem0_shadow_backend_when_requested(
-    tmp_path: Path,
-) -> None:
-    from hahobot.agent.loop import AgentLoop
-    from hahobot.bus.queue import MessageBus
-    from hahobot.providers.base import GenerationSettings
-
-    class FakeMem0Backend(FileUserMemoryBackend):
-        def __init__(self, config) -> None:
-            self.config = config
-
-    provider = MagicMock()
-    provider.get_default_model.return_value = "test-model"
-    provider.generation = GenerationSettings(max_tokens=1024)
-
-    with (
-        patch("hahobot.agent.loop.SubagentManager"),
-        patch("hahobot.agent.loop.Mem0UserMemoryBackend", FakeMem0Backend),
-    ):
-        loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path)
-        assert loop.memory_config.user.shadow_write_mem0 is False
-        assert loop.memory_router.shadow_backends == []
-
-        config = Config.model_validate(
-            {
-                "memory": {
-                    "user": {
-                        "shadowWriteMem0": True,
-                        "mem0": {
-                            "llm": {
-                                "provider": "ollama",
-                                "model": "qwen3:8b",
-                                "url": "http://127.0.0.1:11434",
-                            },
-                            "embedder": {
-                                "provider": "openai",
-                                "apiKey": "embed-key",
-                                "url": "https://embed.example.com/v1",
-                                "model": "text-embedding-3-small",
-                            },
-                            "vectorStore": {
-                                "provider": "qdrant",
-                                "url": "https://qdrant.example.com",
-                                "headers": {"api-key": "qdrant-key"},
-                            },
-                        },
-                    }
-                }
-            }
-        )
-
-        await loop.reload_runtime_config(config)
-
-    assert loop.memory_config.user.shadow_write_mem0 is True
-    assert len(loop.memory_router.shadow_backends) == 1
-    assert isinstance(loop.memory_router.shadow_backends[0], FakeMem0Backend)
-
-
-@pytest.mark.asyncio
-async def test_reload_runtime_config_switches_primary_backend_to_mem0(tmp_path: Path) -> None:
-    from hahobot.agent.loop import AgentLoop
-    from hahobot.bus.queue import MessageBus
-    from hahobot.providers.base import GenerationSettings
-
-    class FakeMem0Backend(FileUserMemoryBackend):
-        def __init__(self, config) -> None:
-            self.config = config
-
-    provider = MagicMock()
-    provider.get_default_model.return_value = "test-model"
-    provider.generation = GenerationSettings(max_tokens=1024)
-
-    with (
-        patch("hahobot.agent.loop.SubagentManager"),
-        patch("hahobot.agent.loop.Mem0UserMemoryBackend", FakeMem0Backend),
-    ):
-        loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path)
-
-        config = Config.model_validate(
-            {
-                "memory": {
-                    "user": {
-                        "backend": "mem0",
-                        "mem0": {
-                            "llm": {
-                                "provider": "openai",
-                                "apiKey": "llm-key",
-                                "model": "gpt-4.1-mini",
-                            }
-                        },
-                    }
-                }
-            }
-        )
-
-        await loop.reload_runtime_config(config)
-
-    assert isinstance(loop.memory_router.user_backend, FakeMem0Backend)
-    assert isinstance(loop.memory_router.fallback_backend, FileUserMemoryBackend)
-    assert loop.memory_router.shadow_backends == []

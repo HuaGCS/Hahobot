@@ -36,7 +36,7 @@ from hahobot.agent.mcp_runtime import MCPRuntime
 from hahobot.agent.memory import Consolidator, Dream
 from hahobot.agent.memory_backends.base import UserMemoryBackend
 from hahobot.agent.memory_backends.file_backend import FileUserMemoryBackend
-from hahobot.agent.memory_backends.mem0_backend import Mem0UserMemoryBackend
+from hahobot.agent.memory_backends.sqlite_backend import SQLiteUserMemoryBackend
 from hahobot.agent.memory_models import MemoryScope
 from hahobot.agent.memory_router import MemoryRouter
 from hahobot.agent.memory_runtime import MemoryRuntimeManager
@@ -363,7 +363,7 @@ class AgentLoop:
         self._memory_runtime = MemoryRuntimeManager(
             config=self.memory_config,
             file_backend_factory=FileUserMemoryBackend,
-            mem0_backend_type=Mem0UserMemoryBackend,
+            sqlite_backend_factory=SQLiteUserMemoryBackend,
             memory_router_factory=MemoryRouter,
         )
         self._turn_runtime = TurnRuntimeManager(self)
@@ -564,7 +564,7 @@ class AgentLoop:
         config: MemoryConfig,
         primary: UserMemoryBackend,
     ) -> UserMemoryBackend | None:
-        """Keep file-backed memory as the conservative fallback when Mem0 is primary."""
+        """Build an optional fallback memory backend for the active primary."""
         return self._runtime_config_manager().build_memory_fallback_backend(config, primary)
 
     def _build_shadow_memory_backends(

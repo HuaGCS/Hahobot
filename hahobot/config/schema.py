@@ -870,33 +870,10 @@ class ToolsConfig(Base):
     )  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 
-class Mem0ProviderConfig(Base):
-    """Reserved provider section for future Mem0 component configuration."""
-
-    provider: str = ""
-    api_key: str = ""
-    url: str = ""
-    model: str = ""
-    headers: dict[str, str] = Field(default_factory=dict)
-    config: dict[str, Any] = Field(default_factory=dict)
-
-
-class Mem0Config(Base):
-    """Mem0 OSS configuration used by the runtime user-memory backend."""
-
-    mode: Literal["embedded"] = "embedded"
-    llm: Mem0ProviderConfig = Field(default_factory=Mem0ProviderConfig)
-    embedder: Mem0ProviderConfig = Field(default_factory=Mem0ProviderConfig)
-    vector_store: Mem0ProviderConfig = Field(default_factory=Mem0ProviderConfig)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
 class UserMemoryConfig(Base):
     """User-scoped long-term memory settings."""
 
-    backend: Literal["file", "mem0"] = "file"
-    shadow_write_mem0: bool = False
-    mem0: Mem0Config = Field(default_factory=Mem0Config)
+    backend: Literal["file", "sqlite"] = "sqlite"
 
 
 class ArchiveMemoryConfig(Base):

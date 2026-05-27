@@ -62,10 +62,6 @@ weixin = [
     "qrcode[pil]>=8.0",
     "pycryptodome>=3.20.0",
 ]
-mem0 = [
-    "mem0ai>=1.0.0,<2.0.0",
-]
-
 matrix = [
     "matrix-nio[e2e]>=0.25.2",
     "mistune>=3.0.0,<4.0.0",

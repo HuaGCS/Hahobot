@@ -271,32 +271,6 @@ def _config_form_values(config: Config) -> dict[str, Any]:
         "tools_image_gen_proxy": config.tools.image_gen.proxy or "",
         "tools_image_gen_timeout": str(config.tools.image_gen.timeout),
         "tools_image_gen_reference_image": config.tools.image_gen.reference_image,
-        "memory_user_backend": config.memory.user.backend,
-        "memory_user_shadow_write_mem0": config.memory.user.shadow_write_mem0,
-        "memory_user_mem0_mode": config.memory.user.mem0.mode,
-        "memory_user_mem0_llm_provider": config.memory.user.mem0.llm.provider,
-        "memory_user_mem0_llm_api_key": config.memory.user.mem0.llm.api_key,
-        "memory_user_mem0_llm_url": config.memory.user.mem0.llm.url,
-        "memory_user_mem0_llm_model": config.memory.user.mem0.llm.model,
-        "memory_user_mem0_llm_headers": _pretty_json(config.memory.user.mem0.llm.headers),
-        "memory_user_mem0_llm_config": _pretty_json(config.memory.user.mem0.llm.config),
-        "memory_user_mem0_embedder_provider": config.memory.user.mem0.embedder.provider,
-        "memory_user_mem0_embedder_api_key": config.memory.user.mem0.embedder.api_key,
-        "memory_user_mem0_embedder_url": config.memory.user.mem0.embedder.url,
-        "memory_user_mem0_embedder_model": config.memory.user.mem0.embedder.model,
-        "memory_user_mem0_embedder_headers": _pretty_json(config.memory.user.mem0.embedder.headers),
-        "memory_user_mem0_embedder_config": _pretty_json(config.memory.user.mem0.embedder.config),
-        "memory_user_mem0_vector_store_provider": config.memory.user.mem0.vector_store.provider,
-        "memory_user_mem0_vector_store_api_key": config.memory.user.mem0.vector_store.api_key,
-        "memory_user_mem0_vector_store_url": config.memory.user.mem0.vector_store.url,
-        "memory_user_mem0_vector_store_model": config.memory.user.mem0.vector_store.model,
-        "memory_user_mem0_vector_store_headers": _pretty_json(
-            config.memory.user.mem0.vector_store.headers
-        ),
-        "memory_user_mem0_vector_store_config": _pretty_json(
-            config.memory.user.mem0.vector_store.config
-        ),
-        "memory_user_mem0_metadata": _pretty_json(config.memory.user.mem0.metadata),
         "tools_mcp_memorix_enabled": memorix is not None,
         "tools_mcp_memorix_type": memorix.type if memorix and memorix.type else "",
         "tools_mcp_memorix_command": (
