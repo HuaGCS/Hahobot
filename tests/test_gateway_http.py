@@ -383,10 +383,15 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert "data-provider-pool-move-up" in config_page.text
     assert "data-provider-pool-move-down" in config_page.text
     assert 'name="tools_mcp_memorix_enabled"' in config_page.text
+    assert 'name="memory_user_backend"' in config_page.text
+    assert 'name="memory_user_sqlite_top_k"' in config_page.text
+    assert 'name="memory_user_sqlite_max_context_chars"' in config_page.text
+    assert 'name="memory_user_sqlite_max_fragment_chars"' in config_page.text
     assert 'name="channels_transcription_provider"' in config_page.text
     assert "tooltip-anchor" in config_page.text
     assert "默认工作区路径" in config_page.text
     assert "工具调用提示的最大显示长度" in config_page.text
+    assert "用户记忆" in config_page.text
     assert "Memorix MCP" in config_page.text
     assert "Star Office 推送" in config_page.text
     assert "Shell 执行" in config_page.text
@@ -731,7 +736,10 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
     assert "data-provider-pool-move-up" in config_page.text
     assert "data-provider-pool-move-down" in config_page.text
     assert "Memorix MCP" in config_page.text
+    assert "User Memory" in config_page.text
     assert 'name="tools_mcp_memorix_enabled"' in config_page.text
+    assert 'name="memory_user_backend"' in config_page.text
+    assert 'name="memory_user_sqlite_top_k"' in config_page.text
     assert "Hot reload" in config_page.text
     assert "Requires restart" in config_page.text
     assert (

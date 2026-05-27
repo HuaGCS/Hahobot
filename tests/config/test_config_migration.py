@@ -197,6 +197,35 @@ def test_load_config_prefers_existing_hahobot_config_over_nanobot_default(
     )
 
 
+def test_user_memory_defaults_to_sqlite_backend() -> None:
+    config = Config()
+    assert config.memory.user.backend == "sqlite"
+    assert config.memory.user.sqlite.top_k == 8
+    assert config.memory.user.sqlite.max_context_chars == 4_000
+    assert config.memory.user.sqlite.max_fragment_chars == 500
+
+
+def test_save_config_round_trips_user_memory_sqlite_section(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    config = load_config(config_path)
+    config.memory.user.backend = "file"
+    config.memory.user.sqlite.top_k = 12
+    config.memory.user.sqlite.max_context_chars = 8_000
+    config.memory.user.sqlite.max_fragment_chars = 800
+
+    save_config(config, config_path)
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert saved["memory"]["user"]["backend"] == "file"
+    assert saved["memory"]["user"]["sqlite"]["topK"] == 12
+    assert saved["memory"]["user"]["sqlite"]["maxContextChars"] == 8_000
+    assert saved["memory"]["user"]["sqlite"]["maxFragmentChars"] == 800
+
+    reloaded = load_config(config_path)
+    assert reloaded.memory.user.backend == "file"
+    assert reloaded.memory.user.sqlite.top_k == 12
+
+
 def test_onboard_does_not_crash_with_legacy_memory_window(tmp_path, monkeypatch) -> None:
     config_path = tmp_path / "config.json"
     workspace = tmp_path / "workspace"
