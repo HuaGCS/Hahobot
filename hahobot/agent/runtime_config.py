@@ -134,6 +134,7 @@ class RuntimeConfigManager:
         self.loop.exec_config = tools_cfg.exec
         self.loop.image_gen_config = tools_cfg.image_gen
         self.loop.memory_config = config.memory
+        self.loop.subagent_config = defaults.subagent
         self.loop.restrict_to_workspace = tools_cfg.restrict_to_workspace
         self.loop.web_enabled = web_cfg.enable
         self.loop.brave_api_key = search_cfg.api_key or None
@@ -169,6 +170,7 @@ class RuntimeConfigManager:
             exec_config=self.loop.exec_config,
             restrict_to_workspace=self.loop.restrict_to_workspace,
             disabled_skills=self.loop._disabled_skills,
+            model_roles=dict(defaults.subagent.models),
         )
         self.configure_memory_router()
         self.apply_runtime_tool_config()

@@ -17,6 +17,11 @@ if TYPE_CHECKING:
             "Subagent mode: explore for read-only investigation, implement for bounded changes, verify for independent validation.",
             enum=("explore", "implement", "verify"),
         ),
+        model=StringSchema(
+            "Optional model selector. Either a role name from agents.defaults.subagent.models "
+            "(e.g. 'fast', 'strong', 'reasoning') or a literal provider/model identifier "
+            "(e.g. 'openai/gpt-4.1-mini'). Omit to use the active default model."
+        ),
         required=["task"],
     )
 )
@@ -47,6 +52,9 @@ class SpawnTool(Tool):
             "The subagent will complete the task and report back when done. "
             "Use mode='explore' for investigation, mode='implement' for bounded edits, "
             "and mode='verify' for independent validation. "
+            "Optional model: pass a role name configured under "
+            "agents.defaults.subagent.models (e.g. 'fast' for cheap quick tasks, "
+            "'strong' for hard reasoning) or omit for the default. "
             "For deliverables or existing projects, inspect the workspace first "
             "and use a dedicated subdirectory when helpful."
         )
@@ -56,6 +64,7 @@ class SpawnTool(Tool):
         task: str,
         label: str | None = None,
         mode: str | None = None,
+        model: str | None = None,
         **kwargs: Any,
     ) -> str:
         """Spawn a subagent to execute the given task."""
@@ -66,4 +75,5 @@ class SpawnTool(Tool):
             origin_channel=self._origin_channel,
             origin_chat_id=self._origin_chat_id,
             session_key=self._session_key,
+            model=model,
         )

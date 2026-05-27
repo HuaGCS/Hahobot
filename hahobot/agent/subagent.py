@@ -61,6 +61,7 @@ class SubagentManager:
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
         disabled_skills: list[str] | None = None,
+        model_roles: dict[str, str] | None = None,
     ):
         from hahobot.config.schema import ExecToolConfig
 
@@ -78,6 +79,7 @@ class SubagentManager:
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self.disabled_skills = set(disabled_skills or [])
+        self.model_roles = dict(model_roles or {})
         self.runner = AgentRunner(provider)
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
@@ -97,6 +99,7 @@ class SubagentManager:
         exec_config: ExecToolConfig,
         restrict_to_workspace: bool,
         disabled_skills: list[str],
+        model_roles: dict[str, str] | None = None,
     ) -> None:
         """Update runtime-configurable settings for future subagent tasks."""
         self.workspace = workspace
@@ -110,6 +113,31 @@ class SubagentManager:
         self.exec_config = exec_config
         self.restrict_to_workspace = restrict_to_workspace
         self.disabled_skills = set(disabled_skills)
+        self.model_roles = dict(model_roles or {})
+
+    def resolve_model(self, hint: str | None) -> tuple[str, str | None]:
+        """Resolve a spawn-time model hint into a concrete model identifier.
+
+        Returns ``(model, source)`` where ``source`` is ``"role"`` when the hint
+        matched a configured role, ``"literal"`` when the hint already looked
+        like a provider-qualified model identifier, ``None`` when no hint was
+        supplied, or ``"fallback"`` when the hint was non-empty but matched
+        nothing recognized.
+        """
+        if not hint or not hint.strip():
+            return self.model, None
+        cleaned = hint.strip()
+        if cleaned in self.model_roles:
+            return self.model_roles[cleaned], "role"
+        if "/" in cleaned and " " not in cleaned:
+            return cleaned, "literal"
+        logger.warning(
+            "Subagent model hint {!r} did not match any role and is not a "
+            "provider/model literal; falling back to default model {!r}",
+            cleaned,
+            self.model,
+        )
+        return self.model, "fallback"
 
     async def spawn(
         self,
@@ -119,6 +147,7 @@ class SubagentManager:
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
+        model: str | None = None,
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
         task_id = str(uuid.uuid4())[:8]
@@ -126,6 +155,7 @@ class SubagentManager:
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
         normalized_mode = self._normalize_mode(mode)
         effective_session_key = session_key or f"{origin_channel}:{origin_chat_id}"
+        resolved_model, model_source = self.resolve_model(model)
         self._task_meta[task_id] = {
             "task_id": task_id,
             "label": display_label,
@@ -133,10 +163,19 @@ class SubagentManager:
             "origin_channel": origin_channel,
             "origin_chat_id": origin_chat_id,
             "session_key": effective_session_key,
+            "model": resolved_model,
+            "model_source": model_source or "default",
         }
 
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, normalized_mode, origin)
+            self._run_subagent(
+                task_id,
+                task,
+                display_label,
+                normalized_mode,
+                origin,
+                resolved_model,
+            )
         )
         self._running_tasks[task_id] = bg_task
         if effective_session_key:
@@ -152,7 +191,14 @@ class SubagentManager:
 
         bg_task.add_done_callback(_cleanup)
 
-        logger.info("Spawned subagent [{}] [{}]: {}", task_id, normalized_mode, display_label)
+        model_label = f" model={resolved_model}" if model_source else ""
+        logger.info(
+            "Spawned subagent [{}] [{}]{}: {}",
+            task_id,
+            normalized_mode,
+            model_label,
+            display_label,
+        )
         return (
             f"Subagent [{display_label}] started in {normalized_mode} mode (id: {task_id}). "
             "I'll notify you when it completes."
@@ -165,9 +211,17 @@ class SubagentManager:
         label: str,
         mode: str,
         origin: dict[str, str],
+        model: str | None = None,
     ) -> None:
         """Execute the subagent task and announce the result."""
-        logger.info("Subagent [{}] starting task [{}]: {}", task_id, mode, label)
+        effective_model = model or self.model
+        logger.info(
+            "Subagent [{}] starting task [{} model={}]: {}",
+            task_id,
+            mode,
+            effective_model,
+            label,
+        )
 
         try:
             tools = self._build_tools_for_mode(mode)
@@ -181,7 +235,7 @@ class SubagentManager:
                 AgentRunSpec(
                     initial_messages=messages,
                     tools=tools,
-                    model=self.model,
+                    model=effective_model,
                     max_iterations=15,
                     max_tool_result_chars=self.max_tool_result_chars,
                     hook=_SubagentHook(task_id),
