@@ -1090,6 +1090,115 @@ async def test_gateway_admin_channel_cards_preserve_multi_instance_config(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_gateway_admin_subagents_inject_and_cancel(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    from unittest.mock import AsyncMock, MagicMock
+
+    manager = MagicMock()
+    manager.running_tasks_snapshot = MagicMock(
+        return_value=[
+            {
+                "task_id": "abc12345",
+                "label": "image extract probe",
+                "mode": "explore",
+                "model": "openai/gpt-4.1-mini",
+                "session_key": "cli:direct",
+            }
+        ]
+    )
+    manager.pending_injections = MagicMock(return_value=0)
+    manager.inject_message = MagicMock(return_value=True)
+    manager.cancel_task = AsyncMock(return_value=True)
+
+    from hahobot.gateway.http import create_http_app
+
+    app = create_http_app(
+        config_path=config_path,
+        workspace=workspace,
+        subagent_manager=manager,
+    )
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    cookie = login.cookies["hahobot_admin_session"].value
+
+    list_page = await _call_route(
+        app,
+        "GET",
+        "/admin/subagents",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert list_page.status == 200
+    assert "image extract probe" in list_page.text
+    assert "abc12345" in list_page.text
+    assert 'action="/admin/subagents/abc12345/inject"' in list_page.text
+    assert 'action="/admin/subagents/abc12345/cancel"' in list_page.text
+
+    inject = await _call_route(
+        app,
+        "POST",
+        "/admin/subagents/abc12345/inject",
+        cookies={"hahobot_admin_session": cookie},
+        data={"content": "Stop the current branch and switch strategy"},
+    )
+    assert inject.status == 302
+    assert inject.headers["Location"] == "/admin/subagents?injected=abc12345"
+    manager.inject_message.assert_called_once_with(
+        "abc12345",
+        "Stop the current branch and switch strategy",
+    )
+
+    blank_inject = await _call_route(
+        app,
+        "POST",
+        "/admin/subagents/abc12345/inject",
+        cookies={"hahobot_admin_session": cookie},
+        data={"content": "   "},
+    )
+    assert blank_inject.status == 302
+    assert blank_inject.headers["Location"] == "/admin/subagents?error=empty_message"
+
+    cancel = await _call_route(
+        app,
+        "POST",
+        "/admin/subagents/abc12345/cancel",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert cancel.status == 302
+    assert cancel.headers["Location"] == "/admin/subagents?cancelled=abc12345"
+    manager.cancel_task.assert_awaited_once_with("abc12345")
+
+    # When no manager is attached, the page still renders a friendly empty state
+    bare_app = create_http_app(config_path=config_path, workspace=workspace)
+    login2 = await _call_route(
+        bare_app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    cookie2 = login2.cookies["hahobot_admin_session"].value
+    bare_page = await _call_route(
+        bare_app,
+        "GET",
+        "/admin/subagents",
+        cookies={"hahobot_admin_session": cookie2},
+    )
+    assert bare_page.status == 200
+    assert "hahobot gateway" in bare_page.text
+
+
+@pytest.mark.asyncio
 async def test_gateway_admin_skill_proposal_approve_and_reject(tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
     workspace = tmp_path / "workspace"

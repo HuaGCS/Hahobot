@@ -1386,6 +1386,7 @@ def test_gateway_constructs_http_server_without_public_file_options(
         def __init__(self, **kwargs) -> None:
             self.model = "test-model"
             self.tools = {}
+            self.subagents = None
             seen["agent_kwargs"] = kwargs
 
     class _DummyChannelManager:
@@ -1404,6 +1405,7 @@ def test_gateway_constructs_http_server_without_public_file_options(
             star_office_tracker,
             runtime_status_tracker,
             heartbeat_service,
+            subagent_manager=None,
         ) -> None:
             seen["host"] = host
             seen["port"] = port
@@ -1413,6 +1415,7 @@ def test_gateway_constructs_http_server_without_public_file_options(
             seen["star_office_tracker"] = star_office_tracker
             seen["runtime_status_tracker"] = runtime_status_tracker
             seen["heartbeat_service"] = heartbeat_service
+            seen["subagent_manager"] = subagent_manager
             seen["http_server_ctor"] = True
             raise _StopGatewayError("stop")
 
@@ -1472,6 +1475,7 @@ def test_gateway_registers_dream_job_from_config(monkeypatch, tmp_path: Path) ->
         def __init__(self, **kwargs) -> None:
             self.model = kwargs["model"]
             self.tools = {}
+            self.subagents = None
             self.dream = SimpleNamespace(
                 model=kwargs["model"],
                 max_batch_size=20,

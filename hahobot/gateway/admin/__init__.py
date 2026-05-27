@@ -17,6 +17,7 @@ from hahobot.gateway.admin.config_view import (
 from hahobot.gateway.admin.constants import (
     _ADMIN_CONFIG_PATH_KEY,
     _ADMIN_RELOAD_RUNTIME_KEY,
+    _ADMIN_SUBAGENT_MANAGER_KEY,
     _ADMIN_WEIXIN_LOGIN_SESSIONS_KEY,
     _ADMIN_WORKSPACE_KEY,
 )
@@ -37,6 +38,11 @@ from hahobot.gateway.admin.personas import (
     _admin_persona_scene_template_save,
     _admin_persona_submit,
     _admin_personas_page,
+)
+from hahobot.gateway.admin.subagents import (
+    _admin_subagent_cancel,
+    _admin_subagent_inject,
+    _admin_subagents_page,
 )
 from hahobot.gateway.admin.weixin import (
     WeixinAdminLoginSession,
@@ -59,6 +65,7 @@ def register_admin_routes(
     config_path: Path,
     workspace: Path,
     reload_runtime: Callable[[], Awaitable[None]] | None = None,
+    subagent_manager: object | None = None,
 ) -> None:
     """Register built-in admin routes for the current gateway instance."""
     app[_ADMIN_CONFIG_PATH_KEY] = config_path
@@ -66,6 +73,8 @@ def register_admin_routes(
     app[_ADMIN_WEIXIN_LOGIN_SESSIONS_KEY] = {}
     if reload_runtime is not None:
         app[_ADMIN_RELOAD_RUNTIME_KEY] = reload_runtime
+    if subagent_manager is not None:
+        app[_ADMIN_SUBAGENT_MANAGER_KEY] = subagent_manager
     app.router.add_get("/admin", _admin_index)
     app.router.add_get("/admin/login", _admin_login_page)
     app.router.add_post("/admin/login", _admin_login_submit)
@@ -84,6 +93,15 @@ def register_admin_routes(
         _admin_skill_proposal_reject,
     )
     app.router.add_get("/admin/cron", _admin_cron_page)
+    app.router.add_get("/admin/subagents", _admin_subagents_page)
+    app.router.add_post(
+        "/admin/subagents/{task_id:[A-Za-z0-9]+}/inject",
+        _admin_subagent_inject,
+    )
+    app.router.add_post(
+        "/admin/subagents/{task_id:[A-Za-z0-9]+}/cancel",
+        _admin_subagent_cancel,
+    )
     app.router.add_get("/admin/weixin", _admin_weixin_page)
     app.router.add_post("/admin/weixin/start", _admin_weixin_start)
     app.router.add_post("/admin/weixin/cancel", _admin_weixin_cancel)

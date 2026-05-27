@@ -1,0 +1,49 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<section class="card stack spotlight">
+  <span class="eyebrow">{{ subagents_nav_label }}</span>
+  <div class="muted">{{ subagents_intro_html }}</div>
+  {% if intro_extra_label %}
+  <div class="notice">{{ intro_extra_label }}</div>
+  {% endif %}
+</section>
+
+{% if rows %}
+<section class="card stack">
+  <div class="skill-grid">
+    {% for row in rows %}
+    <article class="skill-card">
+      <div class="skill-card-head">
+        <strong>{{ row.label or row.task_id }}</strong>
+        <div class="badge-row">
+          <span class="pill">{{ row.mode }}</span>
+          {% if row.pending_injections %}
+          <span class="pill restart">+{{ row.pending_injections }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="muted"><code>{{ col_task_label }}: {{ row.task_id }}</code></div>
+      <div class="muted"><code>{{ col_session_label }}: {{ row.session_key }}</code></div>
+      <div class="muted"><code>{{ col_model_label }}: {{ row.model }}</code></div>
+      <form method="post" action="/admin/subagents/{{ row.task_id }}/inject" class="stack">
+        <label class="field full">
+          <span class="label">{{ col_inject_label }}</span>
+          <textarea name="content" rows="3" placeholder="{{ inject_placeholder }}" required></textarea>
+        </label>
+        <div class="actions">
+          <button type="submit">{{ inject_button_label }}</button>
+        </div>
+      </form>
+      <form method="post" action="/admin/subagents/{{ row.task_id }}/cancel" class="actions" onsubmit="return confirm('{{ cancel_confirm_label }}');">
+        <button type="submit" class="ghost">{{ cancel_button_label }}</button>
+      </form>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<section class="card stack">
+  <div class="muted">{{ empty_label }}</div>
+</section>
+{% endif %}
+{% endblock %}
