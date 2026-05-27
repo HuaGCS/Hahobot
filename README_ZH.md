@@ -1166,57 +1166,51 @@ context 会先注入一次恢复摘要，再继续正常对话。旧别名 `sess
 这意味着项目历史、设计原因、排障经验等问题可以直接利用 Memorix，但不会替代当前文件记忆主链路。
 如果你使用内置 admin 页面，现在也可以直接在可视化配置里编辑专门的 `Memorix MCP` 分区。
 
-### Mem0 用户记忆
+### 用户记忆后端
 
-hahobot 现在可以把 Mem0 作为真正的用户记忆后端使用。
+hahobot 默认用嵌入式 **SQLite-FTS 派生索引** 作为用户记忆主后端，零外部服务依赖。
 
-- `memory.user.backend: "file" | "mem0"` 用来选择主用户记忆后端。默认仍是 `file`，继续把 persona 的 `MEMORY.md` 注入 prompt。
-- `memory.user.backend: "mem0"` 时，会从 Mem0 检索记忆上下文，并在每轮完成后把 turn 写入 Mem0。
-- 当 `memory.user.backend=mem0` 时，hahobot 仍会保留 file 侧的 `MEMORY.md` 作为 prompt 注入保底来源；如果 Mem0 没检索到内容或查询失败，会自动回退到现有文件记忆。
-- `memory.user.shadowWriteMem0: true` 可以保持 `file` 为主后端，同时并行双写到 Mem0。
-- 运行时需要额外安装依赖：`uv sync --extra mem0` 或 `pip install -e ".[mem0]"`。
-- `memory.user.mem0.llm`、`embedder`、`vectorStore` 建议优先使用显式字段：`provider`、`apiKey`、`url`、`model`、`headers`。
-- provider 私有扩展参数继续放在 `config` 中，顶层 `metadata` 会在写入 Mem0 时一起附带。
+- `memory.user.backend: "sqlite" | "file"`，默认 `sqlite`。
+- `sqlite` 时:persona 的 `memory/MEMORY.md` 仍是权威数据源,代码按 mtime 派生 `memory/facts.sqlite` (FTS5)。每轮把 inbound 文本作 BM25 query 拉 top-K 片段拼成 `## Long-term Memory` 块注入 prompt。query 为空时退回到最近 K 条。
+- `file` 时:仍走老路径——把整份 `MEMORY.md` 注入。也可作为 `sqlite` 故障的自动 fallback,由 `MemoryRouter` 兜底。
+- 三个可调参数(`memory.user.sqlite`):
+  - `topK`(默认 8)— 每轮检索片段数
+  - `maxContextChars`(默认 4000)— 注入区块上限
+  - `maxFragmentChars`(默认 500)— 单片段截断阈值
 
-示例：
+#### 结构化片段头部
+
+Consolidator 写 `MEMORY.md` 时,每个新片段会被服务端自动包上可信元数据头:
+
+```markdown
+<!-- ts:2026-05-26T17:30 tag:preference src:turn -->
+用户偏好简洁回复。
+```
+
+- `tag` 由 LLM 提议(`preference` / `project` / `reference` / `feedback` / `user`),被服务端规范化,未知值降级为 `preference`。
+- `ts` 和 `src` 由代码填充,**LLM 无法伪造**(防 prompt 注入伪造 `src:dream` 等可信来源)。
+- 无头部的老片段仍可读,自动归 `tag=legacy` / `src=unknown`。
+
+Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
+
+#### 配置示例
 
 ```json
 {
   "memory": {
     "user": {
-      "backend": "mem0",
-      "shadowWriteMem0": false,
-      "mem0": {
-        "llm": {
-          "provider": "openai",
-          "apiKey": "mem0-llm-key",
-          "url": "https://api.mem0.ai/v1",
-          "model": "gpt-4.1-mini"
-        },
-        "embedder": {
-          "provider": "openai",
-          "apiKey": "mem0-embed-key",
-          "url": "https://embed.mem0.ai/v1",
-          "model": "text-embedding-3-small"
-        },
-        "vectorStore": {
-          "provider": "qdrant",
-          "apiKey": "mem0-vs-key",
-          "url": "https://qdrant.mem0.ai",
-          "config": {
-            "collectionName": "hahobot_user_memory"
-          }
-        },
-        "metadata": {
-          "tenant": "prod"
-        }
+      "backend": "sqlite",
+      "sqlite": {
+        "topK": 8,
+        "maxContextChars": 4000,
+        "maxFragmentChars": 500
       }
     }
   }
 }
 ```
 
-如果你使用内置 admin 页面，现在也可以直接在可视化配置里编辑 `Mem0 用户记忆` 分区，包括 `memory.user.backend`、`shadowWriteMem0`，以及常用字段和 `headers` / `config` / `metadata` 的 JSON textarea。
+如果你使用内置 admin 页面,可以直接在可视化配置里编辑 `用户记忆` 分区,包括 `memory.user.backend` 和三个 SQLite 调节项。
 
 ### 安全
 
@@ -1275,7 +1269,7 @@ hahobot 现在可以把 Mem0 作为真正的用户记忆后端使用。
 - 可视化编辑 `tools.exec`，用于控制 shell 命令执行、超时时间、额外 PATH、`allowedEnvKeys` 和可选 `sandbox`
 - 可视化编辑渠道运行时分区和工具提示长度，例如 `channels.sendProgress`、`channels.sendToolHints`、`channels.sendMaxRetries`、`channels.transcriptionProvider`、`agents.defaults.toolHintMaxLength` 和 `channels.voiceReply.*`
 - 可视化编辑专门的 `Memorix MCP` 分区，对应 `tools.mcpServers.memorix`
-- 可视化编辑 `Mem0 用户记忆` 分区，对应 `memory.user.backend`、`shadowWriteMem0` 和 `memory.user.mem0`
+- 可视化编辑 `用户记忆` 分区,对应 `memory.user.backend` 和 `memory.user.sqlite.{topK,maxContextChars,maxFragmentChars}`
 - 独立的命令总览页，展示所有聊天 slash 命令、别名和用法
 - 每个可视化配置项都带悬浮说明，鼠标移动到字段名即可查看详细解释
 - 每个可视化配置项都会直接标注“可热重载”或“需重启”

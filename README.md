@@ -46,7 +46,7 @@ oriented built-in skills.
 | --- | --- | --- |
 | `HKUDS/nanobot` | Small, readable agent runtime; channel/provider/tool layering; gateway and CLI spirit | `hahobot agent`, `hahobot gateway`, `hahobot serve`, provider registry, channel manager, OpenAI-compatible API, WhatsApp bridge, `nanobot` compatibility entrypoints |
 | `shenmintao/NanoMate` | SillyTavern character workflow and companion orientation | Persona import commands, `STYLE.md` / `LORE.md`, persona-local `VOICE.json`, reference-image manifests, built-in `living-together` and `emotional-companion` skills |
-| Hermes Agent docs | Context-file driven memory, persistent long-term memory, reflective maintenance over time | Split memory files (`SOUL.md`, `USER.md`, `PROFILE.md`, `INSIGHTS.md`, `memory/MEMORY.md`), history archive, Dream phase 1/2 reflection, optional Mem0 backend and shadow-write mode |
+| Hermes Agent docs | Context-file driven memory, persistent long-term memory, reflective maintenance over time | Split memory files (`SOUL.md`, `USER.md`, `PROFILE.md`, `INSIGHTS.md`, `memory/MEMORY.md`), history archive, Dream phase 1/2 reflection, embedded SQLite-FTS top-K retrieval backend with file fallback |
 
 ## What Hahobot Ships
 
@@ -66,7 +66,8 @@ Core capabilities:
 - Dream-style reflective maintenance that can update memory files over time instead of only
   appending chat history.
 - Structured archived history for lossless recall via `history_search` / `history_expand`.
-- Optional Mem0 integration for external long-term memory, with `file` fallback kept available.
+- Top-K BM25 retrieval over the persona's `MEMORY.md` via an embedded SQLite-FTS5
+  derived index, with whole-file injection kept as a conservative fallback.
 - Built-in tools for web, files, shell, image generation, notebook editing, history recall, cron,
   messaging, runtime self-inspection, and MCP.
 - OpenAI-compatible HTTP API for embedding the runtime behind other local systems.
@@ -81,7 +82,7 @@ This local project is source-first. The repository itself is the distribution.
 
 ```bash
 cd /path/to/Hahobot
-uv sync --extra api --extra matrix --extra weixin --extra mem0 --extra dev
+uv sync --extra api --extra matrix --extra weixin --extra dev
 ```
 
 Use fewer extras if you do not need them:
@@ -89,14 +90,13 @@ Use fewer extras if you do not need them:
 - `api`: `hahobot serve` / gateway HTTP dependencies
 - `matrix`: Matrix support
 - `weixin`: Weixin QR login helpers
-- `mem0`: Mem0 backend
 - `dev`: pytest, ruff, and local development tooling
 
 ### Option 2: editable install with `pip`
 
 ```bash
 cd /path/to/Hahobot
-pip install -e ".[api,matrix,weixin,mem0]"
+pip install -e ".[api,matrix,weixin]"
 ```
 
 If you only want the base runtime:
@@ -409,16 +409,36 @@ It separates:
 - project memory (`memory/MEMORY.md`)
 - archived interaction history (`history.jsonl` + `memory/archive/`)
 
-### File backend by default
+### Default backend: SQLite-FTS with file fallback
 
-The default user-memory backend is file-based. That keeps state inspectable and reviewable in the
-workspace.
+`memory.user.backend` defaults to `sqlite`. Each persona's `memory/MEMORY.md` stays
+the source of truth; a derived `memory/facts.sqlite` (FTS5) is rebuilt automatically
+when the markdown file's mtime changes. Per turn, the inbound user text is used as a
+BM25 query and the top-K matching fragments are injected as the long-term memory
+block. If the query is empty the most recent fragments are returned instead.
 
-### Optional Mem0 backend
+Tunable under `memory.user.sqlite`:
 
-You can switch `memory.user.backend` to `mem0` and optionally keep
-`memory.user.shadowWriteMem0: true` to dual-write completed turns while preserving the file-backed
-context fallback.
+- `topK` — fragments per turn (default 8)
+- `maxContextChars` — hard upper bound on the assembled block (default 4000)
+- `maxFragmentChars` — per-fragment truncation (default 500)
+
+The `file` backend remains a one-line switch (`memory.user.backend: "file"`) and is
+also used automatically as a fallback when the SQLite backend returns empty or raises.
+
+### Structured fragment headers
+
+Consolidator-written fragments carry a server-controlled provenance header so the
+fact source cannot be forged by prompt injection:
+
+```markdown
+<!-- ts:2026-05-26T17:30 tag:preference src:turn -->
+User prefers concise replies.
+```
+
+The LLM only proposes the optional `tag:` token (one of `preference`, `project`,
+`reference`, `feedback`, `user`); `ts` and `src` are filled by code. Fragments
+without a header are still readable and become `tag=legacy`/`src=unknown`.
 
 ### Consolidation and archive recall
 
@@ -763,7 +783,7 @@ High-level layout:
 Set up the development environment:
 
 ```bash
-uv sync --extra api --extra matrix --extra weixin --extra mem0 --extra dev
+uv sync --extra api --extra matrix --extra weixin --extra dev
 ```
 
 Run tests:
