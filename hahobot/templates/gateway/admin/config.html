@@ -39,6 +39,7 @@
         <button type="submit">{{ save_visual_label }}</button>
       </div>
     </form>
+    {{ memory_migrate_card_html }}
     <details class="card stack"{% if raw_open %} open{% endif %}>
       <summary>{{ advanced_title }}</summary>
       <p class="muted">{{ advanced_desc_html }}</p>
