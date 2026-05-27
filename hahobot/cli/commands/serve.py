@@ -346,6 +346,7 @@ def gateway(
         star_office_tracker=star_office_tracker,
         runtime_status_tracker=runtime_status_tracker,
         heartbeat_service=heartbeat,
+        subagent_manager=agent.subagents,
     )
 
     if channels.enabled_channels:

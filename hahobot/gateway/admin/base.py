@@ -252,6 +252,7 @@ def _page(
             f"{_nav_link(request, '/admin', 'admin_nav_overview')}"
             f"{_nav_link(request, '/admin/sessions', 'admin_nav_sessions')}"
             f"{_nav_link(request, '/admin/skills', 'admin_nav_skills')}"
+            f"{_nav_link(request, '/admin/subagents', 'admin_nav_subagents')}"
             f"{_nav_link(request, '/admin/cron', 'admin_nav_cron')}"
             f"{_nav_link(request, '/admin/config', 'admin_nav_config')}"
             f"{_nav_link(request, '/admin/weixin', 'admin_nav_weixin')}"

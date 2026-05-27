@@ -18,6 +18,7 @@ _ADMIN_CONFIG_PATH_KEY = web.AppKey("admin_config_path", Path)
 _ADMIN_WORKSPACE_KEY = web.AppKey("admin_workspace_path", Path)
 _ADMIN_RELOAD_RUNTIME_KEY = web.AppKey("admin_reload_runtime", object)
 _ADMIN_WEIXIN_LOGIN_SESSIONS_KEY = web.AppKey("admin_weixin_login_sessions", object)
+_ADMIN_SUBAGENT_MANAGER_KEY = web.AppKey("admin_subagent_manager", object)
 _MEMORIX_MCP_SERVER_NAME = "memorix"
 _MEMORIX_MCP_DEFAULT_COMMAND = "memorix"
 _MEMORIX_MCP_DEFAULT_ARGS = ("serve",)

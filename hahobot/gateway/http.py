@@ -203,6 +203,7 @@ def create_http_app(
     star_office_tracker: StarOfficeStatusTracker | None = None,
     runtime_status_tracker: GatewayRuntimeStatusTracker | None = None,
     heartbeat_service: HeartbeatService | None = None,
+    subagent_manager: object | None = None,
 ) -> web.Application:
     """Create the gateway HTTP app."""
     app = web.Application()
@@ -264,6 +265,7 @@ def create_http_app(
             config_path=config_path,
             workspace=workspace,
             reload_runtime=reload_runtime,
+            subagent_manager=subagent_manager,
         )
     return app
 
@@ -282,6 +284,7 @@ class GatewayHttpServer:
         star_office_tracker: StarOfficeStatusTracker | None = None,
         runtime_status_tracker: GatewayRuntimeStatusTracker | None = None,
         heartbeat_service: HeartbeatService | None = None,
+        subagent_manager: object | None = None,
     ):
         self.host = host
         self.port = port
@@ -292,6 +295,7 @@ class GatewayHttpServer:
             star_office_tracker=star_office_tracker,
             runtime_status_tracker=runtime_status_tracker,
             heartbeat_service=heartbeat_service,
+            subagent_manager=subagent_manager,
         )
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None

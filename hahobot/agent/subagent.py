@@ -3,6 +3,7 @@
 import asyncio
 import json
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -26,10 +27,36 @@ from hahobot.utils.prompt_templates import render_template
 
 
 class _SubagentHook(AgentHook):
-    """Logging-only hook for subagent execution."""
+    """Logging hook + admin injection drain for subagent execution."""
 
-    def __init__(self, task_id: str) -> None:
+    _INJECTION_PREFIX = "[admin-injection] "
+
+    def __init__(
+        self,
+        task_id: str,
+        injection_pop: "Callable[[str], list[str]] | None" = None,
+    ) -> None:
         self._task_id = task_id
+        self._injection_pop = injection_pop
+
+    async def before_iteration(self, context: AgentHookContext) -> None:
+        if self._injection_pop is None:
+            return
+        pending = self._injection_pop(self._task_id)
+        if not pending:
+            return
+        for body in pending:
+            context.messages.append(
+                {
+                    "role": "system",
+                    "content": f"{self._INJECTION_PREFIX}{body}",
+                }
+            )
+            logger.info(
+                "Subagent [{}] received admin injection ({} chars)",
+                self._task_id,
+                len(body),
+            )
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         for tool_call in context.tool_calls:
@@ -84,6 +111,7 @@ class SubagentManager:
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
         self._task_meta: dict[str, dict[str, str]] = {}
+        self._injections: dict[str, list[str]] = {}
 
     def apply_runtime_config(
         self,
@@ -184,6 +212,7 @@ class SubagentManager:
         def _cleanup(_: asyncio.Task) -> None:
             self._running_tasks.pop(task_id, None)
             self._task_meta.pop(task_id, None)
+            self._injections.pop(task_id, None)
             if effective_session_key and (ids := self._session_tasks.get(effective_session_key)):
                 ids.discard(task_id)
                 if not ids:
@@ -238,7 +267,7 @@ class SubagentManager:
                     model=effective_model,
                     max_iterations=15,
                     max_tool_result_chars=self.max_tool_result_chars,
-                    hook=_SubagentHook(task_id),
+                    hook=_SubagentHook(task_id, injection_pop=self._pop_injections),
                     max_iterations_message="Task completed but no final response was generated.",
                     error_message=None,
                     fail_on_tool_error=True,
@@ -428,6 +457,40 @@ class SubagentManager:
             workspace=str(self.workspace),
             skills_summary=skills_summary or "",
         )
+
+    def inject_message(self, task_id: str, content: str) -> bool:
+        """Queue an admin-authored system message for *task_id*.
+
+        Drained by ``_SubagentHook.before_iteration`` so the next LLM call
+        sees the new message. Returns False when the task is unknown or no
+        longer running (cleanup may race the request).
+        """
+        body = (content or "").strip()
+        if not body:
+            return False
+        if task_id not in self._running_tasks:
+            return False
+        self._injections.setdefault(task_id, []).append(body)
+        return True
+
+    def _pop_injections(self, task_id: str) -> list[str]:
+        return self._injections.pop(task_id, [])
+
+    def pending_injections(self, task_id: str) -> int:
+        """Return how many injections are queued for *task_id* (for tests / UI)."""
+        return len(self._injections.get(task_id, []))
+
+    async def cancel_task(self, task_id: str) -> bool:
+        """Cancel a single in-flight subagent task. Returns False if not running."""
+        bg = self._running_tasks.get(task_id)
+        if bg is None or bg.done():
+            return False
+        bg.cancel()
+        try:
+            await bg
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+        return True
 
     async def cancel_by_session(self, session_key: str) -> int:
         """Cancel all subagents for the given session. Returns count cancelled."""
