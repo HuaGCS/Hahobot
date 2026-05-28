@@ -18,16 +18,18 @@ def test_help_and_admin_catalog_include_gateway_workspace_commands() -> None:
     help_text = "\n".join(help_lines("en"))
     admin_commands = [spec.command for spec in admin_command_specs()]
 
-    assert "/dream-log" in help_text
-    assert "/dream-restore" in help_text
+    assert "/dream log [sha]" in help_text
+    assert "/dream restore [sha]" in help_text
+    assert "/dream-log" not in help_text
+    assert "/dream-restore" not in help_text
     assert "/session current" in help_text
     assert "/repo <status|diff>" in help_text
     assert "/review [staged|base <rev>|path <repo-path>]" in help_text
     assert "/compact [key]" in help_text
     assert "/update [check|force|bridge]" in help_text
     assert "/dream" in admin_commands
-    assert "/dream-log" in admin_commands
-    assert "/dream-restore" in admin_commands
+    assert "/dream-log" not in admin_commands
+    assert "/dream-restore" not in admin_commands
     assert "/session" in admin_commands
     assert "/repo" in admin_commands
     assert "/review" in admin_commands

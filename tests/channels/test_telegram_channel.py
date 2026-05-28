@@ -193,8 +193,10 @@ async def test_start_creates_separate_pools_with_proxy(monkeypatch) -> None:
     assert callable(app.updater.start_polling_kwargs["error_callback"])
     assert any(cmd.command == "status" for cmd in app.bot.commands)
     assert any(cmd.command == "dream" for cmd in app.bot.commands)
-    assert any(cmd.command == "dream_log" for cmd in app.bot.commands)
-    assert any(cmd.command == "dream_restore" for cmd in app.bot.commands)
+    # /dream-log and /dream-restore folded into /dream subcommands;
+    # the legacy menu entries are intentionally hidden.
+    assert not any(cmd.command == "dream_log" for cmd in app.bot.commands)
+    assert not any(cmd.command == "dream_restore" for cmd in app.bot.commands)
     assert any(cmd.command == "update" for cmd in app.bot.commands)
     assert any(cmd.command == "stchar" for cmd in app.bot.commands)
     assert any(cmd.command == "preset" for cmd in app.bot.commands)
@@ -1254,8 +1256,10 @@ async def test_on_help_includes_restart_command() -> None:
     assert "/update" in help_text
     assert "/status" in help_text
     assert "/dream" in help_text
-    assert "/dream-log" in help_text
-    assert "/dream-restore" in help_text
+    assert "/dream log" in help_text
+    assert "/dream restore" in help_text
+    assert "/dream-log" not in help_text
+    assert "/dream-restore" not in help_text
 
 
 @pytest.mark.asyncio
