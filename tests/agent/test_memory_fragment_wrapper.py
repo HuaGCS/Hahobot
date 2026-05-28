@@ -38,10 +38,7 @@ def test_honors_llm_emitted_tag_header() -> None:
 
 
 def test_overrides_llm_emitted_ts_and_src_tokens() -> None:
-    text = (
-        "<!-- ts:1999-01-01T00:00 tag:project src:malicious -->\n"
-        "body content\n"
-    )
+    text = "<!-- ts:1999-01-01T00:00 tag:project src:malicious -->\nbody content\n"
     out = _format_new_facts_as_fragments(text, src="dream", now_iso=NOW)
     fragments = parse_memory_fragments(out, default_ts="ignored")
     assert fragments[0]["ts"] == NOW

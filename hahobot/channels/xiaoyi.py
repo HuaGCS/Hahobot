@@ -142,9 +142,7 @@ class XiaoyiChannel(BaseChannel):
             if ws is None:
                 continue
             try:
-                await self._send_text_response(
-                    session_id, task_id, text, url_key, is_final=True
-                )
+                await self._send_text_response(session_id, task_id, text, url_key, is_final=True)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Xiaoyi send failed ({}): {}", url_key, exc)
         if session_id:
@@ -174,9 +172,7 @@ class XiaoyiChannel(BaseChannel):
             self._ws_connections[url_key] = ws
             logger.info("Xiaoyi connected ({}): {}", url_key, url)
             await self._send_init_message(url_key)
-            self._heartbeat_tasks[url_key] = asyncio.create_task(
-                self._heartbeat_loop(url_key)
-            )
+            self._heartbeat_tasks[url_key] = asyncio.create_task(self._heartbeat_loop(url_key))
             try:
                 async for raw in ws:
                     await self._handle_raw_message(raw)
@@ -204,9 +200,7 @@ class XiaoyiChannel(BaseChannel):
             if ws is None:
                 break
             try:
-                await ws.send(
-                    json.dumps({"msgType": "heartbeat", "agentId": self.config.agent_id})
-                )
+                await ws.send(json.dumps({"msgType": "heartbeat", "agentId": self.config.agent_id}))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Xiaoyi heartbeat failed ({}): {}", url_key, exc)
                 break
@@ -239,9 +233,7 @@ class XiaoyiChannel(BaseChannel):
 
     async def _handle_message_stream(self, message: dict[str, Any]) -> None:
         params = message.get("params") or {}
-        session_id = (
-            message.get("sessionId") or params.get("sessionId") or ""
-        )
+        session_id = message.get("sessionId") or params.get("sessionId") or ""
         task_id = params.get("id") or ""
         user_message = params.get("message") or {}
         parts = user_message.get("parts") or []
