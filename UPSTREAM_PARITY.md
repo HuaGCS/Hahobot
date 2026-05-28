@@ -54,33 +54,44 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot`: re-checked against upstream `main` at `92f2ff3a` (`2026-05-25`). This pass adopted
-  three contract-stable fixes: the non-streaming OpenAI-compat response parser now preserves the
-  upstream `tool_call` id when present (instead of always minting a fresh `_short_tool_id`); the
-  Responses replay converter dedupes generated `msg_*` / `fc_*` item ids so Codex no longer rejects
-  resumed conversations with duplicate `rs_*` ids while `call_id` linkage stays intact; and
-  `WebFetchTool` now validates every redirect hop's resolved IP before issuing the next request
-  (per-hop SSRF check), rather than only checking the final URL after httpx silently followed
-  redirects. The exec-config timeout uncap (config `timeout=0` = no limit), per-subagent sampling
-  temperature, OpenAI `apiType` + `extraBody`, transcription `apiBase` normalization, MCP preset
-  setup, Codex / OpenAI image-gen providers, Zhipu image-gen, apply-patch edits-only refactor, and
-  the various WebUI / settings churn are all reviewed but intentionally skipped or left on the
-  watchlist (see borrow-candidates section below).
-- `GenericAgent`: re-checked against upstream `main` at `a33b2259` (`2026-05-25`). All visible
-  deltas are a QQApp Markdown message-type tweak, a Python <3.10 `from __future__ import
-  annotations` compat fix for cost-tracker, and an A3Agent workbench docs link — no runtime or
-  memory ideas to adopt this pass.
-- `claude-mem`: re-checked against upstream `main` at `c3d2af7c` (`2026-05-21`, release v13.3.0).
-  Two new workflow skills (`oh-my-issues` for GitHub issue clustering, `weekly-digests` for
-  ISO-week serial narrative) plus an MCP root-config fix and a Codex transcript replay fix after
-  the hooks migration. Both new skills are skill-layer ideas that could be ported into hahobot's
-  bundled skill set; tracked on watchlist pending operator demand.
-- `nocturne_memory`: re-checked against upstream `main` at `68f0ebf3` (`2026-05-24`, release
-  v2.5.3). New surface area is "boot URI presets management" (database-backed CRUD over boot URIs,
-  promoted from legacy `config.json`) and an "AntiGravity heartbeat" engine for the AntiGravity
-  IDE via Chrome DevTools Protocol. Boot URI presets sit on top of nocturne's mandatory boot
-  protocol — already an intentional divergence locally — so nothing to adopt there. The
-  AntiGravity heartbeat is IDE-integration-specific and outside hahobot's scope.
+- `nanobot`: re-checked against upstream `main` at `ac8bef76` (`2026-05-28`). This pass adopted
+  one small contract-stable fix and renamed the streaming-idle env-var to a hahobot-native
+  name instead of mirroring upstream. `LLMProvider._stream_idle_timeout_s()` reads
+  `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s), and the Codex provider — which was hardcoded
+  to 60s and aborted streams sooner than its peers — now shares the same helper as the
+  anthropic and openai_compat providers. The upstream nanobot env var is intentionally not
+  honored: this is a fresh hahobot-only field, not a legacy rename-transition like
+  `HAHOBOT_PATH_APPEND` / `HAHOBOT_LLM_TIMEOUT_S` (which kept their `NANOBOT_*` fallbacks for
+  in-place migration). Larger upstream items
+  reviewed and intentionally skipped or watchlisted this pass: `cfabc29f` propagates
+  `maxConcurrentSubagents` to `SubagentManager` (hahobot does not yet expose any concurrent-
+  subagent cap, so the wiring needs the knob first); `7bbd9c71` + `4f14f980` add sustained-goal
+  continuation (`long_task` registers a goal, `goal_active_predicate` keeps the runner looping
+  until `complete_goal`) — a real feature, not a fix, needing local design across runner / hook
+  / session-lock surfaces; `a4a2c551` adds Telegram webhook mode plus per-session ordered
+  reorder-window for incoming updates; `18567daa` is a large Codex transport-error refactor
+  (structured status_code / error_type / error_code / should_retry on `_CodexHTTPError`);
+  `172ec4d4` updates Kagi's v1 Search API contract — hahobot still does not ship Kagi (search
+  provider breadth divergence); `418cb23d` unifies CLI apps and MCP behind a Settings-UI flow
+  (WebUI divergence); `179acfe1` is doc-only StepFun Step Plan apiBase note; WebUI ESLint /
+  rollup / docs-only commits are skipped as housekeeping.
+- `GenericAgent`: re-checked against upstream `main` at `2f0b603b` (`2026-05-28`). One small
+  defensive fix is already implicitly covered locally: `0908335c` adds Cloudflare 520-527 to
+  the retryable status set; hahobot's `_is_transient_response` retries any `status >= 500` so
+  this is effectively already in place. The rest is TUI v2 / v3 polish (slash bundle, /scheduler,
+  /resume, shell magic), claude-cli UA / fake-cc tweaks, hive/incubator SOPs, salient-mining
+  SOP for L4 memory, /update dual-branch sync, and a `_fix_messages` robustness refactor
+  (`fa8d7d62` — defensive `.get`, dedup tool_results, clean orphan tool results from first user
+  msg). The TUI/desktop/bridge churn is outside hahobot's scope; `fa8d7d62` and the salient-
+  mining SOP go on watchlist for the next memory-write hygiene revisit.
+- `claude-mem`: re-checked against upstream `main` at `bd96308a` (`2026-05-21`, post-v13.3.0).
+  One new bundled skill since the last audit: `design-is` (Dieter Rams design audits, PR #2483).
+  Joins the prior `oh-my-issues` and `weekly-digests` skill-layer watchlist; tracked pending
+  operator demand. No memory architecture change.
+- `nocturne_memory`: re-checked against upstream `main` at `f1d4a00` (`2026-05-27`). Only
+  delta since the last audit is a configurable screenshot-mode env var for the AntiGravity
+  heartbeat engine — IDE-integration-specific and outside hahobot's scope. No memory
+  architecture change.
 
 ## Current Snapshot
 
@@ -105,6 +116,7 @@ This file therefore records both:
 | OpenAI Responses replay item id dedup | `synced` | `openai_responses.converters.convert_messages` now routes every assistant `message` and `function_call` item id through `_unique_item_id`, so resumed conversations with duplicate `msg_*` / `fc_*` items no longer get rejected by the Responses API while `call_id` (tool-result linkage) remains untouched. |
 | Per-hop WebFetch redirect SSRF check | `synced` | `WebFetchTool` now walks redirect chains manually via `_get_with_safe_redirects`, validating each `Location` against the SSRF policy before issuing the next request. httpx's `follow_redirects=True` could otherwise briefly hit a disallowed intermediate hop even when the final URL passed validation. |
 | Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
+| Streaming-idle httpx timeout | `synced` | `LLMProvider._stream_idle_timeout_s()` reads `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s). The anthropic, openai_compat, and openai_codex providers all share the helper, so the previously hardcoded 60s on the Codex provider no longer aborts streams sooner than its peers. The upstream nanobot env var is intentionally not honored here — this is a hahobot-native knob, not a legacy rename-transition. |
 | Session timestamp anchors in model context | `synced` | `Session.get_history(..., include_timestamps=True)` can annotate user/assistant text with `[Message Time: ...]`, and normal prompt assembly plus compaction probes use that timestamped view while persisted session format stays unchanged. |
 | Ask-user clarification tool | `watchlist` | Upstream added an `ask_user` tool plus CLI/WebUI choice rendering. Local hahobot should only adopt this after mapping the UX across CLI, gateway channels, buttons, and session-lock semantics. |
 | CLI input Unicode sanitization | `synced` | Interactive CLI input and prompt history writes replace malformed surrogate code points before dispatch/persistence while preserving valid surrogate pairs as normal Unicode characters. |
@@ -580,6 +592,10 @@ as "do not re-port unless upstream changes again":
 - `WebFetchTool` validates every redirect hop's resolved IP via `_get_with_safe_redirects`
   before issuing the next request, not just the final URL after httpx has silently followed
   the chain.
+- The Codex streaming httpx client no longer hardcodes a 60s timeout — anthropic,
+  openai_compat, and openai_codex providers share `LLMProvider._stream_idle_timeout_s()`,
+  which reads `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s). The upstream `NANOBOT_*` env
+  var is intentionally not honored.
 
 ## Intentional Local Differences
 
@@ -620,6 +636,24 @@ These are local choices. When upstream behaves differently, that is not automati
 
 ## Watchlist For Next Upstream Sync
 
+- The 2026-05-28 pass synced the Codex streaming-idle timeout under
+  `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (intentionally not mirroring the upstream `NANOBOT_*` name).
+  Remaining nanobot items to track: `cfabc29f` propagation of `maxConcurrentSubagents` to
+  `SubagentManager` (hahobot does not expose any concurrent-subagent cap yet — needs the
+  schema knob first), `7bbd9c71` + `4f14f980` sustained-goal continuation (`long_task` plus
+  `goal_active_predicate` so the runner does not exit until `complete_goal`; a real feature
+  spanning runner / hook / session-lock semantics), `a4a2c551` Telegram webhook mode with
+  per-session reorder window for ordered delivery, `18567daa` Codex transport-error refactor
+  (structured `status_code` / `error_type` / `error_code` / `should_retry` on
+  `_CodexHTTPError`), `172ec4d4` Kagi v1 Search API update (search-provider breadth divergence
+  remains), and `179acfe1` StepFun Step Plan apiBase note. Upstream Cloudflare 520-527 retry
+  set additions (`GenericAgent 0908335c`) are already effectively covered locally because
+  `_is_transient_response` retries any `status >= 500`. The `claude-mem` `design-is` skill
+  (Dieter Rams audits) joins the prior `oh-my-issues` / `weekly-digests` skill-layer watchlist
+  pending operator demand. `GenericAgent fa8d7d62` (`_fix_messages` defensive refactor —
+  defensive `.get`, dedup tool_results, clean orphan tool results from the first user msg)
+  and `976699a0` (salient-mining SOP for L4 memory) go on watchlist for the next memory-write
+  hygiene revisit.
 - The 2026-05-25 pass synced non-streaming `tool_call` id preservation, Responses replay item-id
   dedup, and per-hop WebFetch redirect SSRF validation. Next pass should track the exec config
   timeout uncap (loosens a safety boundary; needs operator-facing docs first), per-subagent
