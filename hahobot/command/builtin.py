@@ -319,7 +319,37 @@ async def cmd_new(ctx: CommandContext) -> OutboundMessage:
     )
 
 
+_DREAM_USAGE = (
+    "Usage:\n"
+    "  /dream                  — run a Dream consolidation now\n"
+    "  /dream log [sha]        — show what the latest (or given) Dream changed\n"
+    "  /dream restore [sha]    — list recent versions, or restore the given one"
+)
+
+
 async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
+    """Top-level /dream dispatcher: empty → run, log/restore → subcommand."""
+    args = (ctx.args or "").strip()
+    if not args:
+        return await _cmd_dream_run(ctx)
+    tokens = args.split(maxsplit=1)
+    sub = tokens[0].lower()
+    rest = tokens[1] if len(tokens) > 1 else ""
+    if sub == "log":
+        ctx.args = rest
+        return await cmd_dream_log(ctx)
+    if sub == "restore":
+        ctx.args = rest
+        return await cmd_dream_restore(ctx)
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=_DREAM_USAGE,
+        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+    )
+
+
+async def _cmd_dream_run(ctx: CommandContext) -> OutboundMessage:
     """Manually trigger a Dream consolidation run."""
     import time
 
