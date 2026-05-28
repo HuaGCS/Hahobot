@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hahobot.command.builtin import cmd_dream, cmd_dream_log, cmd_dream_restore, cmd_update
+from hahobot.command.builtin import (
+    cmd_dream,
+    cmd_dream_log,
+    cmd_dream_restore,
+    cmd_jobs,
+    cmd_update,
+)
 from hahobot.command.catalog import agent_command_specs
 from hahobot.command.router import CommandContext, CommandRouter
 
@@ -111,6 +117,7 @@ def build_agent_command_router() -> CommandRouter:
         "/repo": _cmd_repo,
         "/review": _cmd_review,
         "/compact": _cmd_compact,
+        "/jobs": cmd_jobs,
     }
 
     for spec in agent_command_specs():
