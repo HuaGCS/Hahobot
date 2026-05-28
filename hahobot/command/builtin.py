@@ -42,6 +42,89 @@ async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
     )
 
 
+_JOBS_USAGE = (
+    "Usage:\n"
+    "  /jobs                       — list this session's running subagents\n"
+    "  /jobs inject <id> <message> — push a system message into a running task\n"
+    "  /jobs cancel <id>           — cancel one running task"
+)
+
+
+def _format_jobs_listing(rows: list[dict[str, str]]) -> str:
+    if not rows:
+        return "No running subagents in this session."
+    lines = [f"{len(rows)} running subagent(s):"]
+    for row in rows:
+        task_id = row.get("task_id", "?")
+        label = row.get("label", "")
+        mode = row.get("mode", "?")
+        model = row.get("model", "?")
+        lines.append(f"  • [{task_id}] {label}  (mode={mode}, model={model})")
+    return "\n".join(lines)
+
+
+async def cmd_jobs(ctx: CommandContext) -> OutboundMessage:
+    """List / inject / cancel subagents in the current session."""
+    loop = ctx.loop
+    msg = ctx.msg
+    manager = getattr(loop, "subagents", None)
+
+    def _reply(text: str) -> OutboundMessage:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=text,
+            metadata=dict(msg.metadata or {}),
+        )
+
+    if manager is None:
+        return _reply("Subagent runtime is not attached to this loop.")
+
+    args = (ctx.args or "").strip()
+    if not args:
+        snapshot = manager.running_tasks_snapshot(session_key=ctx.key)
+        return _reply(_format_jobs_listing(snapshot))
+
+    tokens = args.split(maxsplit=2)
+    sub = tokens[0].lower()
+    if sub in {"list", "ls"}:
+        snapshot = manager.running_tasks_snapshot(session_key=ctx.key)
+        return _reply(_format_jobs_listing(snapshot))
+
+    def _owns_task(task_id: str) -> bool:
+        return any(
+            entry.get("task_id") == task_id
+            for entry in manager.running_tasks_snapshot(session_key=ctx.key)
+        )
+
+    if sub == "cancel":
+        if len(tokens) < 2:
+            return _reply(_JOBS_USAGE)
+        task_id = tokens[1].strip()
+        if not _owns_task(task_id):
+            return _reply(f"No running subagent {task_id!r} in this session.")
+        ok = await manager.cancel_task(task_id)
+        return _reply(
+            f"Cancelled task {task_id}." if ok else f"Task {task_id} was no longer running."
+        )
+
+    if sub == "inject":
+        if len(tokens) < 3 or not tokens[2].strip():
+            return _reply(_JOBS_USAGE)
+        task_id = tokens[1].strip()
+        message_body = tokens[2].strip()
+        if not _owns_task(task_id):
+            return _reply(f"No running subagent {task_id!r} in this session.")
+        ok = manager.inject_message(task_id, message_body)
+        return _reply(
+            f"Queued injection for task {task_id}; the next LLM call will see it."
+            if ok
+            else f"Task {task_id} was no longer running."
+        )
+
+    return _reply(_JOBS_USAGE)
+
+
 async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
     """Restart the process in-place via os.execv."""
     msg = ctx.msg

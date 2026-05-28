@@ -173,6 +173,26 @@ _COMMAND_SPECS: tuple[CommandSpec, ...] = (
         telegram_rank=100,
     ),
     CommandSpec(
+        command="/jobs",
+        description_keys=(
+            "cmd_jobs_list",
+            "cmd_jobs_inject",
+            "cmd_jobs_cancel",
+        ),
+        usage_lines=(
+            "/jobs",
+            "/jobs inject <id> <message>",
+            "/jobs cancel <id>",
+        ),
+        note_key="admin_commands_note_jobs",
+        completion_subcommands=("inject", "cancel", "list"),
+        prefix_match=True,
+        help_rank=95,
+        admin_rank=135,
+        interactive_rank=145,
+        telegram_rank=105,
+    ),
+    CommandSpec(
         command="/restart",
         description_keys=("cmd_restart",),
         usage_lines=("/restart",),
