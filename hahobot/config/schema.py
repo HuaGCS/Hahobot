@@ -412,6 +412,24 @@ class WecomMultiConfig(Base):
     instances: list[WecomInstanceConfig] = Field(default_factory=list)
 
 
+class XiaoyiConfig(Base):
+    """Huawei Xiaoyi (华为小艺) channel configuration — stub scaffold.
+
+    Hahobot does not yet implement the actual Huawei integration; the fields
+    below sketch what the eventual connection is expected to need (HiAI /
+    Xiaoyi skill open platform / 华为云 MaaS callback). Keep ``enabled=False``
+    in production until the channel becomes real.
+    """
+
+    enabled: bool = False
+    app_id: str = ""
+    app_secret: str = ""
+    region: str = "cn-north-4"
+    device_id: str = ""
+    webhook_path: str = "/xiaoyi/callback"
+    allow_from: list[str] = Field(default_factory=list)
+
+
 class VoiceReplyConfig(Base):
     """Optional text-to-speech replies for supported outbound channels."""
 
@@ -484,6 +502,7 @@ class ChannelsConfig(Base):
     matrix: MatrixConfig | MatrixMultiConfig = Field(default_factory=MatrixConfig)
     weixin: WeixinConfig = Field(default_factory=WeixinConfig)
     wecom: WecomConfig | WecomMultiConfig = Field(default_factory=WecomConfig)
+    xiaoyi: XiaoyiConfig = Field(default_factory=XiaoyiConfig)
 
     @field_validator("transcription_language", mode="before")
     @classmethod
