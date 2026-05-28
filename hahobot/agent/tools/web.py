@@ -374,9 +374,7 @@ class WebFetchTool(Tool):
                     client, url, headers={"User-Agent": USER_AGENT}
                 )
                 if redirect_error:
-                    return json.dumps(
-                        {"error": redirect_error, "url": url}, ensure_ascii=False
-                    )
+                    return json.dumps({"error": redirect_error, "url": url}, ensure_ascii=False)
                 if r is not None:
                     ctype = r.headers.get("content-type", "")
                     if ctype.startswith("image/"):
@@ -450,13 +448,9 @@ class WebFetchTool(Tool):
                     client, url, headers={"User-Agent": USER_AGENT}
                 )
                 if redirect_error:
-                    return json.dumps(
-                        {"error": redirect_error, "url": url}, ensure_ascii=False
-                    )
+                    return json.dumps({"error": redirect_error, "url": url}, ensure_ascii=False)
                 if r is None:
-                    return json.dumps(
-                        {"error": "Fetch failed", "url": url}, ensure_ascii=False
-                    )
+                    return json.dumps({"error": "Fetch failed", "url": url}, ensure_ascii=False)
 
                 r.raise_for_status()
                 raw_bytes = r.content

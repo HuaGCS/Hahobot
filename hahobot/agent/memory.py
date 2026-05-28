@@ -207,9 +207,7 @@ def migrate_legacy_memory_file(
             header = f"<!-- ts:{fragment['ts']} tag:legacy src:{src} -->"
             migrated += 1
         else:
-            header = (
-                f"<!-- ts:{fragment['ts']} tag:{fragment['tag']} src:{fragment['src']} -->"
-            )
+            header = f"<!-- ts:{fragment['ts']} tag:{fragment['tag']} src:{fragment['src']} -->"
             preserved += 1
         parts.append(f"{header}\n{fragment['fragment']}")
     summary["migrated"] = migrated

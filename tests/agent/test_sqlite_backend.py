@@ -105,10 +105,7 @@ async def test_resolve_context_handles_legacy_only_memory(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_resolve_context_reuses_index_across_calls(tmp_path: Path) -> None:
-    body = (
-        "<!-- ts:2026-05-26T17:30 tag:preference src:turn -->\n"
-        "alpha bravo charlie\n"
-    )
+    body = "<!-- ts:2026-05-26T17:30 tag:preference src:turn -->\nalpha bravo charlie\n"
     memory_file = _seed_memory(tmp_path, "default", body)
 
     backend = SQLiteUserMemoryBackend()

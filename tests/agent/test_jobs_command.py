@@ -160,9 +160,7 @@ async def test_user_cannot_inject_into_other_sessions_task() -> None:
     ctx, manager = _ctx(
         args="inject zzz99999 sneaky",
         snapshot=[],
-        cross_session_snapshot=[
-            {"task_id": "zzz99999", "session_key": "telegram:other-user"}
-        ],
+        cross_session_snapshot=[{"task_id": "zzz99999", "session_key": "telegram:other-user"}],
     )
     response = await cmd_jobs(ctx)
     manager.inject_message.assert_not_called()

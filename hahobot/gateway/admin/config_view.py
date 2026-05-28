@@ -1130,7 +1130,7 @@ def _render_memory_migrate_card(request: web.Request) -> str:
     """Render the standalone form that triggers the MEMORY.md legacy migration."""
     return (
         '<div class="card stack">'
-        f'<h2>{escape(_t(request, "admin_memory_migration_title"))}</h2>'
+        f"<h2>{escape(_t(request, 'admin_memory_migration_title'))}</h2>"
         f'<p class="muted">{_th(request, "admin_memory_migration_desc")}</p>'
         '<form method="post" action="/admin/memory/migrate-legacy" class="actions">'
         f'<button type="submit" class="ghost">{escape(_t(request, "admin_memory_migration_button"))}</button>'
