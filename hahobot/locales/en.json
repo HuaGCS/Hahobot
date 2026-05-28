@@ -892,6 +892,7 @@
         "skill": "Search or install skills",
         "mcp": "List MCP servers and tools",
         "stop": "Stop the current task",
+        "jobs": "List or steer running subagents",
         "help": "Show command help",
         "restart": "Restart the bot",
         "update": "Sync code and restart",
