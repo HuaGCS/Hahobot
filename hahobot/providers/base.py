@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
@@ -160,6 +161,15 @@ class LLMProvider(ABC):
         self.api_key = api_key
         self.api_base = api_base
         self.generation: GenerationSettings = GenerationSettings()
+
+    @staticmethod
+    def _stream_idle_timeout_s(default: float = 90.0) -> float:
+        """Resolve the streaming-idle httpx timeout from ``HAHOBOT_STREAM_IDLE_TIMEOUT_S``."""
+        raw = (os.environ.get("HAHOBOT_STREAM_IDLE_TIMEOUT_S") or str(default)).strip()
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return default
 
     @staticmethod
     def _sanitize_empty_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
