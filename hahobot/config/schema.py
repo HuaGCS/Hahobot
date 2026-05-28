@@ -413,21 +413,24 @@ class WecomMultiConfig(Base):
 
 
 class XiaoyiConfig(Base):
-    """Huawei Xiaoyi (华为小艺) channel configuration — stub scaffold.
+    """Huawei Xiaoyi (华为小艺) channel configuration.
 
-    Hahobot does not yet implement the actual Huawei integration; the fields
-    below sketch what the eventual connection is expected to need (HiAI /
-    Xiaoyi skill open platform / 华为云 MaaS callback). Keep ``enabled=False``
-    in production until the channel becomes real.
+    The integration follows openJiuwen-ai/jiuwenswarm's ``XiaoyiChannel`` and
+    speaks A2A over a pair of outbound WebSocket connections that this process
+    opens against the Xiaoyi servers. Auth is HMAC-SHA256(``sk``, current-ms)
+    signed and sent as the ``x-sign`` header. ``allow_from`` defaults to
+    ``["*"]`` because permission is gated by the platform's ``agent_id`` rather
+    than per-sender identity.
     """
 
     enabled: bool = False
-    app_id: str = ""
-    app_secret: str = ""
-    region: str = "cn-north-4"
-    device_id: str = ""
-    webhook_path: str = "/xiaoyi/callback"
-    allow_from: list[str] = Field(default_factory=list)
+    ak: str = ""  # x-access-key
+    sk: str = ""  # HMAC-SHA256 signing secret
+    agent_id: str = ""  # x-agent-id; identifies this bot to Xiaoyi
+    ws_url1: str = ""  # primary A2A WebSocket endpoint
+    ws_url2: str = ""  # secondary A2A WebSocket endpoint (fail-over / split traffic)
+    enable_streaming: bool = True
+    allow_from: list[str] = Field(default_factory=lambda: ["*"])
 
 
 class VoiceReplyConfig(Base):
