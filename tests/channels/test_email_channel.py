@@ -49,6 +49,36 @@ def _make_raw_email(
     return msg.as_bytes()
 
 
+def _install_fake_smtp(monkeypatch) -> list:
+    """Patch smtplib.SMTP with a capturing fake; return the list of sent EmailMessages."""
+    sent: list[EmailMessage] = []
+
+    class FakeSMTP:
+        def __init__(self, _host: str, _port: int, timeout: int = 30) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def starttls(self, context=None):
+            return None
+
+        def login(self, _user: str, _pw: str):
+            return None
+
+        def send_message(self, msg: EmailMessage):
+            sent.append(msg)
+
+    monkeypatch.setattr(
+        "hahobot.channels.email.smtplib.SMTP",
+        lambda host, port, timeout=30: FakeSMTP(host, port, timeout=timeout),
+    )
+    return sent
+
+
 def test_fetch_new_messages_parses_unseen_and_marks_seen(monkeypatch) -> None:
     raw = _make_raw_email(subject="Invoice", body="Please pay")
 
@@ -290,6 +320,100 @@ async def test_send_uses_smtp_and_reply_subject(monkeypatch) -> None:
     assert sent["Subject"] == "Re: Invoice #42"
     assert sent["To"] == "alice@example.com"
     assert sent["In-Reply-To"] == "<m1@example.com>"
+
+
+@pytest.mark.asyncio
+async def test_send_attaches_outbound_media(monkeypatch, tmp_path) -> None:
+    sent = _install_fake_smtp(monkeypatch)
+    img = tmp_path / "scene.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\nfake-bytes")
+
+    channel = EmailChannel(_make_config(), MessageBus())
+    channel._last_subject_by_chat["alice@example.com"] = "Hi"
+    await channel.send(
+        OutboundMessage(
+            channel="email",
+            chat_id="alice@example.com",
+            content="Here is your image.",
+            media=[str(img)],
+            metadata={"force_send": True},
+        )
+    )
+
+    assert len(sent) == 1
+    attachments = list(sent[0].iter_attachments())
+    assert len(attachments) == 1
+    assert attachments[0].get_filename() == "scene.png"
+    assert attachments[0].get_content_type() == "image/png"
+    assert attachments[0].get_content() == b"\x89PNG\r\n\x1a\nfake-bytes"
+
+
+@pytest.mark.asyncio
+async def test_send_skips_oversized_media_but_still_sends_body(monkeypatch, tmp_path) -> None:
+    sent = _install_fake_smtp(monkeypatch)
+    big = tmp_path / "big.bin"
+    big.write_bytes(b"x" * 100)
+
+    cfg = _make_config(max_attachment_size=10)
+    channel = EmailChannel(cfg, MessageBus())
+    channel._last_subject_by_chat["alice@example.com"] = "Hi"
+    await channel.send(
+        OutboundMessage(
+            channel="email",
+            chat_id="alice@example.com",
+            content="Body still goes out.",
+            media=[str(big)],
+            metadata={"force_send": True},
+        )
+    )
+
+    assert len(sent) == 1
+    assert list(sent[0].iter_attachments()) == []
+
+
+@pytest.mark.asyncio
+async def test_send_skips_missing_media_file(monkeypatch, tmp_path) -> None:
+    sent = _install_fake_smtp(monkeypatch)
+    channel = EmailChannel(_make_config(), MessageBus())
+    channel._last_subject_by_chat["alice@example.com"] = "Hi"
+    await channel.send(
+        OutboundMessage(
+            channel="email",
+            chat_id="alice@example.com",
+            content="No file here.",
+            media=[str(tmp_path / "does-not-exist.png")],
+            metadata={"force_send": True},
+        )
+    )
+
+    assert len(sent) == 1
+    assert list(sent[0].iter_attachments()) == []
+
+
+@pytest.mark.asyncio
+async def test_send_respects_max_attachments_per_email(monkeypatch, tmp_path) -> None:
+    sent = _install_fake_smtp(monkeypatch)
+    files = []
+    for i in range(3):
+        f = tmp_path / f"f{i}.txt"
+        f.write_bytes(b"data")
+        files.append(str(f))
+
+    cfg = _make_config(max_attachments_per_email=2)
+    channel = EmailChannel(cfg, MessageBus())
+    channel._last_subject_by_chat["alice@example.com"] = "Hi"
+    await channel.send(
+        OutboundMessage(
+            channel="email",
+            chat_id="alice@example.com",
+            content="Three files, cap two.",
+            media=files,
+            metadata={"force_send": True},
+        )
+    )
+
+    assert len(sent) == 1
+    assert len(list(sent[0].iter_attachments())) == 2
 
 
 @pytest.mark.asyncio
