@@ -90,8 +90,7 @@ This file therefore records both:
   upstream items reviewed and intentionally watchlisted this pass: `2ea2260` + `8933da1` +
   `3945453` run-level agent hook lifecycle (a hook
   feature, not a fix); `0042f68f` close websocket turns after errors (coupled to nanobot's
-  `_runtime_events()`/`turn_completed` event refactor that hahobot does not share); `25bb053`
-  outbound SMTP media attachments (email-channel feature);
+  `_runtime_events()`/`turn_completed` event refactor that hahobot does not share);
   `7c38083` QQ C2C pairing-code send; `da0aafcf` DingTalk `group_user_isolation`;
   `ba3fa38` Azure AAD provider auth;
   `d1a94da` two-phase Dream → simple cron refactor; `be2e0172` sustained-goal iteration budget
@@ -171,6 +170,7 @@ This file therefore records both:
 | Session persistence durability | `synced` | Session full rewrites now use atomic replace, corrupt JSONL can be repaired for load/list flows, and recovered sessions are forced through the next clean rewrite instead of silently staying in a broken state. |
 | Consolidated offset durability | `synced` | `Session.__post_init__` resets a non-integer or out-of-range `last_consolidated` offset to `0`, so corrupt session metadata can neither crash history slicing nor silently hide every message past the offset. Ported from nanobot `0307ee6` / `13178f3`. |
 | Email progress-message suppression | `synced` | `EmailChannel.send()` returns early for any `_progress` message, so progress/tool-hint updates no longer send a near-empty email after each tool call. Brings email in line with the other channels' progress-aware send paths. Ported from nanobot `cbf1ede`. |
+| Email outbound media attachments | `synced` | `EmailChannel._smtp_send_message` now attaches `OutboundMessage.media` files via `_attach_media` (mimetype-guessed, bounded by `max_attachments_per_email` / `max_attachment_size`), so agent-generated artifacts (`image_gen`, `/scene`, etc.) reach email users instead of being dropped. Missing/oversized files are skipped with a warning, body still sends. Ported from nanobot `25bb053` + `b2ae5d9`. |
 | Session-archive retention partition | `intentional_divergence` | nanobot's session-archive cluster (`72fb642e` / `baffd6ef` / `0e370241`) fixed duplicate-archive/message-loss and `last_consolidated` miscounts caused by a *non-contiguous* `retain_recent_legal_suffix`. hahobot retains a strictly *contiguous suffix* (drops a contiguous prefix), so `tail[:cut]` is exactly the dropped set and `max(0, lc - dropped)` is the correct offset — the upstream bugs are structurally impossible. The invariant is guarded by `tests/session/test_retain_suffix_partition.py`. |
 | Turn recovery / idle compact safety | `synced` | Session recovery now restores runtime checkpoints before the next request, `/stop` cancellation materializes the latest runtime checkpoint immediately instead of waiting for the next message, plain-text user turns are persisted early so crashes do not lose the prompt, orphaned pending user turns are closed cleanly, and proactive auto-compact still skips sessions with an in-flight task. |
 | Subagent follow-up persistence | `synced` | Subagent announce messages now carry task metadata, are persisted into session history before prompt assembly, deduped by `subagent_task_id`, and avoid double-injecting the same follow-up as both history and current message. |
@@ -552,11 +552,11 @@ Reviewed and intentionally skipped / left on watchlist:
 - **WebSocket turn-close-after-error** (nanobot `0042f68f`): depends on nanobot's
   `_runtime_events()` / `turn_completed` event-decoupling refactor that hahobot does not share;
   re-check only if the local websocket channel grows the same runtime-event contract.
-- **Email outbound media attachments** (nanobot `25bb053`, `b2ae5d9`, `82a3fd0`),
-  **QQ C2C pairing-code send** (`7c38083`), **DingTalk `group_user_isolation`** (`da0aafcf`):
+- **QQ C2C pairing-code send** (`7c38083`) and **DingTalk `group_user_isolation`** (`da0aafcf`):
   channel features; adopt per channel only with schema/docs/multi-instance treatment and a concrete
-  operator need. (The related email *progress* suppression `cbf1ede` was ported this pass — see
-  above.)
+  operator need. See the new-feature evaluation section below for the per-item verdicts. (Email
+  *progress* suppression `cbf1ede` and email *outbound media* `25bb053`+`b2ae5d9` were both ported
+  this pass — see above and the snapshot rows.)
 - **`/update` uv-pip fallback** (nanobot `a37e58a` + `c2e9064` + `c77ca16` + `6d827ef`): verified
   **not applicable**. The upstream fix lives in nanobot's CLI Apps installer
   (`apps/cli/service.py`), which installs third-party app packages via `pip` and now falls back to
@@ -574,6 +574,63 @@ Reviewed and intentionally skipped / left on watchlist:
 - **claude-mem `cf8d361` SQLite handle-close-on-repair**: defensive idea for their TS impl; if the
   local `memory.archive.indexBackend="sqlite"` derived cache ever grows a schema-repair path, mirror
   the close-on-error discipline. No action this pass.
+
+## Watchlist New-Feature Evaluation (2026-06-05)
+
+After the small-fix ports above, the remaining nanobot watchlist items are *new features* (not
+fixes). They were evaluated against hahobot's existing surfaces and tiered by whether they fill a
+real local gap, how cleanly they fit, effort, and risk. Only Tier 1 was implemented this pass.
+
+**Tier 1 — real capability gap, implemented this pass:**
+
+- **Email outbound media attachments** (`25bb053` + `b2ae5d9` size bound + `82a3fd0` tests):
+  `OutboundMessage.media: list[str]` already exists and every other channel can deliver media, but
+  `EmailChannel._smtp_send_message` ignored `msg.media`, so agent-generated artifacts (`image_gen`,
+  `/scene`, etc.) sent to an email user were silently dropped. Email already handles *inbound*
+  attachments; this closes the outbound side. Smallest, most fix-like item — selected and
+  implemented this pass (see the snapshot row and the Already-Synced list). Adopted the `b2ae5d9`
+  per-file size bound from the start.
+
+**Tier 2 — clean fit, but defer until a concrete need exists:**
+
+- **Azure AAD provider auth** (`ba3fa38`): hahobot already ships `azure_openai_provider.py` +
+  registry + schema, so this is a self-contained enhancement (fall back to `DefaultAzureCredential`
+  when `apiKey` is empty; async bearer token scoped to `cognitiveservices.azure.com`). ~60–100 LOC
+  but pulls in the heavier optional `azure-identity` dependency and only matters for enterprise
+  Azure managed-identity / Entra ID deployments. Adopt on demand with schema/docs treatment, per the
+  provider-breadth stance.
+- **Run-level agent hook lifecycle** (`2ea2260` + `8933da1` + `3945453`): nanobot adds
+  `before_run`/`after_run`/`on_error`/`on_finally` + `AgentRunHookContext`, wrapping `_run_core()`
+  in try/except/finally — self-contained (~150–250 LOC), low risk. hahobot's `AgentHook` is
+  iteration-level only (`before_iteration`/`on_stream`/`after_iteration`/…). No current hook needs
+  run-level metrics (local hooks are SubagentHook injection + progress), so adding four no-op
+  methods now is speculative API surface. Build it when a consumer appears (e.g. run-level events
+  for `ExternalHookBridge`).
+
+**Tier 3 — defer (niche or locally coupled):**
+
+- **DingTalk `group_user_isolation`** (`da0aafcf`): ~3 lines upstream, but NOT a 3-line port locally.
+  hahobot's group `chat_id = f"group:{conversation_id}"` doubles as both the session key and the
+  reply-routing target (send strips the prefix via `chat_id[6:]` to get the conversation id). A naive
+  `group:{cid}:{sender}` key would feed an invalid conversation id to the reply path and break group
+  replies. Proper support must decouple session key from reply target, and ideally be a cross-channel
+  per-user-in-group policy (feishu/slack/etc.), not a DingTalk-only flag. Defer until requested.
+- **QQ C2C pairing-code for unauthorized users** (`7c38083`): handles QQ's official C2C
+  "user must pair first" restriction by invoking the handler with empty content + `is_dm=True`.
+  hahobot's QQ channel has no authorization/pairing concept today, so this is not a small port but a
+  new framework. Niche, platform-specific, hard to test offline. Defer until a QQ official C2C
+  deployment actually hits the unauthorized-user case.
+
+**Reject — intentional divergence:**
+
+- **Two-phase Dream → simple cron + `process_direct(ephemeral=True)`** (`d1a94da`): this is nanobot
+  *simplifying* its Dream (removing the ~300-line two-phase class). hahobot's Dream is intentionally
+  richer — `dream_phase1.md` / `dream_phase2.md`, the `hahobot-meta` confidence/last_verified
+  contract, PROFILE/INSIGHTS layering, and the recently reworked `/dream` subcommands (`65773ece`).
+  Adopting the simplification would *remove* hahobot's more advanced memory hygiene. The `ephemeral`
+  TurnContext idea (run an agent turn without history writes) is mildly interesting but not worth the
+  loop/context/template churn. Mark as intentional divergence. (`be2e0172` sustained-goal iteration
+  budget likewise depends on the not-yet-adopted `long_task` / `goal_active_predicate` feature.)
 
 ## jiuwenswarm Architecture Review (2026-06-05)
 
@@ -787,6 +844,9 @@ as "do not re-port unless upstream changes again":
   concurrency (ported from nanobot `e9145b7` / `d0eba7c`).
 - The email channel skips `_progress` messages in `send()`, so progress/tool-hint updates do not
   send a near-empty email after each tool call (ported from nanobot `cbf1ede`).
+- The email channel attaches `OutboundMessage.media` files to outbound SMTP messages (mimetype-
+  guessed, bounded by `max_attachments_per_email` / `max_attachment_size`), so agent-generated
+  artifacts reach email users (ported from nanobot `25bb053` + `b2ae5d9`).
 
 ## Intentional Local Differences
 
@@ -834,10 +894,11 @@ These are local choices. When upstream behaves differently, that is not automati
   section), and verified the `/update` uv-pip fallback (`a37e58a` + `c2e9064` + `c77ca16` +
   `6d827ef`) is **not applicable** — hahobot's `/update` is `uv`-exclusive and ships no CLI Apps
   installer. Next nanobot pass should weigh:
-  run-level agent hook lifecycle (`2ea2260` + `8933da1` + `3945453`), the email outbound-media
-  attachments (`25bb053`) and QQ/DingTalk channel features (email *progress* suppression `cbf1ede`
-  was ported this pass), Azure AAD
-  provider auth, and the two-phase Dream → simple-cron refactor. The WebSocket turn-close-after-error
+  run-level agent hook lifecycle (`2ea2260` + `8933da1` + `3945453`) and the QQ/DingTalk channel
+  features (email *progress* suppression `cbf1ede` and *outbound media* `25bb053`+`b2ae5d9` were
+  ported this pass), Azure AAD
+  provider auth, and the two-phase Dream → simple-cron refactor. See the new-feature evaluation
+  section for the Tier-2/3/reject rationale on the deferred items. The WebSocket turn-close-after-error
   fix (`0042f68f`) is coupled to nanobot's `_runtime_events()` refactor and is not portable as-is.
 - `jiuwenswarm` (atomgit) entered the ledger this pass with its own architecture review. The one
   concrete code dependency (Huawei Xiaoyi A2A channel) is already ported. Re-check its
