@@ -76,12 +76,19 @@ This file therefore records both:
   `AsyncExitStack` + three-wrapper layout: `_is_session_terminated`, a shared `_MCPWrapperBase`
   reconnect gate, a per-server `_MCPServerConnection` coordinator (lock + generation counter for
   single-rebuild-under-concurrency), and a factored-out `_open_session` transport helper, with
-  tests in `tests/agent/test_mcp_reconnect.py`. Other larger
-  upstream items reviewed and intentionally watchlisted this pass: the session-archive
+  tests in `tests/agent/test_mcp_reconnect.py`. This pass also investigated the session-archive
   durability cluster `72fb642e` (prevent duplicate archive + message loss), `baffd6ef` (correct
-  `last_consolidated` tracking), `0e370241` (archive actual idle-compact drops) — entangled with
-  nanobot's idle-compact/archive rework, so re-verify against hahobot's own autocompact + archive
-  path before porting; `2ea2260` + `8933da1` + `3945453` run-level agent hook lifecycle (a hook
+  `last_consolidated` tracking), `0e370241` (archive actual idle-compact drops) and found it
+  **not applicable** to hahobot: all three nanobot bugs stem from nanobot's *non-contiguous*
+  `retain_recent_legal_suffix` retention branch, whereas hahobot's `retain_recent_legal_suffix`
+  always keeps a strictly *contiguous suffix* (and drops a contiguous prefix). That makes
+  `_split_unconsolidated`'s `tail[:cut]` exactly the dropped set (no duplicate/loss) and
+  `last_consolidated = max(0, lc - dropped)` correct in both the `dropped ≤ lc` and `dropped > lc`
+  cases. A guard test `tests/session/test_retain_suffix_partition.py` locks in the contiguous-
+  partition invariant so a future refactor toward non-contiguous retention would surface the bug
+  here instead of silently losing messages. Other larger
+  upstream items reviewed and intentionally watchlisted this pass: `2ea2260` + `8933da1` +
+  `3945453` run-level agent hook lifecycle (a hook
   feature, not a fix); `0042f68f` close websocket turns after errors (coupled to nanobot's
   `_runtime_events()`/`turn_completed` event refactor that hahobot does not share); `25bb053`
   outbound SMTP media attachments and `cbf1ede` email progress-message suppression (email-channel
@@ -160,6 +167,7 @@ This file therefore records both:
 | Notebook editing tool | `synced` | Local `notebook_edit` supports bounded `.ipynb` cell replace/insert/delete flows for the main agent and `spawn(mode="implement")` workers without porting upstream's broader file-state machinery. |
 | Session persistence durability | `synced` | Session full rewrites now use atomic replace, corrupt JSONL can be repaired for load/list flows, and recovered sessions are forced through the next clean rewrite instead of silently staying in a broken state. |
 | Consolidated offset durability | `synced` | `Session.__post_init__` resets a non-integer or out-of-range `last_consolidated` offset to `0`, so corrupt session metadata can neither crash history slicing nor silently hide every message past the offset. Ported from nanobot `0307ee6` / `13178f3`. |
+| Session-archive retention partition | `intentional_divergence` | nanobot's session-archive cluster (`72fb642e` / `baffd6ef` / `0e370241`) fixed duplicate-archive/message-loss and `last_consolidated` miscounts caused by a *non-contiguous* `retain_recent_legal_suffix`. hahobot retains a strictly *contiguous suffix* (drops a contiguous prefix), so `tail[:cut]` is exactly the dropped set and `max(0, lc - dropped)` is the correct offset — the upstream bugs are structurally impossible. The invariant is guarded by `tests/session/test_retain_suffix_partition.py`. |
 | Turn recovery / idle compact safety | `synced` | Session recovery now restores runtime checkpoints before the next request, `/stop` cancellation materializes the latest runtime checkpoint immediately instead of waiting for the next message, plain-text user turns are persisted early so crashes do not lose the prompt, orphaned pending user turns are closed cleanly, and proactive auto-compact still skips sessions with an in-flight task. |
 | Subagent follow-up persistence | `synced` | Subagent announce messages now carry task metadata, are persisted into session history before prompt assembly, deduped by `subagent_task_id`, and avoid double-injecting the same follow-up as both history and current message. |
 | Hook lifecycle semantics | `synced` | Hook fan-out supports `reraise` semantics and keeps compatibility behavior for legacy hooks. |
@@ -515,12 +523,18 @@ Implemented locally in this pass:
   connect-error handler instead of a dedicated skip-warning; functionally equivalent (server is
   still skipped and the loop continues).
 
+- **Session-archive durability cluster** (nanobot `72fb642e` duplicate-archive/message-loss,
+  `baffd6ef` `last_consolidated` tracking, `0e370241` idle-compact drop archival): investigated
+  hahobot's `agent/autocompact.py` `_split_unconsolidated` + `session/manager.py`
+  `retain_recent_legal_suffix` and found the cluster **not applicable**. All three upstream bugs
+  come from nanobot's non-contiguous retention branch; hahobot retains a strictly contiguous suffix,
+  so `tail[:cut]` is exactly the dropped set and `max(0, lc - dropped)` is the correct offset in
+  both `dropped ≤ lc` and `dropped > lc` cases. No code change needed; added guard test
+  `tests/session/test_retain_suffix_partition.py` to lock the contiguous-partition invariant so a
+  future non-contiguous refactor would surface the bug locally instead of silently losing messages.
+
 Reviewed and intentionally skipped / left on watchlist:
 
-- **Session-archive durability cluster** (nanobot `72fb642e` duplicate-archive/message-loss,
-  `baffd6ef` `last_consolidated` tracking, `0e370241` idle-compact drop archival): entangled with
-  nanobot's idle-compact/archive rework. Re-verify hahobot's own `agent/autocompact.py` +
-  `agent/memory.py` archive path for the same failure modes before porting any single piece.
 - **Run-level agent hook lifecycle** (nanobot `2ea2260` + `8933da1` + `3945453`): a hook feature
   (per-run snapshot isolation), not a fix. Map onto hahobot's `agent/hook.py` only if a concrete
   per-run hook-isolation need appears.
@@ -793,10 +807,11 @@ These are local choices. When upstream behaves differently, that is not automati
 ## Watchlist For Next Upstream Sync
 
 - The 2026-06-05 pass ported the `last_consolidated` offset clamp (nanobot `0307ee6` / `13178f3`)
-  and the terminated-MCP-session auto-reconnect layer (nanobot `e9145b7` / `d0eba7c`).
-  Next nanobot pass should weigh: the session-archive durability cluster
-  (`72fb642e` / `baffd6ef` / `0e370241`, re-verify against hahobot's own autocompact + archive path
-  first), run-level agent hook lifecycle (`2ea2260` + `8933da1` + `3945453`), the email media/
+  and the terminated-MCP-session auto-reconnect layer (nanobot `e9145b7` / `d0eba7c`), and verified
+  the session-archive durability cluster (`72fb642e` / `baffd6ef` / `0e370241`) is **not applicable**
+  to hahobot's contiguous retention (guard test added; see the snapshot row and borrow-candidates
+  section). Next nanobot pass should weigh:
+  run-level agent hook lifecycle (`2ea2260` + `8933da1` + `3945453`), the email media/
   progress-suppression and QQ/DingTalk channel features, the `/update` uv-pip fallback, Azure AAD
   provider auth, and the two-phase Dream → simple-cron refactor. The WebSocket turn-close-after-error
   fix (`0042f68f`) is coupled to nanobot's `_runtime_events()` refactor and is not portable as-is.
