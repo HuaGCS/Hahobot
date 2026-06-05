@@ -3,6 +3,7 @@
 import asyncio
 import html
 import imaplib
+import mimetypes
 import re
 import smtplib
 import ssl
@@ -191,6 +192,7 @@ class EmailChannel(BaseChannel):
                 subject=subject,
                 content=msg.content or "",
                 in_reply_to=in_reply_to,
+                media=list(msg.media or []),
             )
         except Exception as e:
             logger.error("Error sending email to {}: {}", to_addr, e)
@@ -223,6 +225,7 @@ class EmailChannel(BaseChannel):
         subject: str,
         content: str,
         in_reply_to: str | None = None,
+        media: list[str] | None = None,
     ) -> None:
         """Build and send one outbound email inside the worker thread."""
         msg = EmailMessage()
@@ -235,7 +238,52 @@ class EmailChannel(BaseChannel):
         if in_reply_to:
             msg["In-Reply-To"] = in_reply_to
             msg["References"] = in_reply_to
+        self._attach_media(msg, media or [])
         self._smtp_send(msg)
+
+    def _attach_media(self, msg: EmailMessage, media: list[str]) -> None:
+        """Attach agent-delivered files to an outbound email, bounded by config.
+
+        Missing or oversized files are skipped with a warning rather than failing the
+        whole send; the message body still goes out. Reuses the inbound attachment
+        bounds (`max_attachments_per_email`, `max_attachment_size`).
+        """
+        attached = 0
+        for raw_path in media:
+            if attached >= self.config.max_attachments_per_email:
+                logger.warning(
+                    "Email outbound media: reached max_attachments_per_email ({}), skipping rest",
+                    self.config.max_attachments_per_email,
+                )
+                break
+            path = Path(str(raw_path)).expanduser()
+            if not path.is_file():
+                logger.warning("Email outbound media: file not found, skipping: {}", raw_path)
+                continue
+            try:
+                size = path.stat().st_size
+            except OSError as exc:
+                logger.warning("Email outbound media: cannot stat {}: {}", raw_path, exc)
+                continue
+            if size > self.config.max_attachment_size:
+                logger.warning(
+                    "Email outbound media: {} is {} bytes, exceeds max_attachment_size ({}), skipping",
+                    path.name,
+                    size,
+                    self.config.max_attachment_size,
+                )
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                logger.warning("Email outbound media: cannot read {}: {}", raw_path, exc)
+                continue
+            mime, _ = mimetypes.guess_type(path.name)
+            maintype, _, subtype = (mime or "application/octet-stream").partition("/")
+            if not subtype:
+                maintype, subtype = "application", "octet-stream"
+            msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=path.name)
+            attached += 1
 
     def _smtp_send(self, msg: EmailMessage) -> None:
         timeout = 30
