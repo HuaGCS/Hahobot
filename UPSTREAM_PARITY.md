@@ -93,9 +93,12 @@ This file therefore records both:
   `_runtime_events()`/`turn_completed` event refactor that hahobot does not share); `25bb053`
   outbound SMTP media attachments and `cbf1ede` email progress-message suppression (email-channel
   features); `7c38083` QQ C2C pairing-code send; `da0aafcf` DingTalk `group_user_isolation`;
-  `a37e58a`+`c2e9064`+`c77ca16` `/update` uv-pip fallback; `ba3fa38` Azure AAD provider auth;
+  `ba3fa38` Azure AAD provider auth;
   `d1a94da` two-phase Dream → simple cron refactor; `be2e0172` sustained-goal iteration budget
-  (depends on the not-yet-adopted `long_task`/`goal_active_predicate` feature). WebUI / event-
+  (depends on the not-yet-adopted `long_task`/`goal_active_predicate` feature). The
+  `a37e58a`+`c2e9064`+`c77ca16`+`6d827ef` `/update` uv-pip fallback was reviewed and found **not
+  applicable** (hahobot's `/update` is `uv`-exclusive and ships no CLI Apps installer — see the
+  borrow-candidates section). WebUI / event-
   decoupling / docs commits are skipped as out-of-scope housekeeping.
 - `GenericAgent` (`2026-06-05` pass): re-checked against upstream `main` through `fb4f24e`
   (`2026-06-04`). Deltas are TUI/run-loop internals (`5d122e2` per-instance print injection / EXIT
@@ -545,8 +548,15 @@ Reviewed and intentionally skipped / left on watchlist:
   **QQ C2C pairing-code send** (`7c38083`), **DingTalk `group_user_isolation`** (`da0aafcf`):
   channel features; adopt per channel only with schema/docs/multi-instance treatment and a concrete
   operator need.
-- **`/update` uv-pip fallback** (nanobot `a37e58a` + `c2e9064` + `c77ca16`): worth folding into
-  hahobot's `/update` path if environments without `pip` are reported; small but `/update`-specific.
+- **`/update` uv-pip fallback** (nanobot `a37e58a` + `c2e9064` + `c77ca16` + `6d827ef`): verified
+  **not applicable**. The upstream fix lives in nanobot's CLI Apps installer
+  (`apps/cli/service.py`), which installs third-party app packages via `pip` and now falls back to
+  `uv pip` when `pip` is unimportable. hahobot ships no CLI Apps feature (no `hahobot/apps`; Apps/
+  WebUI is an intentional divergence), and its `/update` (`hahobot/utils/self_update.py`
+  `perform_self_update`) is `uv`-exclusive (`git pull --ff-only` + `uv sync --locked --all-extras`)
+  with no pip code path — it already errors cleanly via `update_error_uv_missing` when `uv` is
+  absent. The only `pip` strings in the codebase are user-facing "Run: pip install ..." hints for
+  optional deps, never executed. Nothing to port.
 - **Azure AAD provider auth** (nanobot `ba3fa38`) and **two-phase Dream → simple cron refactor**
   (`d1a94da`): provider-breadth / Dream-internal churn; track only with concrete demand. hahobot
   recently folded `/dream-{log,restore}` into `/dream` subcommands (`65773ece`) on its own design.
@@ -810,9 +820,11 @@ These are local choices. When upstream behaves differently, that is not automati
   and the terminated-MCP-session auto-reconnect layer (nanobot `e9145b7` / `d0eba7c`), and verified
   the session-archive durability cluster (`72fb642e` / `baffd6ef` / `0e370241`) is **not applicable**
   to hahobot's contiguous retention (guard test added; see the snapshot row and borrow-candidates
-  section). Next nanobot pass should weigh:
+  section), and verified the `/update` uv-pip fallback (`a37e58a` + `c2e9064` + `c77ca16` +
+  `6d827ef`) is **not applicable** — hahobot's `/update` is `uv`-exclusive and ships no CLI Apps
+  installer. Next nanobot pass should weigh:
   run-level agent hook lifecycle (`2ea2260` + `8933da1` + `3945453`), the email media/
-  progress-suppression and QQ/DingTalk channel features, the `/update` uv-pip fallback, Azure AAD
+  progress-suppression and QQ/DingTalk channel features, Azure AAD
   provider auth, and the two-phase Dream → simple-cron refactor. The WebSocket turn-close-after-error
   fix (`0042f68f`) is coupled to nanobot's `_runtime_events()` refactor and is not portable as-is.
 - `jiuwenswarm` (atomgit) entered the ledger this pass with its own architecture review. The one
