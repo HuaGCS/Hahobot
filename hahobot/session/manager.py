@@ -29,6 +29,16 @@ class Session:
     _persisted_metadata_state: str = field(default="", init=False, repr=False)
     _requires_full_save: bool = field(default=False, init=False, repr=False)
 
+    def __post_init__(self) -> None:
+        # Corrupt metadata could carry a non-integer or out-of-range last_consolidated
+        # offset, which would either crash history slicing or silently hide every
+        # message (offset past the tail). Reset to a safe value on load/construction.
+        # Ported from nanobot 0307ee6 / 13178f3.
+        if isinstance(self.last_consolidated, bool) or not isinstance(self.last_consolidated, int):
+            self.last_consolidated = 0
+        elif not 0 <= self.last_consolidated <= len(self.messages):
+            self.last_consolidated = 0
+
     @staticmethod
     def _annotate_message_time(message: dict[str, Any], content: Any) -> Any:
         """Expose persisted turn timestamps to the model for relative-date reasoning."""
