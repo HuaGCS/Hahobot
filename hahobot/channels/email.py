@@ -145,6 +145,14 @@ class EmailChannel(BaseChannel):
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send email via SMTP."""
+        # Email is a non-streaming channel: never emit a message per progress/tool-hint
+        # update, which would otherwise send a near-empty email after each tool call.
+        # Every other channel guards _progress in its send path; mirror that here.
+        # Ported from nanobot cbf1ede.
+        if (msg.metadata or {}).get("_progress"):
+            logger.debug("Skip progress message to {}", msg.chat_id)
+            return
+
         if not self.config.consent_granted:
             logger.warning("Skip email send: consent_granted is false")
             return

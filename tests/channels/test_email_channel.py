@@ -406,6 +406,38 @@ async def test_send_proactive_email_when_auto_reply_disabled(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+async def test_send_skips_progress_messages(monkeypatch) -> None:
+    # Progress / tool-hint updates must never produce an email (would otherwise send a
+    # near-empty email after each tool call). Ported from nanobot cbf1ede.
+    called = {"smtp": False}
+
+    def _smtp_factory(host: str, port: int, timeout: int = 30):
+        called["smtp"] = True
+        raise AssertionError("SMTP should not be opened for a progress message")
+
+    monkeypatch.setattr("hahobot.channels.email.smtplib.SMTP", _smtp_factory)
+
+    channel = EmailChannel(_make_config(), MessageBus())
+    # Pre-seed a known subject so the message would otherwise be a valid reply.
+    channel._last_subject_by_chat["alice@example.com"] = "Hello"
+
+    for meta in (
+        {"_progress": True},
+        {"_progress": True, "_tool_hint": True},
+        {"_progress": True, "force_send": True},
+    ):
+        await channel.send(
+            OutboundMessage(
+                channel="email",
+                chat_id="alice@example.com",
+                content='read_file("x")',
+                metadata=meta,
+            )
+        )
+
+    assert called["smtp"] is False
+
+
 async def test_send_skips_when_consent_not_granted(monkeypatch) -> None:
     class FakeSMTP:
         def __init__(self, _host: str, _port: int, timeout: int = 30) -> None:
