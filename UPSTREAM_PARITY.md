@@ -91,8 +91,8 @@ This file therefore records both:
   `3945453` run-level agent hook lifecycle (a hook
   feature, not a fix); `0042f68f` close websocket turns after errors (coupled to nanobot's
   `_runtime_events()`/`turn_completed` event refactor that hahobot does not share); `25bb053`
-  outbound SMTP media attachments and `cbf1ede` email progress-message suppression (email-channel
-  features); `7c38083` QQ C2C pairing-code send; `da0aafcf` DingTalk `group_user_isolation`;
+  outbound SMTP media attachments (email-channel feature);
+  `7c38083` QQ C2C pairing-code send; `da0aafcf` DingTalk `group_user_isolation`;
   `ba3fa38` Azure AAD provider auth;
   `d1a94da` two-phase Dream → simple cron refactor; `be2e0172` sustained-goal iteration budget
   (depends on the not-yet-adopted `long_task`/`goal_active_predicate` feature). The
@@ -170,6 +170,7 @@ This file therefore records both:
 | Notebook editing tool | `synced` | Local `notebook_edit` supports bounded `.ipynb` cell replace/insert/delete flows for the main agent and `spawn(mode="implement")` workers without porting upstream's broader file-state machinery. |
 | Session persistence durability | `synced` | Session full rewrites now use atomic replace, corrupt JSONL can be repaired for load/list flows, and recovered sessions are forced through the next clean rewrite instead of silently staying in a broken state. |
 | Consolidated offset durability | `synced` | `Session.__post_init__` resets a non-integer or out-of-range `last_consolidated` offset to `0`, so corrupt session metadata can neither crash history slicing nor silently hide every message past the offset. Ported from nanobot `0307ee6` / `13178f3`. |
+| Email progress-message suppression | `synced` | `EmailChannel.send()` returns early for any `_progress` message, so progress/tool-hint updates no longer send a near-empty email after each tool call. Brings email in line with the other channels' progress-aware send paths. Ported from nanobot `cbf1ede`. |
 | Session-archive retention partition | `intentional_divergence` | nanobot's session-archive cluster (`72fb642e` / `baffd6ef` / `0e370241`) fixed duplicate-archive/message-loss and `last_consolidated` miscounts caused by a *non-contiguous* `retain_recent_legal_suffix`. hahobot retains a strictly *contiguous suffix* (drops a contiguous prefix), so `tail[:cut]` is exactly the dropped set and `max(0, lc - dropped)` is the correct offset — the upstream bugs are structurally impossible. The invariant is guarded by `tests/session/test_retain_suffix_partition.py`. |
 | Turn recovery / idle compact safety | `synced` | Session recovery now restores runtime checkpoints before the next request, `/stop` cancellation materializes the latest runtime checkpoint immediately instead of waiting for the next message, plain-text user turns are persisted early so crashes do not lose the prompt, orphaned pending user turns are closed cleanly, and proactive auto-compact still skips sessions with an in-flight task. |
 | Subagent follow-up persistence | `synced` | Subagent announce messages now carry task metadata, are persisted into session history before prompt assembly, deduped by `subagent_task_id`, and avoid double-injecting the same follow-up as both history and current message. |
@@ -535,6 +536,13 @@ Implemented locally in this pass:
   both `dropped ≤ lc` and `dropped > lc` cases. No code change needed; added guard test
   `tests/session/test_retain_suffix_partition.py` to lock the contiguous-partition invariant so a
   future non-contiguous refactor would surface the bug locally instead of silently losing messages.
+- **Email progress-message suppression** (nanobot `cbf1ede`): `EmailChannel.send()` now returns
+  early for any `_progress` message (after logging at debug), so progress/tool-hint updates no
+  longer send a near-empty email after each tool call. Email was the only channel whose send path
+  did not already guard `_progress` (matrix/slack/weixin/feishu/telegram/discord all do). The bug is
+  reachable with `channels.sendProgress=True` (default) or `channels.sendToolHints=True`, since
+  non-delta progress messages reach `EmailChannel.send()` via `ChannelManager._send_once`. Tests in
+  `tests/channels/test_email_channel.py::test_send_skips_progress_messages`.
 
 Reviewed and intentionally skipped / left on watchlist:
 
@@ -544,10 +552,11 @@ Reviewed and intentionally skipped / left on watchlist:
 - **WebSocket turn-close-after-error** (nanobot `0042f68f`): depends on nanobot's
   `_runtime_events()` / `turn_completed` event-decoupling refactor that hahobot does not share;
   re-check only if the local websocket channel grows the same runtime-event contract.
-- **Email outbound media + progress suppression** (nanobot `25bb053`, `b2ae5d9`, `cbf1ede`),
+- **Email outbound media attachments** (nanobot `25bb053`, `b2ae5d9`, `82a3fd0`),
   **QQ C2C pairing-code send** (`7c38083`), **DingTalk `group_user_isolation`** (`da0aafcf`):
   channel features; adopt per channel only with schema/docs/multi-instance treatment and a concrete
-  operator need.
+  operator need. (The related email *progress* suppression `cbf1ede` was ported this pass — see
+  above.)
 - **`/update` uv-pip fallback** (nanobot `a37e58a` + `c2e9064` + `c77ca16` + `6d827ef`): verified
   **not applicable**. The upstream fix lives in nanobot's CLI Apps installer
   (`apps/cli/service.py`), which installs third-party app packages via `pip` and now falls back to
@@ -776,6 +785,8 @@ as "do not re-port unless upstream changes again":
 - Terminated MCP sessions auto-reconnect once per tool/resource/prompt call before falling back to
   the existing error-string behavior, with a per-server coordinator ensuring a single rebuild under
   concurrency (ported from nanobot `e9145b7` / `d0eba7c`).
+- The email channel skips `_progress` messages in `send()`, so progress/tool-hint updates do not
+  send a near-empty email after each tool call (ported from nanobot `cbf1ede`).
 
 ## Intentional Local Differences
 
@@ -823,8 +834,9 @@ These are local choices. When upstream behaves differently, that is not automati
   section), and verified the `/update` uv-pip fallback (`a37e58a` + `c2e9064` + `c77ca16` +
   `6d827ef`) is **not applicable** — hahobot's `/update` is `uv`-exclusive and ships no CLI Apps
   installer. Next nanobot pass should weigh:
-  run-level agent hook lifecycle (`2ea2260` + `8933da1` + `3945453`), the email media/
-  progress-suppression and QQ/DingTalk channel features, Azure AAD
+  run-level agent hook lifecycle (`2ea2260` + `8933da1` + `3945453`), the email outbound-media
+  attachments (`25bb053`) and QQ/DingTalk channel features (email *progress* suppression `cbf1ede`
+  was ported this pass), Azure AAD
   provider auth, and the two-phase Dream → simple-cron refactor. The WebSocket turn-close-after-error
   fix (`0042f68f`) is coupled to nanobot's `_runtime_events()` refactor and is not portable as-is.
 - `jiuwenswarm` (atomgit) entered the ledger this pass with its own architecture review. The one
