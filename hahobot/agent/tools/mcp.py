@@ -72,11 +72,207 @@ def _normalize_schema_for_openai(schema: Any) -> dict[str, Any]:
     return normalized
 
 
-class MCPToolWrapper(Tool):
+# ── Session-termination detection ──────────────────────────────────────────────
+
+
+def _is_session_terminated(exc: BaseException) -> bool:
+    """Return True when the MCP SDK reports a dead client session."""
+    messages = [str(exc)]
+    error = getattr(exc, "error", None)
+    if error is not None:
+        messages.append(str(getattr(error, "message", "")))
+    return any(
+        marker in message.lower()
+        for marker in ("session terminated", "connection closed")
+        for message in messages
+    )
+
+
+# ── Base wrapper with reconnect support ────────────────────────────────────────
+
+
+class _MCPWrapperBase(Tool):
+    """Base for MCP wrappers that can recover from a terminated session."""
+
+    def __init__(self, session):
+        self._session = session
+        self._coordinator: _MCPServerConnection | None = None
+        self._generation: int = 0
+
+    def _set_coordinator(self, coordinator: "_MCPServerConnection") -> None:
+        """Attach this wrapper to a per-server connection coordinator."""
+        self._coordinator = coordinator
+        self._generation = coordinator._generation
+
+    async def _refresh_session_after_termination(
+        self,
+        exc: BaseException,
+        already_refreshed: bool,
+        kind: str,
+    ) -> bool:
+        """Rebuild the session and retry if exc indicates a terminated session.
+
+        Returns True when a fresh session was obtained and the caller should
+        retry the current operation.  Fires at most once per execute() call
+        (guarded by *already_refreshed*).
+        """
+        if already_refreshed or self._coordinator is None or not _is_session_terminated(exc):
+            return False
+        ok = await self._coordinator.reconnect(self)
+        if ok:
+            logger.info(
+                "MCP {} '{}': reconnected after session termination",
+                kind,
+                self.name,
+            )
+            return True
+        return False
+
+
+# ── Per-server connection coordinator ──────────────────────────────────────────
+
+
+class _MCPServerConnection:
+    """Manages one MCP server connection with generation-based concurrency safety.
+
+    When several wrappers of the same server detect a terminated session at
+    nearly the same time, exactly one rebuild happens; the others adopt the
+    freshly-rebuilt session via the generation counter.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        cfg: Any,
+        stack: AsyncExitStack,
+        session: Any,
+        wrappers: list[_MCPWrapperBase],
+    ):
+        self.name = name
+        self.cfg = cfg
+        self.stack = stack
+        self._lock = asyncio.Lock()
+        self._generation = 0
+        self._session = session
+        self._wrappers = wrappers
+
+    async def reconnect(self, wrapper: _MCPWrapperBase) -> bool:
+        """Rebuild the server session, or adopt the already-rebuilt one.
+
+        Returns True when the wrapper now has a live session (either freshly
+        built by this call or inherited from a concurrent rebuild).
+        """
+        async with self._lock:
+            # Another caller already rebuilt – just adopt the live session.
+            if wrapper._generation < self._generation:
+                wrapper._session = self._session
+                wrapper._generation = self._generation
+                return True
+
+            # We are the first caller for this termination – rebuild.
+            try:
+                new_session = await _open_session(self.name, self.cfg, self.stack)
+            except Exception:
+                logger.warning("MCP server '{}': reconnect failed, keeping old session", self.name)
+                return False
+
+            self._generation += 1
+            self._session = new_session
+            for w in self._wrappers:
+                w._session = new_session
+                # Do NOT bump w._generation here — the generation guard
+                # (w._generation < self._generation) distinguishes callers
+                # that predate the rebuild from those that arrive after.
+                # Bumping all wrappers would make every caller equal to
+                # the coordinator again, defeating the guard.
+            logger.info(
+                "MCP server '{}': reconnected (generation {})",
+                self.name,
+                self._generation,
+            )
+            return True
+
+
+# ── Session factory (shared by initial connect and reconnect) ──────────────────
+
+
+async def _open_session(name: str, cfg: Any, stack: AsyncExitStack) -> Any:
+    """Open an MCP ClientSession for one server on *stack* (transport + init).
+
+    This is the single place that knows how to select and wire up stdio / SSE /
+    streamableHttp transports.  Both the initial connect loop and the reconnect
+    path call here so the transport-selection logic stays in one place.
+    """
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.sse import sse_client
+    from mcp.client.stdio import stdio_client
+    from mcp.client.streamable_http import streamable_http_client
+
+    transport_type = cfg.type
+    if not transport_type:
+        if cfg.command:
+            transport_type = "stdio"
+        elif cfg.url:
+            # Convention: URLs ending with /sse use SSE transport; others use streamableHttp
+            transport_type = "sse" if cfg.url.rstrip("/").endswith("/sse") else "streamableHttp"
+        else:
+            raise ValueError("no command or url configured")
+
+    if transport_type == "stdio":
+        params = StdioServerParameters(command=cfg.command, args=cfg.args, env=cfg.env or None)
+        read, write = await stack.enter_async_context(stdio_client(params))
+    elif transport_type == "sse":
+
+        def httpx_client_factory(
+            headers: dict[str, str] | None = None,
+            timeout: httpx.Timeout | None = None,
+            auth: httpx.Auth | None = None,
+            _cfg_headers: dict[str, str] | None = cfg.headers,
+        ) -> httpx.AsyncClient:
+            merged_headers = {
+                "Accept": "application/json, text/event-stream",
+                **(_cfg_headers or {}),
+                **(headers or {}),
+            }
+            return httpx.AsyncClient(
+                headers=merged_headers or None,
+                follow_redirects=True,
+                timeout=timeout,
+                auth=auth,
+            )
+
+        read, write = await stack.enter_async_context(
+            sse_client(cfg.url, httpx_client_factory=httpx_client_factory)
+        )
+    elif transport_type == "streamableHttp":
+        # Always provide an explicit httpx client so MCP HTTP transport does not
+        # inherit httpx's default 5s timeout and preempt the higher-level tool timeout.
+        http_client = await stack.enter_async_context(
+            httpx.AsyncClient(
+                headers=cfg.headers or None,
+                follow_redirects=True,
+                timeout=None,
+            )
+        )
+        read, write, _ = await stack.enter_async_context(
+            streamable_http_client(cfg.url, http_client=http_client)
+        )
+    else:
+        raise ValueError(f"unknown transport type '{transport_type}'")
+
+    session = await stack.enter_async_context(ClientSession(read, write))
+    await session.initialize()
+    return session
+
+
+# ── Wrapper classes ────────────────────────────────────────────────────────────
+
+
+class MCPToolWrapper(_MCPWrapperBase):
     """Wraps a single MCP server tool as a hahobot Tool."""
 
     def __init__(self, session, server_name: str, tool_def, tool_timeout: int = 30):
-        self._session = session
+        super().__init__(session)
         self._original_name = tool_def.name
         self._name = f"mcp_{server_name}_{tool_def.name}"
         self._description = tool_def.description or tool_def.name
@@ -99,45 +295,50 @@ class MCPToolWrapper(Tool):
     async def execute(self, **kwargs: Any) -> str:
         from mcp import types
 
-        try:
-            result = await asyncio.wait_for(
-                self._session.call_tool(self._original_name, arguments=kwargs),
-                timeout=self._tool_timeout,
-            )
-        except TimeoutError:
-            logger.warning("MCP tool '{}' timed out after {}s", self._name, self._tool_timeout)
-            return f"(MCP tool call timed out after {self._tool_timeout}s)"
-        except asyncio.CancelledError:
-            # MCP SDK's anyio cancel scopes can leak CancelledError on timeout/failure.
-            # Re-raise only if our task was externally cancelled (e.g. /stop).
-            task = asyncio.current_task()
-            if task is not None and task.cancelling() > 0:
-                raise
-            logger.warning("MCP tool '{}' was cancelled by server/SDK", self._name)
-            return "(MCP tool call was cancelled)"
-        except Exception as exc:
-            logger.exception(
-                "MCP tool '{}' failed: {}: {}",
-                self._name,
-                type(exc).__name__,
-                exc,
-            )
-            return f"(MCP tool call failed: {type(exc).__name__})"
+        refreshed_session = False
+        while True:
+            try:
+                result = await asyncio.wait_for(
+                    self._session.call_tool(self._original_name, arguments=kwargs),
+                    timeout=self._tool_timeout,
+                )
+            except TimeoutError:
+                logger.warning("MCP tool '{}' timed out after {}s", self._name, self._tool_timeout)
+                return f"(MCP tool call timed out after {self._tool_timeout}s)"
+            except asyncio.CancelledError:
+                # MCP SDK's anyio cancel scopes can leak CancelledError on timeout/failure.
+                # Re-raise only if our task was externally cancelled (e.g. /stop).
+                task = asyncio.current_task()
+                if task is not None and task.cancelling() > 0:
+                    raise
+                logger.warning("MCP tool '{}' was cancelled by server/SDK", self._name)
+                return "(MCP tool call was cancelled)"
+            except Exception as exc:
+                if await self._refresh_session_after_termination(exc, refreshed_session, "tool"):
+                    refreshed_session = True
+                    continue
+                logger.exception(
+                    "MCP tool '{}' failed: {}: {}",
+                    self._name,
+                    type(exc).__name__,
+                    exc,
+                )
+                return f"(MCP tool call failed: {type(exc).__name__})"
 
-        parts = []
-        for block in result.content:
-            if isinstance(block, types.TextContent):
-                parts.append(block.text)
-            else:
-                parts.append(str(block))
-        return "\n".join(parts) or "(no output)"
+            parts = []
+            for block in result.content:
+                if isinstance(block, types.TextContent):
+                    parts.append(block.text)
+                else:
+                    parts.append(str(block))
+            return "\n".join(parts) or "(no output)"
 
 
-class MCPResourceWrapper(Tool):
+class MCPResourceWrapper(_MCPWrapperBase):
     """Wraps an MCP resource URI as a read-only hahobot Tool."""
 
     def __init__(self, session, server_name: str, resource_def, resource_timeout: int = 30):
-        self._session = session
+        super().__init__(session)
         self._uri = resource_def.uri
         self._name = f"mcp_{server_name}_resource_{resource_def.name}"
         desc = resource_def.description or resource_def.name
@@ -168,47 +369,54 @@ class MCPResourceWrapper(Tool):
     async def execute(self, **kwargs: Any) -> str:
         from mcp import types
 
-        try:
-            result = await asyncio.wait_for(
-                self._session.read_resource(self._uri),
-                timeout=self._resource_timeout,
-            )
-        except TimeoutError:
-            logger.warning(
-                "MCP resource '{}' timed out after {}s", self._name, self._resource_timeout
-            )
-            return f"(MCP resource read timed out after {self._resource_timeout}s)"
-        except asyncio.CancelledError:
-            task = asyncio.current_task()
-            if task is not None and task.cancelling() > 0:
-                raise
-            logger.warning("MCP resource '{}' was cancelled by server/SDK", self._name)
-            return "(MCP resource read was cancelled)"
-        except Exception as exc:
-            logger.exception(
-                "MCP resource '{}' failed: {}: {}",
-                self._name,
-                type(exc).__name__,
-                exc,
-            )
-            return f"(MCP resource read failed: {type(exc).__name__})"
+        refreshed_session = False
+        while True:
+            try:
+                result = await asyncio.wait_for(
+                    self._session.read_resource(self._uri),
+                    timeout=self._resource_timeout,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "MCP resource '{}' timed out after {}s", self._name, self._resource_timeout
+                )
+                return f"(MCP resource read timed out after {self._resource_timeout}s)"
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling() > 0:
+                    raise
+                logger.warning("MCP resource '{}' was cancelled by server/SDK", self._name)
+                return "(MCP resource read was cancelled)"
+            except Exception as exc:
+                if await self._refresh_session_after_termination(
+                    exc, refreshed_session, "resource"
+                ):
+                    refreshed_session = True
+                    continue
+                logger.exception(
+                    "MCP resource '{}' failed: {}: {}",
+                    self._name,
+                    type(exc).__name__,
+                    exc,
+                )
+                return f"(MCP resource read failed: {type(exc).__name__})"
 
-        parts: list[str] = []
-        for block in result.contents:
-            if isinstance(block, types.TextResourceContents):
-                parts.append(block.text)
-            elif isinstance(block, types.BlobResourceContents):
-                parts.append(f"[Binary resource: {len(block.blob)} bytes]")
-            else:
-                parts.append(str(block))
-        return "\n".join(parts) or "(no output)"
+            parts: list[str] = []
+            for block in result.contents:
+                if isinstance(block, types.TextResourceContents):
+                    parts.append(block.text)
+                elif isinstance(block, types.BlobResourceContents):
+                    parts.append(f"[Binary resource: {len(block.blob)} bytes]")
+                else:
+                    parts.append(str(block))
+            return "\n".join(parts) or "(no output)"
 
 
-class MCPPromptWrapper(Tool):
+class MCPPromptWrapper(_MCPWrapperBase):
     """Wraps an MCP prompt as a read-only hahobot Tool."""
 
     def __init__(self, session, server_name: str, prompt_def, prompt_timeout: int = 30):
-        self._session = session
+        super().__init__(session)
         self._prompt_name = prompt_def.name
         self._name = f"mcp_{server_name}_prompt_{prompt_def.name}"
         desc = prompt_def.description or prompt_def.name
@@ -254,128 +462,71 @@ class MCPPromptWrapper(Tool):
         from mcp import types
         from mcp.shared.exceptions import McpError
 
-        try:
-            result = await asyncio.wait_for(
-                self._session.get_prompt(self._prompt_name, arguments=kwargs),
-                timeout=self._prompt_timeout,
-            )
-        except TimeoutError:
-            logger.warning("MCP prompt '{}' timed out after {}s", self._name, self._prompt_timeout)
-            return f"(MCP prompt call timed out after {self._prompt_timeout}s)"
-        except asyncio.CancelledError:
-            task = asyncio.current_task()
-            if task is not None and task.cancelling() > 0:
-                raise
-            logger.warning("MCP prompt '{}' was cancelled by server/SDK", self._name)
-            return "(MCP prompt call was cancelled)"
-        except McpError as exc:
-            logger.error(
-                "MCP prompt '{}' failed: code={} message={}",
-                self._name,
-                exc.error.code,
-                exc.error.message,
-            )
-            return f"(MCP prompt call failed: {exc.error.message} [code {exc.error.code}])"
-        except Exception as exc:
-            logger.exception(
-                "MCP prompt '{}' failed: {}: {}",
-                self._name,
-                type(exc).__name__,
-                exc,
-            )
-            return f"(MCP prompt call failed: {type(exc).__name__})"
+        refreshed_session = False
+        while True:
+            try:
+                result = await asyncio.wait_for(
+                    self._session.get_prompt(self._prompt_name, arguments=kwargs),
+                    timeout=self._prompt_timeout,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "MCP prompt '{}' timed out after {}s", self._name, self._prompt_timeout
+                )
+                return f"(MCP prompt call timed out after {self._prompt_timeout}s)"
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling() > 0:
+                    raise
+                logger.warning("MCP prompt '{}' was cancelled by server/SDK", self._name)
+                return "(MCP prompt call was cancelled)"
+            except McpError as exc:
+                logger.error(
+                    "MCP prompt '{}' failed: code={} message={}",
+                    self._name,
+                    exc.error.code,
+                    exc.error.message,
+                )
+                return f"(MCP prompt call failed: {exc.error.message} [code {exc.error.code}])"
+            except Exception as exc:
+                if await self._refresh_session_after_termination(exc, refreshed_session, "prompt"):
+                    refreshed_session = True
+                    continue
+                logger.exception(
+                    "MCP prompt '{}' failed: {}: {}",
+                    self._name,
+                    type(exc).__name__,
+                    exc,
+                )
+                return f"(MCP prompt call failed: {type(exc).__name__})"
 
-        parts: list[str] = []
-        for message in result.messages:
-            content = message.content
-            # content is a single ContentBlock (not a list) in MCP SDK >= 1.x
-            if isinstance(content, types.TextContent):
-                parts.append(content.text)
-            elif isinstance(content, list):
-                for block in content:
-                    if isinstance(block, types.TextContent):
-                        parts.append(block.text)
-                    else:
-                        parts.append(str(block))
-            else:
-                parts.append(str(content))
-        return "\n".join(parts) or "(no output)"
+            parts: list[str] = []
+            for message in result.messages:
+                content = message.content
+                # content is a single ContentBlock (not a list) in MCP SDK >= 1.x
+                if isinstance(content, types.TextContent):
+                    parts.append(content.text)
+                elif isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, types.TextContent):
+                            parts.append(block.text)
+                        else:
+                            parts.append(str(block))
+                else:
+                    parts.append(str(content))
+            return "\n".join(parts) or "(no output)"
+
+
+# ── Connection entry point ─────────────────────────────────────────────────────
 
 
 async def connect_mcp_servers(
     mcp_servers: dict, registry: ToolRegistry, stack: AsyncExitStack
 ) -> None:
     """Connect to configured MCP servers and register their tools, resources, and prompts."""
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.sse import sse_client
-    from mcp.client.stdio import stdio_client
-    from mcp.client.streamable_http import streamable_http_client
-
     for name, cfg in mcp_servers.items():
         try:
-            transport_type = cfg.type
-            if not transport_type:
-                if cfg.command:
-                    transport_type = "stdio"
-                elif cfg.url:
-                    # Convention: URLs ending with /sse use SSE transport; others use streamableHttp
-                    transport_type = (
-                        "sse" if cfg.url.rstrip("/").endswith("/sse") else "streamableHttp"
-                    )
-                else:
-                    logger.warning("MCP server '{}': no command or url configured, skipping", name)
-                    continue
-
-            if transport_type == "stdio":
-                params = StdioServerParameters(
-                    command=cfg.command, args=cfg.args, env=cfg.env or None
-                )
-                read, write = await stack.enter_async_context(stdio_client(params))
-            elif transport_type == "sse":
-
-                def httpx_client_factory(
-                    headers: dict[str, str] | None = None,
-                    timeout: httpx.Timeout | None = None,
-                    auth: httpx.Auth | None = None,
-                    # Capture cfg.headers by value: this factory escapes the loop
-                    # iteration via sse_client and may be invoked after the loop
-                    # has advanced (e.g. for SSE reconnects).
-                    _cfg_headers: dict[str, str] | None = cfg.headers,
-                ) -> httpx.AsyncClient:
-                    merged_headers = {
-                        "Accept": "application/json, text/event-stream",
-                        **(_cfg_headers or {}),
-                        **(headers or {}),
-                    }
-                    return httpx.AsyncClient(
-                        headers=merged_headers or None,
-                        follow_redirects=True,
-                        timeout=timeout,
-                        auth=auth,
-                    )
-
-                read, write = await stack.enter_async_context(
-                    sse_client(cfg.url, httpx_client_factory=httpx_client_factory)
-                )
-            elif transport_type == "streamableHttp":
-                # Always provide an explicit httpx client so MCP HTTP transport does not
-                # inherit httpx's default 5s timeout and preempt the higher-level tool timeout.
-                http_client = await stack.enter_async_context(
-                    httpx.AsyncClient(
-                        headers=cfg.headers or None,
-                        follow_redirects=True,
-                        timeout=None,
-                    )
-                )
-                read, write, _ = await stack.enter_async_context(
-                    streamable_http_client(cfg.url, http_client=http_client)
-                )
-            else:
-                logger.warning("MCP server '{}': unknown transport type '{}'", name, transport_type)
-                continue
-
-            session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            session = await _open_session(name, cfg, stack)
 
             tools = await session.list_tools()
             enabled_tools = set(cfg.enabled_tools)
@@ -384,6 +535,10 @@ async def connect_mcp_servers(
             available_raw_names = [tool_def.name for tool_def in tools.tools]
             available_wrapped_names = [f"mcp_{name}_{tool_def.name}" for tool_def in tools.tools]
             registered_count = 0
+
+            # Collect wrappers for this server before registering, so the
+            # coordinator can track them all for session-reconnect broadcasts.
+            wrappers: list[_MCPWrapperBase] = []
             for tool_def in tools.tools:
                 wrapped_name = f"mcp_{name}_{tool_def.name}"
                 if (
@@ -398,6 +553,7 @@ async def connect_mcp_servers(
                     )
                     continue
                 wrapper = MCPToolWrapper(session, name, tool_def, tool_timeout=cfg.tool_timeout)
+                wrappers.append(wrapper)
                 registry.register(wrapper)
                 logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
                 registered_count += 1
@@ -420,5 +576,12 @@ async def connect_mcp_servers(
                     )
 
             logger.info("MCP server '{}': connected, {} tools registered", name, registered_count)
+
+            # Wire the reconnect coordinator for this server.
+            if wrappers:
+                coordinator = _MCPServerConnection(name, cfg, stack, session, wrappers)
+                for w in wrappers:
+                    w._set_coordinator(coordinator)
+
         except Exception as e:
             logger.error("MCP server '{}': failed to connect: {}", name, e)

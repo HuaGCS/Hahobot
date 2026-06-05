@@ -14,6 +14,7 @@ Primary upstreams tracked here:
 - `lsdefine/GenericAgent`
 - `thedotmack/claude-mem`
 - `Dataojitori/nocturne_memory`
+- `openJiuwen/jiuwenswarm` (https://atomgit.com/openJiuwen/jiuwenswarm)
 
 Related inspiration that is intentionally **not** treated as a parity target:
 
@@ -38,12 +39,22 @@ These upstreams are not tracked in the same way:
   file-first memory model: the graph/DB backend and separate service are intentional divergences,
   but individual write-safety/recall ideas such as patch-only memory writes are tracked for
   adoption through the existing Markdown/Dream/Consolidator surfaces.
+- `jiuwenswarm` (Apache-2.0, openJiuwen/Huawei) is tracked as an architectural/ideas upstream,
+  not a behavior-parity target. It is a multi-channel Python agent framework (Web, Feishu, Huawei
+  Xiaoyi/小艺, Discord, WhatsApp; Huawei Cloud MaaS + other LLM providers) with PLAN/AGENT/CODE/TEAM
+  operating modes, self-evolving skills, experience-based memory + context compression, a
+  `jiuwenbox` sandbox execution environment, and multi-instance / distributed Team mode. Hahobot
+  already ported its Huawei Xiaoyi A2A WebSocket channel (`channels.xiaoyi`); other ideas (mode
+  switching, experience memory, sandboxed exec, Team mode) are evaluated against hahobot's existing
+  skill/subagent/persona/exec surfaces rather than mirrored one-to-one. Because it is hosted on
+  atomgit (not GitHub), commit-level diffing relies on web fetches rather than the GitHub API used
+  for the other upstreams.
 
 This file therefore records both:
 
 - direct upstream parity work for `nanobot`
-- explicit adoption / divergence decisions for `GenericAgent`, `claude-mem`, and `nocturne_memory`
-  where the ideas are relevant to hahobot's local runtime
+- explicit adoption / divergence decisions for `GenericAgent`, `claude-mem`, `nocturne_memory`,
+  and `jiuwenswarm` where the ideas are relevant to hahobot's local runtime
 
 ## Status Legend
 
@@ -54,6 +65,53 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-06-05` pass): re-checked against upstream `main` through `fa423df` /
+  `3945453` (`2026-06-04`). This pass ported one small contract-stable durability fix: nanobot
+  `0307ee6` + `13178f3` harden the `last_consolidated` offset against corrupt session metadata.
+  Local `Session.__post_init__` now resets a non-integer or out-of-range
+  `last_consolidated` to `0` so a bad offset can neither crash history slicing nor silently hide
+  every message (regression test in `tests/session/test_consolidated_offset_clamp.py`). This pass
+  also ported the larger `e9145b7` + `d0eba7c` auto-reconnect for terminated MCP sessions (the
+  long-watchlisted "MCP transient reconnect retry" item), adapted to hahobot's shared-
+  `AsyncExitStack` + three-wrapper layout: `_is_session_terminated`, a shared `_MCPWrapperBase`
+  reconnect gate, a per-server `_MCPServerConnection` coordinator (lock + generation counter for
+  single-rebuild-under-concurrency), and a factored-out `_open_session` transport helper, with
+  tests in `tests/agent/test_mcp_reconnect.py`. Other larger
+  upstream items reviewed and intentionally watchlisted this pass: the session-archive
+  durability cluster `72fb642e` (prevent duplicate archive + message loss), `baffd6ef` (correct
+  `last_consolidated` tracking), `0e370241` (archive actual idle-compact drops) — entangled with
+  nanobot's idle-compact/archive rework, so re-verify against hahobot's own autocompact + archive
+  path before porting; `2ea2260` + `8933da1` + `3945453` run-level agent hook lifecycle (a hook
+  feature, not a fix); `0042f68f` close websocket turns after errors (coupled to nanobot's
+  `_runtime_events()`/`turn_completed` event refactor that hahobot does not share); `25bb053`
+  outbound SMTP media attachments and `cbf1ede` email progress-message suppression (email-channel
+  features); `7c38083` QQ C2C pairing-code send; `da0aafcf` DingTalk `group_user_isolation`;
+  `a37e58a`+`c2e9064`+`c77ca16` `/update` uv-pip fallback; `ba3fa38` Azure AAD provider auth;
+  `d1a94da` two-phase Dream → simple cron refactor; `be2e0172` sustained-goal iteration budget
+  (depends on the not-yet-adopted `long_task`/`goal_active_predicate` feature). WebUI / event-
+  decoupling / docs commits are skipped as out-of-scope housekeeping.
+- `GenericAgent` (`2026-06-05` pass): re-checked against upstream `main` through `fb4f24e`
+  (`2026-06-04`). Deltas are TUI/run-loop internals (`5d122e2` per-instance print injection / EXIT
+  sentinel / checklist poll cap), the `goal_hive` master-duty rewrite (`9d41f42`, autonomous
+  scheduler — intentional divergence), plugin `__init__` packaging fixes, and `6f71212` robust
+  session-preview for malformed logs. No new portable runtime/memory idea; `6f71212` reinforces the
+  existing `fa8d7d62` `_fix_messages` / malformed-log-robustness watchlist item.
+- `claude-mem` (`2026-06-05` pass): re-checked against upstream `main` through `8463689`
+  (`2026-05-29`, v13.4.0). `d13fc43` adds a configurable OpenAI-compatible base URL (hahobot already
+  supports per-provider base URLs), `cf8d361` closes a SQLite handle on schema-repair error paths in
+  their TS impl, plus a plan-12 provider/extensibility roadmap doc and CLAUDE.md trimming. No new
+  memory architecture change and no new bundled skill beyond the already-tracked `design-is`.
+- `nocturne_memory` (`2026-06-05` pass): re-checked against upstream `main` through `a2f3123`
+  (`2026-05-31`, v2.5.4). New work is domain-management API/UI, orphan-memory restore/sorting,
+  email notifications, and access-log/namespace handling — all on the graph-DB + separate-service
+  backend hahobot already rejects as intentional divergence. No new file-first idea to adopt.
+- `jiuwenswarm` (`2026-06-05` pass): first entry in this ledger. Repository surveyed at
+  https://atomgit.com/openJiuwen/jiuwenswarm (Apache-2.0). The Huawei Xiaoyi A2A WebSocket channel
+  was already ported (`channels.xiaoyi`, commit `19b1bbe6`). Remaining ideas (PLAN/AGENT/CODE/TEAM
+  mode switching, self-evolving skills, experience-based memory, `jiuwenbox` sandboxed exec,
+  multi-instance / distributed Team mode) are recorded in the new "jiuwenswarm Architecture Review"
+  section below; none are adopted blind this pass — each maps onto an existing hahobot surface or is
+  an intentional divergence. See that section for the per-idea decisions.
 - `nanobot`: re-checked against upstream `main` at `ac8bef76` (`2026-05-28`). This pass adopted
   one small contract-stable fix and renamed the streaming-idle env-var to a hahobot-native
   name instead of mirroring upstream. `LLMProvider._stream_idle_timeout_s()` reads
@@ -101,6 +159,7 @@ This file therefore records both:
 | Read-only self inspection tool | `synced` | Local `self_inspect` exposes a JSON snapshot of runtime/session/tool/subagent state, bound to the actual session key and intentionally read-only instead of porting upstream's mutable `self.py` surface. |
 | Notebook editing tool | `synced` | Local `notebook_edit` supports bounded `.ipynb` cell replace/insert/delete flows for the main agent and `spawn(mode="implement")` workers without porting upstream's broader file-state machinery. |
 | Session persistence durability | `synced` | Session full rewrites now use atomic replace, corrupt JSONL can be repaired for load/list flows, and recovered sessions are forced through the next clean rewrite instead of silently staying in a broken state. |
+| Consolidated offset durability | `synced` | `Session.__post_init__` resets a non-integer or out-of-range `last_consolidated` offset to `0`, so corrupt session metadata can neither crash history slicing nor silently hide every message past the offset. Ported from nanobot `0307ee6` / `13178f3`. |
 | Turn recovery / idle compact safety | `synced` | Session recovery now restores runtime checkpoints before the next request, `/stop` cancellation materializes the latest runtime checkpoint immediately instead of waiting for the next message, plain-text user turns are persisted early so crashes do not lose the prompt, orphaned pending user turns are closed cleanly, and proactive auto-compact still skips sessions with an in-flight task. |
 | Subagent follow-up persistence | `synced` | Subagent announce messages now carry task metadata, are persisted into session history before prompt assembly, deduped by `subagent_task_id`, and avoid double-injecting the same follow-up as both history and current message. |
 | Hook lifecycle semantics | `synced` | Hook fan-out supports `reraise` semantics and keeps compatibility behavior for legacy hooks. |
@@ -137,7 +196,7 @@ This file therefore records both:
 | Config fallback behavior | `intentional_divergence` | When no config path is passed, hahobot checks `~/.hahobot/config.json` first, then copies `~/.nanobot/config.json` into the hahobot location instead of migrating in place. |
 | Web search backend mix | `synced` | Built-in web search now supports Brave, SearXNG, and DuckDuckGo; DuckDuckGo runs as an exclusive tool so concurrent tool batches do not group multiple searches together. |
 | Search provider breadth | `watchlist` | Upstream now also carries additional search backends such as Kagi/Olostep; local runtime still intentionally limits `tools.web.search.provider` to Brave, SearXNG, and DuckDuckGo until there is real demand for another backend plus matching config/admin/docs wiring. |
-| MCP transient reconnect retry | `watchlist` | Upstream now retries one connection-class MCP failure after a short backoff; local MCP wrappers already distinguish true task cancellation from server-side `CancelledError`, but they still surface the first broken-pipe/closed-resource failure directly. Re-check if bridge restarts or transient MCP reconnects become noisy in practice. |
+| MCP terminated-session reconnect | `synced` | Ported from nanobot `e9145b7` + `d0eba7c`, adapted to hahobot's shared-`AsyncExitStack`/three-wrapper layout. `_is_session_terminated` matches "session terminated"/"connection closed" (in `str(exc)` and `exc.error.message`); a shared `_MCPWrapperBase._refresh_session_after_termination` reconnects once per `execute()` before falling back to the existing error-string behavior; a per-server `_MCPServerConnection` coordinator uses an `asyncio.Lock` + generation counter so concurrent terminated calls trigger exactly one rebuild and the rest adopt the fresh session; transport setup is factored into a shared `_open_session(name, cfg, stack)` used by both initial connect and reconnect. The existing `TimeoutError` / `CancelledError` (re-raise only on external cancel) / `McpError` handling is preserved unchanged. Tests in `tests/agent/test_mcp_reconnect.py`. |
 | OpenAI-compatible API file inputs | `synced` | `hahobot serve` now accepts both JSON and `multipart/form-data`, extracts text-like uploaded or inline base64 file payloads into the prompt, and emits stable placeholders for binary/image attachments while keeping the direct API path single-message and non-streaming. |
 | OpenAI-compatible API streaming | `intentional_divergence` | Upstream now supports SSE when `stream=true`; local `hahobot serve` intentionally stays non-streaming until the API contract is deliberately expanded across docs, tests, and client expectations together. |
 | Memory/history pollution caps | `synced` | Recent-history prompt injection, raw archive fallback, and consolidated history entries now have explicit size caps so failed summarization or oversized legacy entries cannot bloat every future prompt. |
@@ -434,6 +493,97 @@ Reviewed and intentionally skipped / left on watchlist:
   on top of the mandatory boot protocol that hahobot has already rejected as intentional
   divergence; AntiGravity heartbeat is IDE-integration-specific. Nothing to adopt.
 
+## Borrow Candidates From 2026-06-05 Audit
+
+Implemented locally in this pass:
+
+- **Consolidated offset durability** (nanobot `0307ee6` + `13178f3`): `Session.__post_init__` now
+  resets a non-integer or out-of-range `last_consolidated` to `0`. A corrupt offset previously
+  could either crash `get_history()` slicing (non-int) or silently hide every message (offset past
+  the message tail). Regression coverage in `tests/session/test_consolidated_offset_clamp.py`.
+- **MCP terminated-session auto-reconnect** (nanobot `e9145b7` + `d0eba7c`): the long-watchlisted
+  "MCP transient reconnect retry" item, ported and adapted to hahobot's shared-`AsyncExitStack` +
+  three-wrapper layout rather than copied verbatim. `hahobot/agent/tools/mcp.py` now has
+  `_is_session_terminated` (markers "session terminated"/"connection closed" in `str(exc)` and
+  `exc.error.message`), a shared `_MCPWrapperBase._refresh_session_after_termination` that
+  reconnects at most once per `execute()`, a per-server `_MCPServerConnection` coordinator
+  (`asyncio.Lock` + generation counter so concurrent terminated calls cause exactly one rebuild and
+  the rest adopt the fresh session), and a factored-out `_open_session(name, cfg, stack)` transport
+  helper shared by initial connect and reconnect. Existing `TimeoutError` / `CancelledError` /
+  `McpError` handling is unchanged. Tests in `tests/agent/test_mcp_reconnect.py`. Minor side effect:
+  a misconfigured server (no command/url, unknown transport) now surfaces through the outer
+  connect-error handler instead of a dedicated skip-warning; functionally equivalent (server is
+  still skipped and the loop continues).
+
+Reviewed and intentionally skipped / left on watchlist:
+
+- **Session-archive durability cluster** (nanobot `72fb642e` duplicate-archive/message-loss,
+  `baffd6ef` `last_consolidated` tracking, `0e370241` idle-compact drop archival): entangled with
+  nanobot's idle-compact/archive rework. Re-verify hahobot's own `agent/autocompact.py` +
+  `agent/memory.py` archive path for the same failure modes before porting any single piece.
+- **Run-level agent hook lifecycle** (nanobot `2ea2260` + `8933da1` + `3945453`): a hook feature
+  (per-run snapshot isolation), not a fix. Map onto hahobot's `agent/hook.py` only if a concrete
+  per-run hook-isolation need appears.
+- **WebSocket turn-close-after-error** (nanobot `0042f68f`): depends on nanobot's
+  `_runtime_events()` / `turn_completed` event-decoupling refactor that hahobot does not share;
+  re-check only if the local websocket channel grows the same runtime-event contract.
+- **Email outbound media + progress suppression** (nanobot `25bb053`, `b2ae5d9`, `cbf1ede`),
+  **QQ C2C pairing-code send** (`7c38083`), **DingTalk `group_user_isolation`** (`da0aafcf`):
+  channel features; adopt per channel only with schema/docs/multi-instance treatment and a concrete
+  operator need.
+- **`/update` uv-pip fallback** (nanobot `a37e58a` + `c2e9064` + `c77ca16`): worth folding into
+  hahobot's `/update` path if environments without `pip` are reported; small but `/update`-specific.
+- **Azure AAD provider auth** (nanobot `ba3fa38`) and **two-phase Dream → simple cron refactor**
+  (`d1a94da`): provider-breadth / Dream-internal churn; track only with concrete demand. hahobot
+  recently folded `/dream-{log,restore}` into `/dream` subcommands (`65773ece`) on its own design.
+- **GenericAgent `6f71212` malformed-log session preview**: reinforces the existing
+  `fa8d7d62` `_fix_messages` watchlist item for the next memory-write/history-robustness revisit.
+- **claude-mem `cf8d361` SQLite handle-close-on-repair**: defensive idea for their TS impl; if the
+  local `memory.archive.indexBackend="sqlite"` derived cache ever grows a schema-repair path, mirror
+  the close-on-error discipline. No action this pass.
+
+## jiuwenswarm Architecture Review (2026-06-05)
+
+`openJiuwen/jiuwenswarm` (Apache-2.0, hosted on atomgit) is a multi-channel Python agent framework
+from the Huawei/openJiuwen ecosystem. It integrates Web, Feishu, Huawei Xiaoyi (小艺), Discord, and
+WhatsApp; targets Huawei Cloud MaaS plus other LLM providers; and ships PLAN/AGENT/CODE/TEAM
+operating modes, self-evolving skills, experience-based memory with context compression, a
+`jiuwenbox` sandbox execution environment, and multi-instance / distributed Team mode.
+
+Decisions from this review:
+
+- **Already adopted: Huawei Xiaoyi A2A channel.** Ported as `channels.xiaoyi`
+  (`hahobot/channels/xiaoyi.py`, commit `19b1bbe6`): outbound A2A WebSocket client, HMAC-SHA256
+  `x-sign` auth, `clawd_bot_init` handshake, 20s app heartbeat + 5s per-session heartbeat, inbound
+  `message/stream` → bus, outbound `artifact-update` envelopes. This is the one direct code port.
+- **Map onto existing surfaces (not mirrored): PLAN/AGENT/CODE/TEAM modes.** hahobot expresses the
+  same separation through bundled workflow skills (`plan`, `verify`, `workflow-core`) plus
+  `spawn(mode="explore"|"implement"|"verify")` and subagent role models rather than a single
+  global mode switch. Re-evaluate only if a coarse user-facing mode toggle proves clearer than the
+  skill/subagent split.
+- **Map onto existing surfaces: self-evolving skills + experience memory.** hahobot already has
+  operator-reviewed `/skill derive`, lifecycle metadata (`triggers` / `success_count` / `last_used`
+  / `supersedes`), query-aware top-k skill summaries, and an `experience` memory tag for distilled
+  task patterns. jiuwenswarm's automatic skill evolution is the same family as the Dream
+  auto-promotion that hahobot intentionally keeps operator-visible — see the Dream skill-discovery
+  divergence row. No change.
+- **Watchlist: `jiuwenbox` sandboxed execution.** A dedicated sandbox runtime for tool/code
+  execution is stronger isolation than hahobot's current `tools.exec` (workspace restriction +
+  explicit env allowlist + stdin isolation). Track as a possible future hardening target; do not
+  adopt a separate sandbox service speculatively.
+- **Watchlist / likely divergence: distributed Team mode.** Multi-agent distributed orchestration
+  across machines is a much larger architecture than hahobot's local-first cron / heartbeat / Dream
+  / `spawn` model. Treat as inspiration only; a distributed coordinator is out of scope without a
+  concrete operator need.
+- **Intentional divergence: Huawei Cloud MaaS as a first-class platform assumption.** hahobot stays
+  provider-neutral through `providers.*` / `providerPool`; a MaaS backend would be just another
+  OpenAI-compatible provider entry if demand appears, not a platform assumption.
+
+Net: jiuwenswarm overlaps hahobot heavily in intent (multi-channel local agent with memory and
+skills) but diverges in platform framing (Huawei MaaS, distributed Team mode, dedicated sandbox).
+The one concrete code dependency is the Xiaoyi channel, already ported. Everything else is tracked
+as ideas mapped onto hahobot's existing skill/subagent/memory/exec surfaces.
+
 ## GenericAgent Adoption Notes
 
 - Hahobot now covers the two previously open GenericAgent gaps that motivated adding it as an
@@ -596,6 +746,12 @@ as "do not re-port unless upstream changes again":
   openai_compat, and openai_codex providers share `LLMProvider._stream_idle_timeout_s()`,
   which reads `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s). The upstream `NANOBOT_*` env
   var is intentionally not honored.
+- `Session.__post_init__` resets a non-integer or out-of-range `last_consolidated` offset to `0`,
+  so corrupt session metadata cannot crash history slicing or silently hide every message past the
+  offset (ported from nanobot `0307ee6` / `13178f3`).
+- Terminated MCP sessions auto-reconnect once per tool/resource/prompt call before falling back to
+  the existing error-string behavior, with a per-server coordinator ensuring a single rebuild under
+  concurrency (ported from nanobot `e9145b7` / `d0eba7c`).
 
 ## Intentional Local Differences
 
@@ -636,6 +792,20 @@ These are local choices. When upstream behaves differently, that is not automati
 
 ## Watchlist For Next Upstream Sync
 
+- The 2026-06-05 pass ported the `last_consolidated` offset clamp (nanobot `0307ee6` / `13178f3`)
+  and the terminated-MCP-session auto-reconnect layer (nanobot `e9145b7` / `d0eba7c`).
+  Next nanobot pass should weigh: the session-archive durability cluster
+  (`72fb642e` / `baffd6ef` / `0e370241`, re-verify against hahobot's own autocompact + archive path
+  first), run-level agent hook lifecycle (`2ea2260` + `8933da1` + `3945453`), the email media/
+  progress-suppression and QQ/DingTalk channel features, the `/update` uv-pip fallback, Azure AAD
+  provider auth, and the two-phase Dream → simple-cron refactor. The WebSocket turn-close-after-error
+  fix (`0042f68f`) is coupled to nanobot's `_runtime_events()` refactor and is not portable as-is.
+- `jiuwenswarm` (atomgit) entered the ledger this pass with its own architecture review. The one
+  concrete code dependency (Huawei Xiaoyi A2A channel) is already ported. Re-check its
+  `jiuwenbox` sandbox exec and distributed Team mode only if local exec hardening or multi-machine
+  orchestration becomes a concrete need; PLAN/AGENT/CODE/TEAM modes and self-evolving skills are
+  already mapped onto hahobot's skill/subagent surfaces. Because it is hosted on atomgit, future
+  diffing relies on web fetches rather than the GitHub commit API.
 - The 2026-05-28 pass synced the Codex streaming-idle timeout under
   `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (intentionally not mirroring the upstream `NANOBOT_*` name).
   Remaining nanobot items to track: `cfabc29f` propagation of `maxConcurrentSubagents` to
@@ -695,8 +865,10 @@ These are local choices. When upstream behaves differently, that is not automati
   standalone WebUI as intentional divergence.
 - Re-check upstream search-provider additions (for example Kagi) against local config/admin/docs
   before expanding `tools.web.search.provider`.
-- Re-check upstream `agent/tools/mcp.py` if transient `ClosedResourceError` / broken-pipe failures
-  become common enough to justify the same one-shot reconnect retry locally.
+- Local `agent/tools/mcp.py` now auto-reconnects terminated MCP sessions (nanobot `e9145b7` /
+  `d0eba7c`). Re-check it if upstream extends reconnect to additional failure markers, adds backoff,
+  or changes the transport/`ClientSession` lifecycle in a way that affects the shared `_open_session`
+  helper.
 - Re-check upstream tool-context isolation changes in `agent/tools/cron.py`, `message.py`, and
   `spawn.py` if concurrent cross-session routing leakage appears; local runtime still relies on
   per-turn `set_context()` updates instead of ContextVar-backed tool state.
