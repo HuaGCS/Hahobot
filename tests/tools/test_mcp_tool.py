@@ -47,7 +47,7 @@ def _fake_mcp_module(
             return False
 
     @asynccontextmanager
-    async def _fake_stdio_client(_params: object):
+    async def _fake_stdio_client(_params: object, errlog: object = None):
         yield object(), object()
 
     @asynccontextmanager
