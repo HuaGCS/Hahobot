@@ -2,7 +2,7 @@
 
 import asyncio
 from contextlib import AsyncExitStack
-from typing import Any
+from typing import Any, TextIO
 
 import httpx
 from loguru import logger
@@ -220,7 +220,11 @@ async def _open_session(name: str, cfg: Any, stack: AsyncExitStack) -> Any:
 
     if transport_type == "stdio":
         params = StdioServerParameters(command=cfg.command, args=cfg.args, env=cfg.env or None)
-        read, write = await stack.enter_async_context(stdio_client(params))
+        errlog = _stderr_to_logger(name, stack)
+        read, write = await stack.enter_async_context(
+            stdio_client(params, errlog=errlog) if errlog is not None else stdio_client(params)
+        )
+        _close_writer_best_effort(errlog)
     elif transport_type == "sse":
 
         def httpx_client_factory(
@@ -263,6 +267,72 @@ async def _open_session(name: str, cfg: Any, stack: AsyncExitStack) -> Any:
     session = await stack.enter_async_context(ClientSession(read, write))
     await session.initialize()
     return session
+
+
+# ── Stdio MCP subprocess stderr capture ───────────────────────────────────────
+
+
+def _close_writer_best_effort(writer: TextIO | None) -> None:
+    """Best-effort close of the stderr pipe *writer* end.
+
+    This is split out so _open_session does not repeat the try/except.
+    """
+    if writer is None:
+        return
+    try:
+        writer.close()
+    except OSError:
+        pass
+
+
+def _stderr_to_logger(name: str, stack: AsyncExitStack) -> TextIO | None:
+    """Return a writable pipe end to use as the MCP subprocess stderr.
+
+    A daemon thread drains the read end and forwards each line to loguru at
+    debug level, so stdio MCP server stderr does not pollute the interactive
+    CLI.  Returns None on any failure so the caller falls back to sys.stderr
+    and MCP startup is never blocked.
+    """
+    import os
+    import threading
+
+    try:
+        r_fd, w_fd = os.pipe()
+        reader = os.fdopen(r_fd, "r", encoding="utf-8", errors="replace")
+        writer = os.fdopen(w_fd, "w", buffering=1, encoding="utf-8", errors="replace")
+    except Exception:
+        logger.debug("MCP server '{}': failed to create stderr pipe, falling back", name)
+        return None
+
+    def _drain() -> None:
+        """Read lines from the pipe and forward them to loguru."""
+        try:
+            for line in reader:
+                stripped = line.rstrip()
+                if stripped:
+                    logger.debug("[mcp:{}] {}", name, stripped)
+        except Exception:
+            # Reader EOF or any I/O/logging error — thread exits cleanly.
+            pass
+
+    thread = threading.Thread(target=_drain, daemon=True)
+    thread.start()
+
+    # Register cleanup: close the read end so the thread unblocks and exits.
+    def _cleanup() -> None:
+        try:
+            reader.close()
+        except OSError:
+            pass
+
+    try:
+        stack.callback(_cleanup)
+    except Exception:
+        reader.close()
+        writer.close()
+        return None
+
+    return writer
 
 
 # ── Wrapper classes ────────────────────────────────────────────────────────────
