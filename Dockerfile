@@ -25,13 +25,6 @@ COPY hahobot/ hahobot/
 COPY bridge/ bridge/
 RUN uv pip install --system --no-cache .
 
-# Build the WhatsApp bridge
-WORKDIR /app/bridge
-RUN git config --global --add url."https://github.com/".insteadOf ssh://git@github.com/ && \
-    git config --global --add url."https://github.com/".insteadOf git@github.com: && \
-    npm install && npm run build
-WORKDIR /app
-
 # Create non-root user and config directory
 RUN useradd -m -u 1000 -s /bin/bash hahobot && \
     mkdir -p /home/hahobot/.hahobot && \
@@ -43,8 +36,9 @@ RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/ent
 USER hahobot
 ENV HOME=/home/hahobot
 
-# Gateway default port
+# Gateway and API default ports
 EXPOSE 18790
+EXPOSE 8900
 
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["status"]

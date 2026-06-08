@@ -1,3 +1,6 @@
+# Shared build/runtime config. The mounted ~/.hahobot volume persists config and
+# the WhatsApp bridge: the bridge is built into ~/.hahobot/bridge on first use
+# (the image no longer prebuilds it), so the first run needs network for npm.
 x-common-config: &common-config
   build:
     context: .
@@ -7,10 +10,22 @@ x-common-config: &common-config
   cap_drop:
     - ALL
   cap_add:
+    # bubblewrap (skill sandboxing) needs SYS_ADMIN to create user namespaces.
     - SYS_ADMIN
   security_opt:
+    # bubblewrap sets up its own seccomp/namespaces; host profiles would block it.
     - apparmor=unconfined
     - seccomp=unconfined
+
+# Shared resource limits for the long-running services.
+x-deploy: &default-deploy
+  resources:
+    limits:
+      cpus: "1"
+      memory: 1G
+    reservations:
+      cpus: "0.25"
+      memory: 256M
 
 services:
   hahobot-gateway:
@@ -20,14 +35,7 @@ services:
     restart: unless-stopped
     ports:
       - 18790:18790
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
-        reservations:
-          cpus: "0.25"
-          memory: 256M
+    deploy: *default-deploy
 
   hahobot-api:
     container_name: hahobot-api
@@ -37,14 +45,7 @@ services:
     restart: unless-stopped
     ports:
       - 127.0.0.1:8900:8900
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
-        reservations:
-          cpus: "0.25"
-          memory: 256M
+    deploy: *default-deploy
 
   hahobot-cli:
     <<: *common-config
