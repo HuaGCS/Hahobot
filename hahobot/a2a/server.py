@@ -77,9 +77,7 @@ def _response_text(value: Any) -> str:
     return str(value)
 
 
-def _jsonrpc_error(
-    req_id: Any, code: int, message: str, http_status: int = 200
-) -> web.Response:
+def _jsonrpc_error(req_id: Any, code: int, message: str, http_status: int = 200) -> web.Response:
     """A2A-compatible JSON-RPC error response (defaults to HTTP 200)."""
     return web.json_response(
         {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}},
@@ -91,9 +89,7 @@ def _jsonrpc_result(req_id: Any, result: dict[str, Any]) -> web.Response:
     return web.json_response({"jsonrpc": "2.0", "id": req_id, "result": result})
 
 
-async def _sse_write(
-    resp: web.StreamResponse, req_id: Any, event: dict[str, Any]
-) -> None:
+async def _sse_write(resp: web.StreamResponse, req_id: Any, event: dict[str, Any]) -> None:
     """Write a single SSE data frame."""
     payload = json.dumps({"jsonrpc": "2.0", "id": req_id, "result": event})
     await resp.write(b"data: " + payload.encode("utf-8") + b"\n\n")

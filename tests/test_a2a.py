@@ -69,8 +69,16 @@ def _make_streaming_agent(deltas: list[str]) -> MagicMock:
     """Agent whose process_direct fires on_stream for each delta."""
     agent = MagicMock()
 
-    async def _proc(content, *, session_key, channel, chat_id,
-                    on_stream=None, on_stream_end=None, on_progress=None):
+    async def _proc(
+        content,
+        *,
+        session_key,
+        channel,
+        chat_id,
+        on_stream=None,
+        on_stream_end=None,
+        on_progress=None,
+    ):
         for delta in deltas:
             if on_stream is not None:
                 await on_stream(delta)
@@ -90,7 +98,7 @@ def _parse_sse(text: str) -> list[dict]:
     for block in text.strip().split("\n\n"):
         block = block.strip()
         if block.startswith("data:"):
-            events.append(json.loads(block[len("data:"):].strip()))
+            events.append(json.loads(block[len("data:") :].strip()))
     return events
 
 
@@ -134,9 +142,7 @@ async def aiohttp_client():
 
 
 def test_build_agent_card_shape() -> None:
-    card = build_agent_card(
-        name="hahobot", description="d", url="http://h:1/a2a", version="1.2.3"
-    )
+    card = build_agent_card(name="hahobot", description="d", url="http://h:1/a2a", version="1.2.3")
     assert card["name"] == "hahobot"
     assert card["url"] == "http://h:1/a2a"
     assert card["version"] == "1.2.3"
@@ -151,9 +157,7 @@ def test_extract_text_from_parts_variants() -> None:
     assert extract_text_from_parts([{"kind": "text", "text": "a"}]) == "a"
     # legacy "type" key and multi-part join
     assert (
-        extract_text_from_parts(
-            [{"type": "text", "text": "a"}, {"kind": "text", "text": "b"}]
-        )
+        extract_text_from_parts([{"type": "text", "text": "a"}, {"kind": "text", "text": "b"}])
         == "a\nb"
     )
     # non-text parts ignored
@@ -391,9 +395,7 @@ async def test_tasks_cancel_non_terminal(aiohttp_client, app) -> None:
     from hahobot.a2a.server import A2A_TASKS_KEY
 
     client = await aiohttp_client(app)
-    working = make_task(
-        task_id="tw", context_id="c", state="working", agent_text=""
-    )
+    working = make_task(task_id="tw", context_id="c", state="working", agent_text="")
     app[A2A_TASKS_KEY]["tw"] = working
 
     resp = await client.post("/a2a", json=_rpc("tasks/cancel", {"id": "tw"}))
@@ -410,9 +412,7 @@ async def test_tasks_cancel_non_terminal(aiohttp_client, app) -> None:
 @pytest.mark.asyncio
 async def test_parse_error(aiohttp_client, app) -> None:
     client = await aiohttp_client(app)
-    resp = await client.post(
-        "/a2a", data="not json", headers={"Content-Type": "application/json"}
-    )
+    resp = await client.post("/a2a", data="not json", headers={"Content-Type": "application/json"})
     body = await resp.json()
     assert body["error"]["code"] == JSONRPC_PARSE_ERROR
 
