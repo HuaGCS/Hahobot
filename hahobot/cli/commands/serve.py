@@ -89,8 +89,19 @@ def serve(
             "Only do this behind a trusted network boundary, firewall, or reverse proxy."
         )
     console.print()
+    if runtime_config.a2a.enabled:
+        console.print(
+            f"  [cyan]A2A[/cyan]      : http://{host}:{port}/.well-known/agent-card.json"
+        )
 
-    api_app = create_app(agent_loop, model_name=model_name, request_timeout=timeout)
+    api_app = create_app(
+        agent_loop,
+        model_name=model_name,
+        request_timeout=timeout,
+        host=host,
+        port=port,
+        a2a_config=runtime_config.a2a,
+    )
 
     async def on_startup(_app):
         await agent_loop._connect_mcp()

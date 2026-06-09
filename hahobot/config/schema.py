@@ -794,6 +794,26 @@ class ApiConfig(Base):
     timeout: float = 120.0  # Per-request timeout in seconds.
 
 
+class A2AConfig(Base):
+    """Standard A2A (Agent2Agent) protocol adapter configuration.
+
+    When enabled, the API server also serves a spec-compliant Agent Card at
+    ``/.well-known/agent-card.json`` and a JSON-RPC endpoint at ``/a2a`` so that
+    other A2A-compliant agents can call this bot.
+    """
+
+    enabled: bool = False
+    name: str = "hahobot"
+    description: str = "Persona-first local AI agent."
+    version: str = "0.1.0"
+    # Public base URL advertised in the Agent Card (e.g. http://host:port).
+    # Leave empty to derive http://{api.host}:{api.port} at serve time.
+    public_url: str = ""
+    timeout: float = 120.0
+    max_tasks: int = 2048
+    streaming: bool = True
+
+
 class GatewayAdminConfig(Base):
     """Built-in admin page configuration."""
 
@@ -956,6 +976,7 @@ class Config(BaseSettings):
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
+    a2a: A2AConfig = Field(default_factory=A2AConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
