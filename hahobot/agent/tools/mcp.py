@@ -590,15 +590,87 @@ class MCPPromptWrapper(_MCPWrapperBase):
 # ── Connection entry point ─────────────────────────────────────────────────────
 
 
+async def _connect_one_mcp(
+    name: str, cfg: Any
+) -> tuple[str, Any, AsyncExitStack, Any, Any] | None:
+    """Connect one MCP server on a fresh local stack with a per-server timeout.
+
+    Returns ``(name, cfg, local, session, tools_result)`` on success,
+    ``None`` on failure after best-effort cleanup of the local stack.
+    """
+    local = AsyncExitStack()
+    await local.__aenter__()
+    try:
+        session = await asyncio.wait_for(
+            _open_session(name, cfg, local),
+            timeout=cfg.connect_timeout,
+        )
+        tools_result = await asyncio.wait_for(
+            session.list_tools(),
+            timeout=cfg.connect_timeout,
+        )
+        return name, cfg, local, session, tools_result
+    except TimeoutError:
+        logger.error(
+            "MCP server '{}': connect timed out after {}s; skipping",
+            name,
+            cfg.connect_timeout,
+        )
+    except BaseException as exc:
+        if isinstance(exc, asyncio.CancelledError):
+            # Re-raise only if genuinely externally cancelled.
+            task = asyncio.current_task()
+            if task is not None and task.cancelling() > 0:
+                raise
+            # SDK-leaked CancelledError -- treat as a connect failure.
+            logger.error(
+                "MCP server '{}': connect was cancelled by SDK; skipping",
+                name,
+            )
+        elif isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
+        else:
+            logger.error("MCP server '{}': failed to connect: {}", name, exc)
+    # Error path: best-effort close the local stack so we do not leak
+    # transport / session resources for a failed server.
+    try:
+        await local.aclose()
+    except Exception:
+        pass
+    return None
+
+
 async def connect_mcp_servers(
     mcp_servers: dict, registry: ToolRegistry, stack: AsyncExitStack
 ) -> None:
-    """Connect to configured MCP servers and register their tools, resources, and prompts."""
-    for name, cfg in mcp_servers.items():
-        try:
-            session = await _open_session(name, cfg, stack)
+    """Connect to configured MCP servers concurrently with per-server timeouts.
 
-            tools = await session.list_tools()
+    Phase 1: connect every server concurrently.  Each server gets its own
+    ``AsyncExitStack`` and ``asyncio.wait_for`` with ``cfg.connect_timeout``,
+    so a single hung server cannot block other servers or delay shutdown.
+
+    Phase 2: register successfully connected servers sequentially, preserving
+    the original ``mcp_servers`` insertion order for deterministic logs.
+    """
+    if not mcp_servers:
+        return
+
+    # Phase 1 -- concurrent connect -------------------------------------------------
+    coros = [_connect_one_mcp(name, cfg) for name, cfg in mcp_servers.items()]
+    results = await asyncio.gather(*coros)
+
+    # Phase 2 -- sequential registration in insertion order -------------------------
+    for (name, cfg), result in zip(mcp_servers.items(), results, strict=False):
+        if result is None:
+            # Connect phase already logged the reason; just skip.
+            continue
+
+        _server_name, _cfg, local, session, tools = result
+        # Transfer cleanup ownership to the shared stack so the caller's
+        # existing stack.aclose() tears everything down.
+        stack.push_async_callback(local.aclose)
+
+        try:
             enabled_tools = set(cfg.enabled_tools)
             allow_all_tools = "*" in enabled_tools
             matched_enabled_tools: set[str] = set()
@@ -647,11 +719,10 @@ async def connect_mcp_servers(
 
             logger.info("MCP server '{}': connected, {} tools registered", name, registered_count)
 
-            # Wire the reconnect coordinator for this server.
+            # Wire the reconnect coordinator for this server (uses the shared stack).
             if wrappers:
                 coordinator = _MCPServerConnection(name, cfg, stack, session, wrappers)
                 for w in wrappers:
                     w._set_coordinator(coordinator)
-
-        except Exception as e:
-            logger.error("MCP server '{}': failed to connect: {}", name, e)
+        except Exception:
+            logger.exception("MCP server '{}': registration failed", name)
