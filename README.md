@@ -587,6 +587,36 @@ This API is intentionally narrow:
 For `multipart/form-data`, send the usual `messages` payload as a JSON string field and attach one
 or more uploaded files alongside it.
 
+### Standard A2A (Agent2Agent) adapter
+
+When `a2a.enabled` is set, `hahobot serve` additionally speaks the standard
+[A2A](https://a2a-protocol.org) protocol (v0.3.0) so other A2A-compliant agents can call this bot:
+
+- `GET /.well-known/agent-card.json` (plus the legacy `/.well-known/agent.json` alias) — the Agent Card
+- `POST /a2a` — JSON-RPC 2.0 endpoint supporting `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`
+
+Each A2A `contextId` maps to a hahobot session (`a2a:{contextId}`). `message/send` runs the turn
+synchronously and returns a completed `Task` whose artifact holds the reply. `message/stream`
+returns a `text/event-stream` (SSE): an initial `Task` (state `working`), one
+`TaskArtifactUpdateEvent` per streamed delta, and a final `TaskStatusUpdateEvent`
+(`state=completed`, `final=true`); the completed task is also retained for `tasks/get`. Configure
+it under the top-level `a2a` block:
+
+```toml
+[a2a]
+enabled = true
+name = "hahobot"
+description = "Persona-first local AI agent."
+version = "0.1.0"
+# public_url advertised in the Agent Card; defaults to http://{api.host}:{api.port}
+public_url = ""
+timeout = 120.0
+max_tasks = 2048
+streaming = true   # advertise + serve message/stream over SSE
+```
+
+This is distinct from `channels.xiaoyi`, which speaks Huawei Xiaoyi's separate A2A WebSocket dialect.
+
 ## Tools, Skills, and MCP
 
 ### Built-in tools
