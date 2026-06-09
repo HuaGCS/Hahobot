@@ -508,7 +508,12 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 def create_app(
-    agent_loop, model_name: str = "hahobot", request_timeout: float = 120.0
+    agent_loop,
+    model_name: str = "hahobot",
+    request_timeout: float = 120.0,
+    host: str = "127.0.0.1",
+    port: int = 8900,
+    a2a_config: Any | None = None,
 ) -> web.Application:
     """Create the aiohttp application.
 
@@ -516,6 +521,9 @@ def create_app(
         agent_loop: An initialized AgentLoop instance.
         model_name: Model name reported in responses.
         request_timeout: Per-request timeout in seconds.
+        host: Bind address (used for A2A Agent Card URL derivation).
+        port: Bind port (used for A2A Agent Card URL derivation).
+        a2a_config: Optional A2AConfig; if enabled, registers A2A endpoints.
     """
     app = web.Application(client_max_size=_API_CLIENT_MAX_SIZE)
     app[AGENT_LOOP_KEY] = agent_loop
@@ -531,4 +539,20 @@ def create_app(
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_models)
     app.router.add_get("/health", handle_health)
+
+    if a2a_config is not None and getattr(a2a_config, "enabled", False):
+        from hahobot.a2a import register_a2a_routes
+
+        register_a2a_routes(
+            app,
+            agent_loop,
+            name=a2a_config.name,
+            description=a2a_config.description,
+            base_url=a2a_config.public_url or f"http://{host}:{port}",
+            version=a2a_config.version,
+            timeout=a2a_config.timeout,
+            max_tasks=a2a_config.max_tasks,
+            streaming=getattr(a2a_config, "streaming", True),
+        )
+
     return app
