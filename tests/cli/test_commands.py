@@ -983,10 +983,20 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         async def close_mcp(self) -> None:
             return None
 
-    def _fake_create_app(agent_loop, model_name: str, request_timeout: float):
+    def _fake_create_app(
+        agent_loop,
+        model_name: str,
+        request_timeout: float,
+        host: str = "127.0.0.1",
+        port: int = 8900,
+        a2a_config=None,
+    ):
         seen["agent_loop"] = agent_loop
         seen["model_name"] = model_name
         seen["request_timeout"] = request_timeout
+        seen["create_app_host"] = host
+        seen["create_app_port"] = port
+        seen["a2a_config"] = a2a_config
         return _FakeApiApp()
 
     def _fake_run_app(api_app, host: str, port: int, print):

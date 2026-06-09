@@ -66,6 +66,7 @@ def _session_source_label(source: str) -> str:
         "weixin": "Weixin",
         "whatsapp": "WhatsApp",
         "websocket": "WebSocket",
+        "a2a": "A2A",
     }
     return labels.get(source, source or "local")
 
