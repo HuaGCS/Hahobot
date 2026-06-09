@@ -90,9 +90,7 @@ def serve(
         )
     console.print()
     if runtime_config.a2a.enabled:
-        console.print(
-            f"  [cyan]A2A[/cyan]      : http://{host}:{port}/.well-known/agent-card.json"
-        )
+        console.print(f"  [cyan]A2A[/cyan]      : http://{host}:{port}/.well-known/agent-card.json")
 
     api_app = create_app(
         agent_loop,

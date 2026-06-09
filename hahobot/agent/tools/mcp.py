@@ -590,9 +590,7 @@ class MCPPromptWrapper(_MCPWrapperBase):
 # ── Connection entry point ─────────────────────────────────────────────────────
 
 
-async def _connect_one_mcp(
-    name: str, cfg: Any
-) -> tuple[str, Any, AsyncExitStack, Any, Any] | None:
+async def _connect_one_mcp(name: str, cfg: Any) -> tuple[str, Any, AsyncExitStack, Any, Any] | None:
     """Connect one MCP server on a fresh local stack with a per-server timeout.
 
     Returns ``(name, cfg, local, session, tools_result)`` on success,
