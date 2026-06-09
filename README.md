@@ -837,10 +837,18 @@ Run a focused test file:
 ./.venv/bin/python -m pytest tests/test_gateway_http.py -q
 ```
 
-Lint:
+Lint and format check (run both before committing — CI runs the same):
 
 ```bash
 uv run ruff check .
+uv run ruff format --check .
+```
+
+`ruff check` only lints; it does not catch formatting. CI fails if
+`ruff format --check` reports differences, so run it too. To apply fixes:
+
+```bash
+uv run ruff format .
 ```
 
 Build the WhatsApp bridge:
