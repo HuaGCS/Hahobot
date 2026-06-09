@@ -312,6 +312,57 @@ _CONFIG_FIELDS = (
         "float",
         "admin_config_gateway_status_push_timeout_label",
     ),
+    # --- OpenAI-compatible API server ---
+    ConfigFieldSpec(
+        "api_host", ("api", "host"), "text",
+        "admin_config_api_host_label", "admin_config_api_host_hint",
+        placeholder="127.0.0.1", restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "api_port", ("api", "port"), "int",
+        "admin_config_api_port_label", restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "api_timeout", ("api", "timeout"), "float",
+        "admin_config_api_timeout_label", restart_required=True,
+    ),
+    # --- Standard A2A (Agent2Agent) adapter ---
+    ConfigFieldSpec(
+        "a2a_enabled", ("a2a", "enabled"), "bool",
+        "admin_config_a2a_enabled_label", "admin_config_a2a_enabled_hint",
+        restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "a2a_streaming", ("a2a", "streaming"), "bool",
+        "admin_config_a2a_streaming_label", "admin_config_a2a_streaming_hint",
+        restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "a2a_name", ("a2a", "name"), "text",
+        "admin_config_a2a_name_label", restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "a2a_description", ("a2a", "description"), "text",
+        "admin_config_a2a_description_label", restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "a2a_version", ("a2a", "version"), "text",
+        "admin_config_a2a_version_label", restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "a2a_public_url", ("a2a", "publicUrl"), "text",
+        "admin_config_a2a_public_url_label", "admin_config_a2a_public_url_hint",
+        placeholder="http://host:port", restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "a2a_timeout", ("a2a", "timeout"), "float",
+        "admin_config_a2a_timeout_label", restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "a2a_max_tasks", ("a2a", "maxTasks"), "int",
+        "admin_config_a2a_max_tasks_label", "admin_config_a2a_max_tasks_hint",
+        restart_required=True,
+    ),
     ConfigFieldSpec(
         "channels_whatsapp_enabled",
         ("channels", "whatsapp", "enabled"),
@@ -1296,6 +1347,25 @@ _CONFIG_SECTIONS = (
             "gateway_status_push_join_key",
             "gateway_status_push_agent_name",
             "gateway_status_push_timeout",
+        ),
+    ),
+    (
+        "admin_config_section_api_title",
+        "admin_config_section_api_desc",
+        ("api_host", "api_port", "api_timeout"),
+    ),
+    (
+        "admin_config_section_a2a_title",
+        "admin_config_section_a2a_desc",
+        (
+            "a2a_enabled",
+            "a2a_streaming",
+            "a2a_name",
+            "a2a_description",
+            "a2a_version",
+            "a2a_public_url",
+            "a2a_timeout",
+            "a2a_max_tasks",
         ),
     ),
     (
