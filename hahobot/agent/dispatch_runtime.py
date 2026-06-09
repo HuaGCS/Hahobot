@@ -29,7 +29,10 @@ class DispatchRuntimeManager:
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self.loop._running = True
-        await self.loop._connect_mcp()
+        # Connect MCP servers in the background so a slow/hung server cannot block
+        # the consume loop from starting (or stall Ctrl+C shutdown). connect() is
+        # idempotent and the per-message path reconnects lazily if needed.
+        self.schedule_background(self.loop._connect_mcp())
         logger.info("Agent loop started")
 
         while self.loop._running:

@@ -325,3 +325,63 @@ async def test_connect_mcp_servers_enabled_tools_warns_on_unknown_entries(
     assert "enabledTools entries not found: unknown" in warnings[-1]
     assert "Available raw names: demo" in warnings[-1]
     assert "Available wrapped names: mcp_test_demo" in warnings[-1]
+
+
+@pytest.mark.asyncio
+async def test_connect_mcp_servers_registers_multiple_concurrently(
+    fake_mcp_runtime: dict[str, object | None],
+) -> None:
+    """All servers connect; registration follows insertion order."""
+    fake_mcp_runtime["session"] = _make_fake_session(["demo"])
+    registry = ToolRegistry()
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    try:
+        await connect_mcp_servers(
+            {
+                "alpha": MCPServerConfig(command="a"),
+                "beta": MCPServerConfig(command="b"),
+            },
+            registry,
+            stack,
+        )
+    finally:
+        await stack.aclose()
+
+    assert registry.tool_names == ["mcp_alpha_demo", "mcp_beta_demo"]
+
+
+@pytest.mark.asyncio
+async def test_connect_mcp_servers_skips_slow_server_without_blocking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A server that hangs during connect is skipped on timeout; others still
+    connect, and the slow one does not block the fast one (concurrent)."""
+    import hahobot.agent.tools.mcp as mcp_module
+
+    async def fake_open_session(name: str, cfg: object, stack: AsyncExitStack) -> object:
+        if name == "slow":
+            await asyncio.sleep(30)  # never resolves within the test
+        return _make_fake_session(["demo"])
+
+    monkeypatch.setattr(mcp_module, "_open_session", fake_open_session)
+
+    registry = ToolRegistry()
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    try:
+        await asyncio.wait_for(
+            connect_mcp_servers(
+                {
+                    "slow": MCPServerConfig(command="s", connect_timeout=0),
+                    "fast": MCPServerConfig(command="f", connect_timeout=5),
+                },
+                registry,
+                stack,
+            ),
+            timeout=5,  # whole call must finish well under the 30s slow sleep
+        )
+    finally:
+        await stack.aclose()
+
+    assert registry.tool_names == ["mcp_fast_demo"]
