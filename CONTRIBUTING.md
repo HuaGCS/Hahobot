@@ -79,12 +79,17 @@ pip install -e ".[dev]"
 # Run tests
 pytest
 
-# Lint code
-ruff check hahobot/
+# Before committing, run the same checks CI does (whole repo):
+ruff check .            # lint
+ruff format --check .   # fail if anything is not formatted
 
-# Format code
-ruff format hahobot/
+# Apply formatting fixes
+ruff format .
 ```
+
+`ruff check` does not catch formatting issues — CI runs `ruff format --check`
+separately and fails on any diff, so always run it (or `ruff format`) before
+committing.
 
 ## Code Style
 
