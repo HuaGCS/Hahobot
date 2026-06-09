@@ -37,6 +37,7 @@ from hahobot.gateway.admin.constants import (
 )
 from hahobot.gateway.admin.field_specs import (
     _BLANK_AS_NONE_FIELDS,
+    _CHANNEL_CONFIG_FIELD_NAMES,
     _CHANNEL_CONFIG_FIELD_TO_GROUP,
     _CHANNEL_CONFIG_GROUPS,
     _CHANNEL_GROUP_SUMMARY_URL_FIELDS,
@@ -48,6 +49,47 @@ from hahobot.gateway.admin.field_specs import (
     _PROVIDER_POOL_CONFIG_FIELD_NAMES,
     ConfigFieldSpec,
 )
+
+# Field kinds whose render value can be derived generically from the config
+# model by walking ``ConfigFieldSpec.path``. Everything else (provider pool
+# rows, the custom-headers JSON editor, the dynamic memorix MCP entry, and the
+# multi-instance channel cards) is handled explicitly in _config_form_values.
+_MISSING = object()
+_AUTO_VALUE_KINDS = frozenset({"text", "select", "textarea", "int", "float", "bool", "csv"})
+_AUTO_VALUE_EXCLUDED_FIELDS = (
+    _CHANNEL_CONFIG_FIELD_NAMES | _PROVIDER_POOL_CONFIG_FIELD_NAMES | _MEMORIX_CONFIG_FIELD_NAMES
+)
+
+
+def _auto_field_values(config: Config) -> dict[str, Any]:
+    """Derive form values for simple scalar fields straight from the model.
+
+    Walks each ``ConfigFieldSpec.path`` against the by-alias config dump so new
+    scalar fields no longer need a hand-written entry in _config_form_values.
+    Fields with bespoke handling (channels, provider pool, memorix, JSON) are
+    skipped and remain explicit.
+    """
+    dump = config.model_dump(mode="json", by_alias=True)
+    values: dict[str, Any] = {}
+    for field in _CONFIG_FIELDS:
+        if field.kind not in _AUTO_VALUE_KINDS or field.name in _AUTO_VALUE_EXCLUDED_FIELDS:
+            continue
+        node: Any = dump
+        for key in field.path:
+            if isinstance(node, dict) and key in node:
+                node = node[key]
+            else:
+                node = _MISSING
+                break
+        if node is _MISSING:
+            continue
+        if field.kind == "bool":
+            values[field.name] = bool(node)
+        elif field.kind == "csv":
+            values[field.name] = ", ".join(node or [])
+        else:  # text, select, textarea, int, float
+            values[field.name] = "" if node is None else str(node)
+    return values
 
 
 def _snake_case_key(name: str) -> str:
@@ -76,7 +118,6 @@ def _set_nested_value(data: dict[str, Any], path: tuple[str, ...], value: Any) -
 
 
 def _config_form_values(config: Config) -> dict[str, Any]:
-    voice = config.channels.voice_reply
     memorix = config.tools.mcp_servers.get(_MEMORIX_MCP_SERVER_NAME)
     provider_pool = config.agents.defaults.provider_pool
     memorix_args = (
@@ -203,9 +244,10 @@ def _config_form_values(config: Config) -> dict[str, Any]:
             )
 
     return {
-        "agents_defaults_workspace": config.agents.defaults.workspace,
-        "agents_defaults_model": config.agents.defaults.model,
-        "agents_defaults_provider": config.agents.defaults.provider,
+        # Simple scalar fields are derived generically from the config model.
+        **_auto_field_values(config),
+        # --- Fields with bespoke handling below ---
+        # Provider pool: ordered list-of-rows widget.
         "agents_defaults_provider_pool_strategy": (
             provider_pool.strategy if provider_pool and provider_pool.targets else "failover"
         ),
@@ -213,70 +255,9 @@ def _config_form_values(config: Config) -> dict[str, Any]:
             target.model_dump(mode="json", by_alias=True)
             for target in (provider_pool.targets if provider_pool else [])
         ],
-        "agents_defaults_max_tokens": str(config.agents.defaults.max_tokens),
-        "agents_defaults_context_window_tokens": str(config.agents.defaults.context_window_tokens),
-        "agents_defaults_temperature": str(config.agents.defaults.temperature),
-        "agents_defaults_max_tool_iterations": str(config.agents.defaults.max_tool_iterations),
-        "agents_defaults_tool_hint_max_length": str(config.agents.defaults.tool_hint_max_length),
-        "agents_defaults_reasoning_effort": config.agents.defaults.reasoning_effort or "",
-        "agents_defaults_timezone": config.agents.defaults.timezone,
-        "providers_openrouter_api_key": config.providers.openrouter.api_key,
-        "providers_openrouter_api_base": config.providers.openrouter.api_base or "",
-        "providers_openai_api_key": config.providers.openai.api_key,
-        "providers_openai_api_base": config.providers.openai.api_base or "",
-        "providers_anthropic_api_key": config.providers.anthropic.api_key,
-        "providers_anthropic_api_base": config.providers.anthropic.api_base or "",
-        "providers_deepseek_api_key": config.providers.deepseek.api_key,
-        "providers_deepseek_api_base": config.providers.deepseek.api_base or "",
-        "providers_custom_api_key": config.providers.custom.api_key,
-        "providers_custom_api_base": config.providers.custom.api_base or "",
+        # Custom provider headers: JSON editor.
         "providers_custom_extra_headers": _pretty_json(config.providers.custom.extra_headers or {}),
-        "providers_ollama_api_base": config.providers.ollama.api_base or "",
-        "providers_vllm_api_base": config.providers.vllm.api_base or "",
-        "gateway_host": config.gateway.host,
-        "gateway_port": str(config.gateway.port),
-        "gateway_heartbeat_enabled": config.gateway.heartbeat.enabled,
-        "gateway_heartbeat_interval_s": str(config.gateway.heartbeat.interval_s),
-        "gateway_heartbeat_keep_recent_messages": str(
-            config.gateway.heartbeat.keep_recent_messages
-        ),
-        "gateway_cron_max_sleep_ms": str(config.gateway.cron.max_sleep_ms),
-        "gateway_admin_enabled": config.gateway.admin.enabled,
-        "gateway_admin_auth_key": config.gateway.admin.auth_key,
-        "gateway_status_enabled": config.gateway.status.enabled,
-        "gateway_status_auth_key": config.gateway.status.auth_key,
-        "gateway_status_push_enabled": config.gateway.status.push.enabled,
-        "gateway_status_push_mode": config.gateway.status.push.mode,
-        "gateway_status_push_office_url": config.gateway.status.push.office_url,
-        "gateway_status_push_join_key": config.gateway.status.push.join_key,
-        "gateway_status_push_agent_name": config.gateway.status.push.agent_name,
-        "gateway_status_push_timeout": str(config.gateway.status.push.timeout),
-        **channel_values,
-        "__channel_group_modes": channel_group_modes,
-        "__channel_group_enabled": channel_group_enabled,
-        "__channel_group_instances": channel_group_instances,
-        "tools_restrict_to_workspace": config.tools.restrict_to_workspace,
-        "tools_web_proxy": config.tools.web.proxy or "",
-        "tools_web_search_provider": config.tools.web.search.provider,
-        "tools_web_search_api_key": config.tools.web.search.api_key,
-        "tools_web_search_base_url": config.tools.web.search.base_url,
-        "tools_web_search_max_results": str(config.tools.web.search.max_results),
-        "tools_exec_enable": config.tools.exec.enable,
-        "tools_exec_timeout": str(config.tools.exec.timeout),
-        "tools_exec_path_append": config.tools.exec.path_append,
-        "tools_exec_allowed_env_keys": ", ".join(config.tools.exec.allowed_env_keys),
-        "tools_exec_sandbox": config.tools.exec.sandbox,
-        "tools_image_gen_enabled": config.tools.image_gen.enabled,
-        "tools_image_gen_api_key": config.tools.image_gen.api_key,
-        "tools_image_gen_base_url": config.tools.image_gen.base_url,
-        "tools_image_gen_model": config.tools.image_gen.model,
-        "tools_image_gen_proxy": config.tools.image_gen.proxy or "",
-        "tools_image_gen_timeout": str(config.tools.image_gen.timeout),
-        "tools_image_gen_reference_image": config.tools.image_gen.reference_image,
-        "memory_user_backend": config.memory.user.backend,
-        "memory_user_sqlite_top_k": str(config.memory.user.sqlite.top_k),
-        "memory_user_sqlite_max_context_chars": str(config.memory.user.sqlite.max_context_chars),
-        "memory_user_sqlite_max_fragment_chars": str(config.memory.user.sqlite.max_fragment_chars),
+        # Memorix MCP server: dynamic entry that may be absent from the config.
         "tools_mcp_memorix_enabled": memorix is not None,
         "tools_mcp_memorix_type": memorix.type if memorix and memorix.type else "",
         "tools_mcp_memorix_command": (
@@ -287,34 +268,59 @@ def _config_form_values(config: Config) -> dict[str, Any]:
         "tools_mcp_memorix_tool_timeout": str(
             memorix.tool_timeout if memorix else _MEMORIX_MCP_DEFAULT_TIMEOUT
         ),
-        "channels_send_progress": config.channels.send_progress,
-        "channels_send_tool_hints": config.channels.send_tool_hints,
-        "channels_send_max_retries": str(config.channels.send_max_retries),
-        "channels_transcription_provider": config.channels.transcription_provider,
-        "channels_transcription_language": config.channels.transcription_language or "",
-        "channels_voice_reply_enabled": voice.enabled,
-        "channels_voice_reply_channels": ", ".join(voice.channels),
-        "channels_voice_reply_provider": voice.provider,
-        "channels_voice_reply_model": voice.model,
-        "channels_voice_reply_voice": voice.voice,
-        "channels_voice_reply_instructions": voice.instructions,
-        "channels_voice_reply_speed": "" if voice.speed is None else str(voice.speed),
-        "channels_voice_reply_response_format": voice.response_format,
-        "channels_voice_reply_api_key": voice.api_key,
-        "channels_voice_reply_api_base": voice.api_base,
-        "channels_voice_reply_edge_voice": voice.edge_voice,
-        "channels_voice_reply_edge_rate": voice.edge_rate,
-        "channels_voice_reply_edge_volume": voice.edge_volume,
-        "channels_voice_reply_sovits_api_url": voice.sovits_api_url,
-        "channels_voice_reply_sovits_refer_wav_path": voice.sovits_refer_wav_path,
-        "channels_voice_reply_sovits_prompt_text": voice.sovits_prompt_text,
-        "channels_voice_reply_sovits_prompt_language": voice.sovits_prompt_language,
-        "channels_voice_reply_sovits_text_language": voice.sovits_text_language,
-        "channels_voice_reply_sovits_cut_punc": voice.sovits_cut_punc,
-        "channels_voice_reply_sovits_top_k": str(voice.sovits_top_k),
-        "channels_voice_reply_sovits_top_p": str(voice.sovits_top_p),
-        "channels_voice_reply_sovits_temperature": str(voice.sovits_temperature),
+        # Multi-instance channel cards and their group metadata.
+        **channel_values,
+        "__channel_group_modes": channel_group_modes,
+        "__channel_group_enabled": channel_group_enabled,
+        "__channel_group_instances": channel_group_instances,
     }
+
+
+def validate_admin_config_specs() -> None:
+    """Fail-fast integrity check for the admin visual-config wiring.
+
+    Verifies every field has a render value source and that all i18n keys it
+    references (label, derived tooltip, optional hint, section title/desc) exist
+    in every supported locale and are ``str.format``-safe. Raises ``RuntimeError``
+    listing all problems, so a misconfiguration surfaces at gateway startup
+    rather than the first time a user opens the config page.
+    """
+    from hahobot.agent.i18n import SUPPORTED_LANGUAGES, _load_locale
+
+    problems: list[str] = []
+
+    values = _config_form_values(Config())
+    for field in _CONFIG_FIELDS:
+        if field.name not in values:
+            problems.append(f"field '{field.name}' has no value in _config_form_values")
+
+    required_keys: set[str] = set()
+    for field in _CONFIG_FIELDS:
+        required_keys.add(field.label_key)
+        required_keys.add(field.label_key.removesuffix("_label") + "_tooltip")
+        if field.hint_key:
+            required_keys.add(field.hint_key)
+    for title_key, desc_key, _names in _CONFIG_SECTIONS:
+        required_keys.add(title_key)
+        required_keys.add(desc_key)
+
+    for lang in SUPPORTED_LANGUAGES:
+        texts = _load_locale(lang).get("texts", {})
+        for key in sorted(required_keys):
+            value = texts.get(key)
+            if value is None:
+                problems.append(f"locale '{lang}' missing i18n key '{key}'")
+                continue
+            try:
+                value.format()
+            except (KeyError, IndexError, ValueError):
+                problems.append(
+                    f"locale '{lang}' key '{key}' is not str.format-safe "
+                    "(escape literal braces as {{ }})"
+                )
+
+    if problems:
+        raise RuntimeError("admin config spec validation failed:\n  - " + "\n  - ".join(problems))
 
 
 def _extract_visual_values(

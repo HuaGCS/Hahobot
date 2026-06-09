@@ -13,6 +13,7 @@ from hahobot.gateway.admin.config_view import (
     _admin_config_page,
     _admin_config_submit,
     _admin_memory_migrate_legacy,
+    validate_admin_config_specs,
 )
 from hahobot.gateway.admin.constants import (
     _ADMIN_CONFIG_PATH_KEY,
@@ -68,6 +69,9 @@ def register_admin_routes(
     subagent_manager: object | None = None,
 ) -> None:
     """Register built-in admin routes for the current gateway instance."""
+    # Fail fast on any field/i18n wiring mistake instead of 500-ing when a user
+    # first opens the config page.
+    validate_admin_config_specs()
     app[_ADMIN_CONFIG_PATH_KEY] = config_path
     app[_ADMIN_WORKSPACE_KEY] = workspace
     app[_ADMIN_WEIXIN_LOGIN_SESSIONS_KEY] = {}
