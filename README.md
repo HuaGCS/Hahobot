@@ -713,6 +713,13 @@ You can also use `enabledTools` on one MCP server to register only a subset of r
 or wrapped hahobot names such as `mcp_filesystem_write_file`. Omit it, or use `["*"]`, to keep all
 tools; use `[]` to register none from that server.
 
+Servers are connected concurrently, each bounded by `tools.mcpServers.<name>.connectTimeout`
+(seconds, default `20`). If a server's transport spawn or `initialize` handshake exceeds it, that
+server is logged and skipped instead of blocking startup or stalling shutdown — the rest still
+connect. Raise it for heavy stdio servers that are slow to boot (e.g. a Node-based
+`chrome-devtools` server), or lower it to fail fast. `toolTimeout` (default `30`) separately bounds
+each tool call.
+
 ### Auto Compact
 
 Set `agents.defaults.idleCompactAfterMinutes` to proactively archive stale live session prefixes in
