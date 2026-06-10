@@ -20,6 +20,21 @@ _LEGACY_TAG = "legacy"
 _UNKNOWN_SRC = "unknown"
 
 
+def _connect(db_path: Path) -> sqlite3.Connection:
+    """Open a SQLite connection with concurrency-friendly pragmas.
+
+    This is a derived, rebuildable cache that the gateway, CLI, and Dream may
+    all touch; WAL + busy_timeout reduce spurious "database is locked" errors
+    under that concurrency. Ported as a nocturne_memory idea (``52b47f4d``) onto
+    hahobot's file-first surfaces.
+    """
+    conn = sqlite3.connect(db_path, timeout=5.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
 def extract_fragment_header(line: str) -> dict[str, str] | None:
     """Parse a metadata header line if present, returning its token dict.
 
@@ -98,7 +113,7 @@ class MemoryFactsSQLiteIndex:
     def rebuild(self, fragments: list[dict[str, Any]], *, source_mtime_ns: int) -> int:
         """Wipe and recreate the index from *fragments*. Returns count inserted."""
         self.memory_dir.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.db_path) as conn:
+        with _connect(self.db_path) as conn:
             self._drop_schema(conn)
             self._create_schema(conn)
             for fragment in fragments:
@@ -134,7 +149,7 @@ class MemoryFactsSQLiteIndex:
             ORDER BY bm25(facts_fts), f.ts DESC
             LIMIT ?
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with _connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
@@ -158,7 +173,7 @@ class MemoryFactsSQLiteIndex:
             ORDER BY ts DESC, fragment_order DESC
             LIMIT ?
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with _connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]

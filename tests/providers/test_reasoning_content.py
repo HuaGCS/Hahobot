@@ -55,6 +55,50 @@ def test_parse_dict_reasoning_content_none_when_absent() -> None:
     assert result.reasoning_content is None
 
 
+def test_parse_dict_reasoning_content_empty_string_preserved() -> None:
+    """reasoning_content="" is preserved, not coerced to None (dict path).
+
+    Some providers (e.g. DeepSeek) require the reasoning_content key to be
+    present in subsequent requests even when empty; coercing "" to None drops
+    the key downstream and causes API errors. Ported from nanobot 05de864f.
+    """
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI"):
+        provider = OpenAICompatProvider()
+
+    response = {
+        "choices": [
+            {
+                "message": {"content": "answer", "reasoning_content": ""},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+    }
+
+    result = provider._parse(response)
+
+    assert result.reasoning_content == ""
+
+
+def test_parse_sdk_reasoning_content_empty_string_preserved() -> None:
+    """reasoning_content="" on an SDK message object is preserved, not None.
+
+    This is the path where ``getattr(..., None) or None`` previously turned an
+    explicit empty string into None. Ported from nanobot 05de864f.
+    """
+    with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI"):
+        provider = OpenAICompatProvider()
+
+    message = SimpleNamespace(content="answer", reasoning_content="", tool_calls=None)
+    choice = SimpleNamespace(message=message, finish_reason="stop")
+    response = SimpleNamespace(choices=[choice], usage=None)
+
+    result = provider._parse(response)
+
+    assert result.content == "answer"
+    assert result.reasoning_content == ""
+
+
 # ── _parse_chunks: streaming dict branch ─────────────────────────────────
 
 

@@ -9,6 +9,38 @@ from loguru import logger
 
 from hahobot.agent.tools.base import Tool
 from hahobot.agent.tools.registry import ToolRegistry
+from hahobot.security.network import validate_resolved_url
+
+
+def _make_mcp_redirect_validator(configured_url: str):
+    """Build a request event hook that blocks redirects to internal addresses.
+
+    Unlike the web tools, an MCP server URL is *operator-configured* in
+    ``config.json``, so the configured host is trusted even when it is loopback
+    or LAN — local MCP servers (e.g. ``http://127.0.0.1:3211/mcp``) are the
+    common case and must keep working.  The only SSRF vector left is a
+    *configured-public* server that redirects to an internal address (e.g. cloud
+    metadata).  httpx follows redirects internally for the HTTP/SSE transports,
+    so this hook runs on every hop: it allows requests to the configured host
+    and rejects only a redirect to a *different* host that resolves to a
+    private/internal address.
+    """
+    try:
+        configured_host = httpx.URL(configured_url).host
+    except Exception:
+        configured_host = None
+
+    async def _validate(request: httpx.Request) -> None:
+        if configured_host and request.url.host == configured_host:
+            return  # operator-configured host (incl. localhost/LAN) is trusted
+        ok, error = await validate_resolved_url(str(request.url))
+        if not ok:
+            raise httpx.RequestError(
+                f"Blocked MCP redirect to unsafe URL {request.url} ({error})",
+                request=request,
+            )
+
+    return _validate
 
 
 def _extract_nullable_branch(options: Any) -> tuple[dict[str, Any], bool] | None:
@@ -240,6 +272,7 @@ async def _open_session(name: str, cfg: Any, stack: AsyncExitStack) -> Any:
             }
             return httpx.AsyncClient(
                 headers=merged_headers or None,
+                event_hooks={"request": [_make_mcp_redirect_validator(cfg.url)]},
                 follow_redirects=True,
                 timeout=timeout,
                 auth=auth,
@@ -254,6 +287,7 @@ async def _open_session(name: str, cfg: Any, stack: AsyncExitStack) -> Any:
         http_client = await stack.enter_async_context(
             httpx.AsyncClient(
                 headers=cfg.headers or None,
+                event_hooks={"request": [_make_mcp_redirect_validator(cfg.url)]},
                 follow_redirects=True,
                 timeout=None,
             )
