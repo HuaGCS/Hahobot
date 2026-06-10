@@ -10,6 +10,21 @@ from typing import Any
 from loguru import logger
 
 
+def _connect(db_path: Path) -> sqlite3.Connection:
+    """Open a SQLite connection with concurrency-friendly pragmas.
+
+    This is a derived, rebuildable cache that the gateway, CLI, and
+    ``hahobot memory index rebuild`` may all touch; WAL + busy_timeout reduce
+    spurious "database is locked" errors under that concurrency. Ported as a
+    nocturne_memory idea (``52b47f4d``) onto hahobot's file-first surfaces.
+    """
+    conn = sqlite3.connect(db_path, timeout=5.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
 class HistoryArchiveSQLiteIndex:
     """Persona-local derived search index built from archive JSONL/chunks."""
 
@@ -22,7 +37,7 @@ class HistoryArchiveSQLiteIndex:
     def rebuild(self, entries: list[dict[str, Any]]) -> int:
         """Rebuild the derived SQLite/FTS index from archive index entries."""
         self.archive_dir.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.db_path) as conn:
+        with _connect(self.db_path) as conn:
             self._drop_schema(conn)
             self._create_schema(conn)
             for entry in entries:
@@ -84,7 +99,7 @@ class HistoryArchiveSQLiteIndex:
             LIMIT ?
         """
         params.append(max(1, min(limit, 20)))
-        with sqlite3.connect(self.db_path) as conn:
+        with _connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(sql, params).fetchall()
         return [json.loads(row["payload"]) for row in rows]

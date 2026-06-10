@@ -720,6 +720,11 @@ connect. Raise it for heavy stdio servers that are slow to boot (e.g. a Node-bas
 `chrome-devtools` server), or lower it to fail fast. `toolTimeout` (default `30`) separately bounds
 each tool call.
 
+For HTTP-based MCP transports (`sse` / `streamableHttp`), the server URL you configure is trusted —
+local servers such as `http://127.0.0.1:3211/mcp` keep working as expected. As defense-in-depth,
+if a configured (public) server then *redirects* a request to a different internal/private address,
+that redirect hop is refused, so a remote server cannot bounce hahobot into your internal network.
+
 ### Auto Compact
 
 Set `agents.defaults.idleCompactAfterMinutes` to proactively archive stale live session prefixes in

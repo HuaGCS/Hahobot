@@ -65,6 +65,59 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-06-10` pass): re-checked against upstream `main` through `1b5f5b94`
+  (`2026-06-10`); 51 commits since the last pass, the bulk WebUI fork-history / desktop-shell
+  churn (intentional divergence). Three contract-stable items ported this pass: (1) the
+  **MCP redirect-SSRF guard** (`ed0aeb1e`, *adapted, not mirrored*) — nanobot blocks any MCP HTTP
+  URL that resolves to a private/internal address, *including the configured one*; that is wrong
+  for hahobot because MCP server URLs are operator-configured in `config.json` and local servers
+  (`http://127.0.0.1:3211/mcp` — hahobot's own README HTTP example) are the common case. Instead,
+  both the SSE and streamableHttp httpx clients carry a host-scoped request `event_hooks` validator
+  (`_make_mcp_redirect_validator(cfg.url)`) that trusts the configured host (incl. loopback/LAN) and
+  rejects only a redirect to a *different* host resolving to a private/internal address
+  (`validate_resolved_url`), closing the "configured-public server redirects to cloud metadata"
+  vector without breaking local MCP. Tests in `tests/agent/test_mcp_ssrf.py`. (2) **Empty-string
+  `reasoning_content` preservation**
+  (`05de864f`) — `openai_compat_provider._parse` used truthiness checks (`not reasoning_content`)
+  that coerced an explicit `""` (DeepSeek "no reasoning occurred") to `None`, dropping the key so
+  strict providers reject the next request; the dict and SDK-object paths now use `is None`
+  identity checks. Tests added to `tests/providers/test_reasoning_content.py`. (3) the nocturne
+  **SQLite concurrency pragmas** (see below). Larger items reviewed and watchlisted/deferred:
+  `0a396aa6` tool-call validation strictness (registry refactor + suggestions + "track only
+  successful tool executions" — behavior change, hahobot's registry differs); `c574b028` +
+  `894811db` Feishu word-boundary mention replacement + leading-bot-mention strip before command
+  routing (channel-specific, untestable offline here); `ec5460d2` + `4369eb20` + `6de8d7f5` email
+  IMAP MOVE / UID-expunge / `postActionExpunge` post-action handling; `28f3a20d` `extra_query` for
+  OpenAI-compatible providers; `f3eb2aa0` AssemblyAI + `c20ecc52` Xiaomi MiMo ASR + `0eb3010e`
+  configurable STT model / OpenRouter + `9c812803` shared voice-input (transcription/provider
+  breadth); `748b28da` custom image-generation provider; `57fa37dc` SDK MCP-teardown; `3da68ac7`
+  Weixin/Telegram DM pairing. WebUI fork-history, desktop-shell, and TeX-render commits are skipped
+  as out-of-scope. See the borrow-candidates section below for the per-item tiering.
+- `claude-mem` (`2026-06-10` pass): re-checked against upstream `main` through `da703300`
+  (`2026-06-10`, v13.5.2). All new work since `8463689` is **opt-in usage telemetry**
+  (`4bdea1e2` person profiles, `217e2809`/`be43fd18` deep instrumentation of observation types /
+  token economics / compression metrics, `f1e84814` install-funnel platform capture) plus
+  changelog/version bumps. No memory-architecture change and no new bundled skill. Anonymous
+  analytics is an intentional divergence for hahobot's file-first, zero-dependency memory model;
+  nothing to adopt.
+- `nocturne_memory` (`2026-06-10` pass): re-checked against upstream `main` through `a3d8b9ea`
+  (`2026-06-09`). One portable write-safety idea adopted: `52b47f4d` (PR #50) enables SQLite
+  **WAL journal mode + `busy_timeout` + `synchronous=NORMAL`** to fix lock contention. hahobot's
+  two derived FTS caches (`memory_facts_sqlite.py` `facts.sqlite`, `history_sqlite.py`
+  `index.sqlite`) opened bare `sqlite3.connect()` with no busy timeout, so the gateway + CLI +
+  Dream + `memory index rebuild` could race into "database is locked". Both now route through a
+  module-local `_connect()` helper applying the same three pragmas (`timeout=5.0` +
+  `busy_timeout=5000`). These remain rebuildable derived caches; markdown stays the source of
+  truth. Remaining nocturne deltas (`a3d8b9ea` trusted-sender email classification, domain
+  management) sit on the graph-DB/service backend hahobot rejects as intentional divergence.
+- `GenericAgent` (`2026-06-10` pass): re-checked against upstream `main` through `19875716`
+  (`2026-06-10`). Deltas are TUI v2/v3 polish (clipboard/OSC52, IME composition, pasted-placeholder
+  expansion before slash dispatch), a Feishu/lark conductor IM plugin, scheduler dir-exists crash
+  guard (`b3659458`), `goal_mode` prompt v2, and `19875716` a "project mode" plugin (cross-session
+  project memory via two-layer injection). The project-mode idea overlaps hahobot's existing
+  `PROFILE.md` / `INSIGHTS.md` / workspace-memory layering and the Memorix workspace-memory MCP;
+  no new portable runtime idea this pass. The pasted-placeholder-before-slash-dispatch fix
+  (`0970bd31`) is a TUI-input concern hahobot's CLI does not share.
 - `nanobot` (`2026-06-05` pass): re-checked against upstream `main` through `fa423df` /
   `3945453` (`2026-06-04`). This pass ported one small contract-stable durability fix: nanobot
   `0307ee6` + `13178f3` harden the `last_consolidated` offset against corrupt session metadata.
@@ -186,6 +239,9 @@ This file therefore records both:
 | Tool-call id uniqueness | `synced` | Streaming responses deduplicate reused `tool_call` ids before building `LLMResponse` (some providers reuse one id for parallel calls), and `_sanitize_messages` assigns each `tool_call` within a message a unique normalized id while routing tool results back through a per-id FIFO so duplicate ids cannot create an ambiguous assistant/tool pairing. Non-streaming response parsing now also preserves the original upstream `tool_call` id when present (instead of always minting a fresh `_short_tool_id`), so log correlation and downstream tool-result linkage stay readable. |
 | OpenAI Responses replay item id dedup | `synced` | `openai_responses.converters.convert_messages` now routes every assistant `message` and `function_call` item id through `_unique_item_id`, so resumed conversations with duplicate `msg_*` / `fc_*` items no longer get rejected by the Responses API while `call_id` (tool-result linkage) remains untouched. |
 | Per-hop WebFetch redirect SSRF check | `synced` | `WebFetchTool` now walks redirect chains manually via `_get_with_safe_redirects`, validating each `Location` against the SSRF policy before issuing the next request. httpx's `follow_redirects=True` could otherwise briefly hit a disallowed intermediate hop even when the final URL passed validation. |
+| MCP HTTP/SSE redirect-SSRF check | `intentional_divergence` | nanobot `ed0aeb1e` blocks any MCP HTTP URL resolving to a private/internal address, including the operator-configured one. hahobot does **not** block the configured `cfg.url` (MCP servers are operator-configured and local servers like `http://127.0.0.1:3211/mcp` are the common case). Both transport httpx clients instead carry a host-scoped `_make_mcp_redirect_validator(cfg.url)` request `event_hooks` validator that trusts the configured host and rejects only a redirect to a *different* host resolving to a private/internal address (`validate_resolved_url`). Tests in `tests/agent/test_mcp_ssrf.py`. |
+| Empty-string `reasoning_content` preservation | `synced` | `openai_compat_provider._parse` now uses `is None` identity checks (not truthiness) for `reasoning_content` on both the dict and SDK-object paths, so a provider's explicit `""` (DeepSeek "no reasoning occurred") is preserved instead of coerced to `None` and dropped — which made strict providers reject the next request. Ported from nanobot `05de864f`. |
+| SQLite derived-cache concurrency pragmas | `synced` | `memory_facts_sqlite.py` and `history_sqlite.py` open their derived FTS caches through a `_connect()` helper that sets `journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`, and `timeout=5.0`, so concurrent gateway/CLI/Dream/`memory index rebuild` access no longer races into "database is locked". Adopted as a nocturne_memory idea (`52b47f4d`); the markdown/JSONL sidecars remain the source of truth and the caches stay rebuildable. |
 | Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
 | Streaming-idle httpx timeout | `synced` | `LLMProvider._stream_idle_timeout_s()` reads `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s). The anthropic, openai_compat, and openai_codex providers all share the helper, so the previously hardcoded 60s on the Codex provider no longer aborts streams sooner than its peers. The upstream nanobot env var is intentionally not honored here — this is a hahobot-native knob, not a legacy rename-transition. |
 | Session timestamp anchors in model context | `synced` | `Session.get_history(..., include_timestamps=True)` can annotate user/assistant text with `[Message Time: ...]`, and normal prompt assembly plus compaction probes use that timestamped view while persisted session format stays unchanged. |
@@ -504,6 +560,70 @@ Reviewed and intentionally skipped / left on watchlist:
 - **`nocturne_memory` boot URI presets + AntiGravity heartbeat** (v2.5.3): boot URI presets sit
   on top of the mandatory boot protocol that hahobot has already rejected as intentional
   divergence; AntiGravity heartbeat is IDE-integration-specific. Nothing to adopt.
+
+## Borrow Candidates From 2026-06-10 Audit
+
+Implemented locally in this pass:
+
+- **MCP HTTP/SSE redirect-SSRF guard** (nanobot `ed0aeb1e`, adapted): nanobot blocks any MCP HTTP
+  URL resolving to a private/internal address. Ported with an intentional narrowing — MCP server
+  URLs are operator-configured in `config.json`, so blocking the configured URL would break local
+  MCP servers (hahobot's own README HTTP example is `http://127.0.0.1:3211/mcp`). Both transport
+  httpx clients carry a host-scoped `_make_mcp_redirect_validator(cfg.url)` request `event_hooks`
+  validator that trusts the configured host (incl. loopback/LAN) and rejects only a redirect to a
+  *different* host resolving to a private/internal address. This still closes the genuine vector (a
+  configured-public server that redirects into the internal network / cloud metadata) without
+  breaking the common local-MCP case. Tests in `tests/agent/test_mcp_ssrf.py`.
+- **Empty-string `reasoning_content` preservation** (nanobot `05de864f`): replaced truthiness
+  checks with `is None` in `openai_compat_provider._parse` (dict path lines around `msg0` plus the
+  SDK-object `getattr(msg, "reasoning_content", None) or None` path) so an explicit `""` survives.
+  hahobot's request-side already backfills `""` for assistant turns missing the key, but the parse
+  side now also faithfully preserves it. Tests added to `tests/providers/test_reasoning_content.py`.
+- **SQLite derived-cache concurrency pragmas** (nocturne `52b47f4d`): added a `_connect()` helper to
+  `memory_facts_sqlite.py` and `history_sqlite.py` applying `journal_mode=WAL` / `busy_timeout=5000`
+  / `synchronous=NORMAL` (+ `timeout=5.0`). Purely defensive for rebuildable derived caches; markdown
+  stays the source of truth.
+
+Reviewed and intentionally skipped / left on watchlist:
+
+- **Tool-call validation strictness** (nanobot `0a396aa6`): registry refactor — reject near-miss
+  tool names without executing the suggestion, require object-shaped params, and count only
+  *successful* tool executions in `tools_used`. hahobot's `ToolRegistry.prepare_call` differs and the
+  "track only successful executions" piece is a behavior change to skill `success_count` accounting.
+  Re-evaluate when touching the registry; port the success-only counting carefully against hahobot's
+  skill-usage writeback.
+- **Feishu mention hardening** (nanobot `c574b028` + `894811db`): word-boundary mention replacement
+  (`re.escape(key)(?=\s|$)` instead of bare `text.replace(key, ...)`) and a `_strip_leading_bot_mention`
+  pass before slash-command routing. hahobot's `_replace_mention` / `_is_bot_mentioned` are shaped
+  differently and this is command-routing behavior that cannot be tested against real Feishu offline.
+  Port with a focused channel test when a Feishu operator need appears.
+- **Email IMAP post-action handling** (nanobot `ec5460d2` + `4369eb20` + `6de8d7f5`): configurable
+  IMAP MOVE / UID-expunge / `postActionExpunge` gating of broad expunge. A real email-channel feature;
+  adopt with schema/docs/admin treatment when there is operator demand (matches the email-channel
+  stance).
+- **OpenAI-compatible `extra_query`** (nanobot `28f3a20d`): per-request query-param passthrough.
+  Same stance as the already-watchlisted `apiType` + `extraBody` — adopt with schema/admin/docs
+  together, not as speculative breadth.
+- **Transcription provider breadth** (nanobot `f3eb2aa0` AssemblyAI, `c20ecc52` Xiaomi MiMo ASR,
+  `0eb3010e` configurable STT model + OpenRouter, `9c812803` shared voice-input refactor): provider
+  breadth; add per-provider only with real demand and full schema/docs/admin wiring.
+- **Custom image-generation provider** (nanobot `748b28da` + hardening `ae17a79b` / `d435cb0b`):
+  same per-provider image-gen stance as the already-watchlisted OpenAI/Codex/Zhipu/Ollama/Gemini
+  backends — needs the local `tools.imageGen` contract plus delivery tests.
+- **SDK MCP-connection teardown** (nanobot `57fa37dc`): closes MCP connections from the `Nanobot`
+  facade. hahobot manages MCP lifetimes through the shared `AsyncExitStack`; re-check only if the
+  SDK facade grows an explicit close/teardown contract.
+- **Weixin/Telegram DM pairing** (nanobot `3da68ac7`): pairing-flow fix; hahobot has no equivalent
+  pairing concept, same stance as the deferred QQ C2C pairing-code item.
+
+Reject — intentional divergence:
+
+- **claude-mem opt-in usage telemetry** (`4bdea1e2` + `217e2809` + `f1e84814`, v13.5.x): anonymous
+  analytics / person profiles / install-funnel capture. hahobot's memory is the local workspace with
+  zero runtime dependency; outbound usage analytics is rejected for the same source-first / local-only
+  reason as the graph-DB and standalone-WebUI divergences.
+- **WebUI chat-fork history** (nanobot `03bca4c0` … `1b5f5b94`) and **desktop shell** (`ab9f4997`):
+  standalone browser-chat / desktop-app surfaces; same divergence as the existing standalone WebUI row.
 
 ## Borrow Candidates From 2026-06-05 Audit
 
@@ -847,6 +967,17 @@ as "do not re-port unless upstream changes again":
 - The email channel attaches `OutboundMessage.media` files to outbound SMTP messages (mimetype-
   guessed, bounded by `max_attachments_per_email` / `max_attachment_size`), so agent-generated
   artifacts reach email users (ported from nanobot `25bb053` + `b2ae5d9`).
+- MCP `sse`/`streamableHttp` connections trust the operator-configured server host (incl.
+  localhost/LAN) but reject a redirect to a *different* host resolving to a private/internal address
+  via a host-scoped httpx request event hook, closing the redirect-to-internal vector without
+  breaking local MCP servers (adapted from nanobot `ed0aeb1e`).
+- `openai_compat_provider._parse` preserves an explicit empty-string `reasoning_content` instead of
+  coercing it to `None`, so strict providers that require the key on every assistant turn do not
+  reject the next request (ported from nanobot `05de864f`).
+- The derived SQLite FTS caches (`facts.sqlite`, archive `index.sqlite`) open with
+  `journal_mode=WAL` / `busy_timeout=5000` / `synchronous=NORMAL`, so concurrent
+  gateway/CLI/Dream/`memory index rebuild` access no longer races into "database is locked"
+  (adopted as a nocturne_memory idea, `52b47f4d`).
 
 ## Intentional Local Differences
 
@@ -887,6 +1018,21 @@ These are local choices. When upstream behaves differently, that is not automati
 
 ## Watchlist For Next Upstream Sync
 
+- The 2026-06-10 pass ported the MCP HTTP/SSE URL SSRF guard (nanobot `ed0aeb1e`), empty-string
+  `reasoning_content` preservation (nanobot `05de864f`), and the SQLite derived-cache concurrency
+  pragmas (nocturne `52b47f4d`). Next nanobot pass should weigh: tool-call validation strictness
+  (`0a396aa6`, registry refactor + success-only `tools_used` counting), the Feishu mention hardening
+  (`c574b028` + `894811db`, port with a channel test), the email IMAP post-action handling
+  (`ec5460d2` + `4369eb20` + `6de8d7f5`), OpenAI-compatible `extra_query` (`28f3a20d`, pair with the
+  existing `apiType`/`extraBody` item), the transcription provider breadth (`f3eb2aa0` AssemblyAI /
+  `c20ecc52` Xiaomi MiMo ASR / `0eb3010e` configurable STT + OpenRouter / `9c812803` shared
+  voice-input), the custom image-generation provider (`748b28da`), the SDK MCP-teardown
+  (`57fa37dc`), and Weixin/Telegram DM pairing (`3da68ac7`). claude-mem v13.5.x added only opt-in
+  usage telemetry (rejected as a local-only/source-first divergence). GenericAgent `19875716`
+  added a cross-session "project mode" memory plugin that overlaps hahobot's `PROFILE.md` /
+  `INSIGHTS.md` / Memorix workspace-memory layering — re-evaluate only if a coarser project-memory
+  toggle proves clearer than the existing layering. See the 2026-06-10 borrow-candidates section
+  for per-item rationale.
 - The 2026-06-05 pass ported the `last_consolidated` offset clamp (nanobot `0307ee6` / `13178f3`)
   and the terminated-MCP-session auto-reconnect layer (nanobot `e9145b7` / `d0eba7c`), and verified
   the session-archive durability cluster (`72fb642e` / `baffd6ef` / `0e370241`) is **not applicable**
