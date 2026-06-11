@@ -3,7 +3,7 @@
         "current_marker": "current",
         "new_session_started": "New session started.",
         "memory_archival_failed_session": "Memory archival failed, session not cleared. Please try again.",
-        "memory_archival_failed_persona": "Memory archival failed, persona not switched. Please try again.",
+        "memory_archival_failed_persona": "Persona switched, but archiving the previous persona's memory failed in the background — some recent messages may not be saved.",
         "help_header": "🐈 hahobot commands:",
         "cmd_new": "/new — Start a new conversation",
         "cmd_lang_current": "/lang current — Show the active language",

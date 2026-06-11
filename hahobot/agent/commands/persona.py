@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -62,26 +63,58 @@ class PersonaCommandHandler:
         if target == current:
             return self._response(msg, text(language, "persona_already_active", persona=target))
 
-        try:
-            if not await self.loop.memory_consolidator.archive_unconsolidated(
-                session,
-                source="persona_switch",
-            ):
-                return self._response(msg, text(language, "memory_archival_failed_persona"))
-            await self.loop._flush_memory_session(
-                session,
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                sender_id=msg.sender_id,
-                persona=current,
-                language=language,
+        # Archiving the outgoing persona's tail can make a blocking LLM call, which
+        # used to stall the switch confirmation for seconds. Detach a snapshot that
+        # still carries the OLD persona metadata so archival/flush write to the
+        # previous persona's store even after the live session is switched below,
+        # then hand it to a background task. The archive path has a raw-dump
+        # fallback, so backgrounding it does not risk losing the tail.
+        if session.messages[session.last_consolidated :]:
+            outgoing = copy.deepcopy(session)
+            self.loop._schedule_background(
+                self._archive_outgoing(outgoing, msg, persona=current, language=language)
             )
-        except Exception:
-            logger.exception("/persona archival failed for {}", session.key)
-            return self._response(msg, text(language, "memory_archival_failed_persona"))
 
         session.clear()
         self.loop._set_session_persona(session, target)
         self.loop.sessions.save(session)
         self.loop.sessions.invalidate(session.key)
         return self._response(msg, text(language, "switched_persona", persona=target))
+
+    async def _archive_outgoing(
+        self,
+        session: Session,
+        msg: InboundMessage,
+        *,
+        persona: str,
+        language: str,
+    ) -> None:
+        """Archive a detached snapshot of the outgoing persona off the reply path."""
+        try:
+            if not await self.loop.memory_consolidator.archive_unconsolidated(
+                session,
+                source="persona_switch",
+            ):
+                logger.warning("/persona background archival incomplete for {}", session.key)
+                await self._notify_archival_failed(msg, language)
+                return
+            await self.loop._flush_memory_session(
+                session,
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                sender_id=msg.sender_id,
+                persona=persona,
+                language=language,
+            )
+        except Exception:
+            logger.exception("/persona background archival failed for {}", session.key)
+            await self._notify_archival_failed(msg, language)
+
+    async def _notify_archival_failed(self, msg: InboundMessage, language: str) -> None:
+        """Tell the user the outgoing persona's memory archival did not complete."""
+        try:
+            await self.loop.bus.publish_outbound(
+                self._response(msg, text(language, "memory_archival_failed_persona"))
+            )
+        except Exception:
+            logger.exception("/persona archival-failure notice failed for {}", msg.chat_id)

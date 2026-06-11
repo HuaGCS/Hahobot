@@ -3,7 +3,7 @@
         "current_marker": "当前",
         "new_session_started": "已开始新的会话。",
         "memory_archival_failed_session": "记忆归档失败，会话未清空，请稍后重试。",
-        "memory_archival_failed_persona": "记忆归档失败，人格未切换，请稍后重试。",
+        "memory_archival_failed_persona": "已切换人格，但后台归档上一个人格的记忆失败，部分最近消息可能未保存。",
         "help_header": "🐈 hahobot 命令：",
         "cmd_new": "/new — 开启新的对话",
         "cmd_lang_current": "/lang current — 查看当前语言",

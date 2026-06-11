@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,6 +10,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from hahobot.bus.events import InboundMessage
+
+
+async def _drain_background(loop) -> None:
+    """Wait for persona-switch background archival tasks to finish."""
+    for task in list(loop._background_tasks):
+        await task
 
 
 def _make_loop(workspace: Path, provider: MagicMock | None = None):
@@ -54,12 +61,15 @@ class TestPersonaCommands:
 
         assert response is not None
         assert response.content == "Switched persona to coder. New session started."
-        loop.memory_consolidator.archive_unconsolidated.assert_awaited_once()
-        loop._flush_memory_session.assert_awaited_once()
 
         switched = loop.sessions.get_or_create("cli:direct")
         assert switched.metadata["persona"] == "coder"
         assert switched.messages == []
+
+        # Archival/flush now run off the reply path; drain and verify they ran.
+        await _drain_background(loop)
+        loop.memory_consolidator.archive_unconsolidated.assert_awaited_once()
+        loop._flush_memory_session.assert_awaited_once()
 
         current = await loop._process_message(
             InboundMessage(
@@ -184,6 +194,90 @@ class TestPersonaCommands:
         assert "response_filter_tags: inner" in response.content
 
     @pytest.mark.asyncio
+    async def test_persona_switch_returns_before_archival_completes(self, tmp_path: Path) -> None:
+        _make_persona(tmp_path, "coder", "You are coder persona.")
+        _make_persona(tmp_path, "writer", "You are writer persona.")
+        loop, _provider = _make_loop(tmp_path)
+
+        gate = asyncio.Event()
+        captured: dict[str, object] = {}
+
+        async def _slow_archive(session, *, source):
+            # Capture the persona context the archival sees, then block until released.
+            captured["persona"] = loop.memory_consolidator._get_persona(session)
+            captured["messages"] = list(session.messages)
+            await gate.wait()
+            return True
+
+        loop.memory_consolidator.archive_unconsolidated = AsyncMock(side_effect=_slow_archive)
+        loop._flush_memory_session = AsyncMock()
+
+        # Start on an explicit non-default persona so the detached copy must pin it.
+        session = loop.sessions.get_or_create("cli:direct")
+        loop._set_session_persona(session, "coder")
+        session.add_message("user", "hello")
+        session.add_message("assistant", "hi")
+        loop.sessions.save(session)
+
+        # Switch must return immediately even while archival is still blocked.
+        response = await loop._process_message(
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/persona set writer"
+            )
+        )
+
+        assert response is not None
+        assert response.content == "Switched persona to writer. New session started."
+        loop.memory_consolidator.archive_unconsolidated.assert_not_awaited()
+
+        switched = loop.sessions.get_or_create("cli:direct")
+        assert switched.metadata["persona"] == "writer"
+        assert switched.messages == []
+
+        # Release the background archival and confirm it ran against the OLD persona's
+        # detached tail, not the freshly switched (empty) session.
+        gate.set()
+        await _drain_background(loop)
+        loop.memory_consolidator.archive_unconsolidated.assert_awaited_once()
+        assert captured["persona"] == "coder"
+        assert [m["content"] for m in captured["messages"]] == ["hello", "hi"]
+        loop._flush_memory_session.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_persona_switch_notifies_on_background_archival_failure(
+        self, tmp_path: Path
+    ) -> None:
+        _make_persona(tmp_path, "coder", "You are coder persona.")
+        loop, _provider = _make_loop(tmp_path)
+        loop.memory_consolidator.archive_unconsolidated = AsyncMock(
+            side_effect=RuntimeError("boom")
+        )
+        loop._flush_memory_session = AsyncMock()
+        loop.bus.publish_outbound = AsyncMock()
+
+        session = loop.sessions.get_or_create("cli:direct")
+        session.add_message("user", "hello")
+        loop.sessions.save(session)
+
+        # The switch itself still succeeds even though archival will blow up.
+        response = await loop._process_message(
+            InboundMessage(
+                channel="cli", sender_id="user", chat_id="direct", content="/persona set coder"
+            )
+        )
+
+        assert response is not None
+        assert response.content == "Switched persona to coder. New session started."
+
+        await _drain_background(loop)
+        loop._flush_memory_session.assert_not_awaited()
+        loop.bus.publish_outbound.assert_awaited_once()
+        notice = loop.bus.publish_outbound.await_args.args[0]
+        assert notice.channel == "cli"
+        assert notice.chat_id == "direct"
+        assert "memory" in notice.content.lower()
+
+    @pytest.mark.asyncio
     async def test_stchar_load_reuses_persona_switch_flow(self, tmp_path: Path) -> None:
         _make_persona(tmp_path, "coder", "You are coder persona.")
         loop, _provider = _make_loop(tmp_path)
@@ -205,6 +299,7 @@ class TestPersonaCommands:
         switched = loop.sessions.get_or_create("cli:direct")
         assert switched.metadata["persona"] == "coder"
         assert switched.messages == []
+        await _drain_background(loop)
 
     @pytest.mark.asyncio
     async def test_preset_show_uses_current_persona(self, tmp_path: Path) -> None:
