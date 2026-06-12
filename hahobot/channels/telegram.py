@@ -46,12 +46,84 @@ from hahobot.command.catalog import (
 from hahobot.config.paths import get_media_dir
 from hahobot.config.schema import TelegramConfig, TelegramInstanceConfig
 from hahobot.security.network import validate_url_target
-from hahobot.utils.helpers import split_message
 
 TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
 TELEGRAM_REPLY_CONTEXT_MAX_LEN = (
     TELEGRAM_MAX_MESSAGE_LEN  # Max length for reply context in user message
 )
+
+
+def _split_telegram_markdown(content: str, max_len: int) -> list[str]:
+    """Split raw Telegram Markdown without leaving fenced code blocks unbalanced."""
+    if not content:
+        return []
+    content = content.lstrip()
+    if not content:
+        return []
+    if len(content) <= max_len:
+        return [content]
+
+    def fence_line(fence_pos: int) -> str:
+        line_end = content.find("\n", fence_pos)
+        if line_end < 0:
+            return content[fence_pos:]
+        return content[fence_pos:line_end]
+
+    def split_inside_fenced_code_block(pos: int) -> tuple[bool, int, str]:
+        if content[:pos].count("```") % 2 == 0:
+            return False, -1, ""
+        opening = content.rfind("```", 0, pos)
+        if opening < 0:
+            return True, -1, "```"
+        return True, opening, fence_line(opening)
+
+    chunks: list[str] = []
+    while content:
+        if len(content) <= max_len:
+            chunks.append(content)
+            break
+
+        cut = content[:max_len]
+        pos = cut.rfind("\n")
+        if pos <= 0:
+            pos = cut.rfind(" ")
+        if pos <= 0:
+            pos = max_len
+
+        inside_code, opening, fence = split_inside_fenced_code_block(pos)
+        if inside_code:
+            if opening > 0:
+                pos = opening
+            else:
+                closing = "\n```"
+                min_code_pos = len(fence)
+                if content.startswith(fence + "\n"):
+                    min_code_pos += 1
+                if pos < min_code_pos and min_code_pos + len(closing) > max_len:
+                    chunks.append(content[:max_len])
+                    content = content[max_len:].lstrip()
+                    continue
+                if pos + len(closing) > max_len:
+                    budget = max_len - len(closing)
+                    if budget > 0:
+                        recut = content[:budget]
+                        adjusted = recut.rfind("\n")
+                        if adjusted <= 0:
+                            adjusted = recut.rfind(" ")
+                        pos = adjusted if adjusted > 0 else budget
+                    else:
+                        closing = "```"
+                        pos = max_len - len(closing)
+                chunks.append(content[:pos] + closing)
+                remainder = content[pos:]
+                if remainder.startswith("\n"):
+                    remainder = remainder[1:]
+                content = f"{fence}\n{remainder}"
+                continue
+
+        chunks.append(content[:pos])
+        content = content[pos:].lstrip()
+    return chunks
 
 
 def _escape_telegram_html(text: str) -> str:
@@ -493,7 +565,7 @@ class TelegramChannel(BaseChannel):
             text = msg.content
             if buttons and reply_markup is None:
                 text = f"{text}\n\n{self._buttons_as_text(buttons)}"
-            chunks = split_message(text, TELEGRAM_MAX_MESSAGE_LEN)
+            chunks = _split_telegram_markdown(text, TELEGRAM_MAX_MESSAGE_LEN)
             for index, chunk in enumerate(chunks):
                 await self._send_text(
                     chat_id,
@@ -601,7 +673,7 @@ class TelegramChannel(BaseChannel):
                     await self._remove_reaction(chat_id, int(reply_to_message_id))
                 except ValueError:
                     pass
-            chunks = split_message(buf.text, TELEGRAM_MAX_MESSAGE_LEN)
+            chunks = _split_telegram_markdown(buf.text, TELEGRAM_MAX_MESSAGE_LEN)
             primary_text = chunks[0] if chunks else buf.text
             try:
                 html = _markdown_to_telegram_html(primary_text)
