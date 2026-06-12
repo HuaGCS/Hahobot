@@ -65,7 +65,7 @@ This file therefore records both:
 
 ## Latest Audit
 
-- `nanobot` (`2026-06-11` pass): re-checked against upstream `main` through `ffae1dca`
+- `nanobot` (`2026-06-12` pass): re-checked against upstream `main` through `ffae1dca`
   (`2026-06-10`); the new deltas since `1b5f5b94` are the Telegram fenced-code-block split cluster,
   one transcription-provider addition, and WebUI churn. One contract-stable fix ported this pass:
   the **Telegram fenced-code-block-aware outbound split** (`131446fa` + `a5a816ab` + `ffae1dca`,
@@ -89,7 +89,7 @@ This file therefore records both:
   AssemblyAI/MiMo/OpenRouter STT watchlist: add only with real demand plus schema/docs/admin wiring);
   the remaining `b8a4ceb3`/`e168bb27`/`999552b9`/`1f5ecf36`/`9d…` commits are WebUI
   segmented-transcript-store / session-index / hover-inset churn (intentional WebUI divergence).
-- `GenericAgent` (`2026-06-11` pass): re-checked against upstream `main` through `260027c9`
+- `GenericAgent` (`2026-06-12` pass): re-checked against upstream `main` through `260027c9`
   (`2026-06-11`). Deltas are TUI/Codex polish (`a6c712b1` tool-display cards + runtime `/model`
   and `/effort` switching, `260027c9` Codex native UA), `5e42bf3c` goal_mode continuation-prompt
   strengthening (autonomous-loop framing — intentional divergence), `eae6d1f3` pid-keyed
@@ -106,18 +106,18 @@ This file therefore records both:
   then the blank response is returned unchanged so `empty_final_response` UX is preserved) plus
   blank-as-failover in `ProviderPoolProvider._dispatch`. Tests in
   `tests/test_empty_response_retry.py`.
-- `claude-mem` (`2026-06-11` pass): re-checked against upstream `main` through `9586df67`
+- `claude-mem` (`2026-06-12` pass): re-checked against upstream `main` through `9586df67`
   (`2026-06-11`, v13.5.6). All new work since `da703300` is **opt-in telemetry** (`384d3289`
   real token/cost/model data + install-state snapshot, `245c9b4e` ingest-side GeoIP, `4ce51efd`
   Plan 14 reliability signals — retrieval quality / compression trust / worker lifecycle / hook
   failures) plus `c0b96288` worker-restart internals and changelog/version bumps. Anonymous
   analytics and the Node worker-restart machinery are intentional divergences for hahobot's
   file-first, zero-dependency memory model; nothing to adopt.
-- `nocturne_memory` (`2026-06-11` pass): re-checked against upstream `main` through `09b5e26f`
+- `nocturne_memory` (`2026-06-12` pass): re-checked against upstream `main` through `09b5e26f`
   (`2026-06-11`). Only delta since `a3d8b9ea` is `09b5e26f` PostgreSQL connection-pool
   configuration — graph-DB/separate-service backend hahobot already rejects as intentional
   divergence. No new file-first idea to adopt.
-- `jiuwenswarm` (`2026-06-11` pass): atomgit is a client-rendered SPA with no public commit API,
+- `jiuwenswarm` (`2026-06-12` pass): atomgit is a client-rendered SPA with no public commit API,
   so `WebFetch` against the commits page returns no server-side commit history (as in prior passes,
   commit-level diffing is not available here). The Huawei Xiaoyi A2A WebSocket channel
   (`channels.xiaoyi`) remains the ported surface; no new portable idea identified this pass.
