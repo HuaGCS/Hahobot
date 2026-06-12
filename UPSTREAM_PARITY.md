@@ -65,6 +65,62 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-06-11` pass): re-checked against upstream `main` through `ffae1dca`
+  (`2026-06-10`); the new deltas since `1b5f5b94` are the Telegram fenced-code-block split cluster,
+  one transcription-provider addition, and WebUI churn. One contract-stable fix ported this pass:
+  the **Telegram fenced-code-block-aware outbound split** (`131446fa` + `a5a816ab` + `ffae1dca`,
+  *adapted, scoped*). hahobot split long outbound markdown with the generic
+  `split_message(text, TELEGRAM_MAX_MESSAGE_LEN)` at both the `send()` and stream-end edit paths,
+  then rendered each chunk to Telegram HTML separately. A split landing inside a ```` ``` ```` fenced
+  block left an unbalanced fence, so `_markdown_to_telegram_html`'s
+  `re.sub(r"```[\w]*\n?([\s\S]*?)```", ...)` no longer matched and the code block rendered corrupted.
+  A new module-level `_split_telegram_markdown(content, max_len)` (ported near-verbatim from nanobot)
+  re-balances fences across chunks — closing ```` ``` ```` at a chunk boundary and re-opening with the
+  original fence line in the next chunk — and now backs both outbound split sites. The generic
+  `hahobot/utils/helpers.split_message` stays unchanged (still shared with Discord), and the
+  now-unused telegram.py import was dropped. Tests in `tests/test_telegram_markdown_split.py`.
+  nanobot's secondary `_split_telegram_markdown_html` (re-split so the *rendered* HTML fits the true
+  4096 limit, `ffae1dca`) was reviewed but **not ported**: hahobot renders per-chunk in `_send_text`
+  / the stream-end edit rather than pre-rendering one HTML blob, so an over-4096 chunk already
+  degrades to the existing plain-text `_send_text` fallback instead of hard-failing; adopting the
+  HTML-length re-split would mean restructuring the per-chunk render path, so it is watchlisted.
+  Other deltas reviewed and watchlisted/skipped: `9ed638ad` + `b8a4ceb3` add **SiliconFlow** as a
+  transcription provider (provider/transcription breadth — same stance as the existing
+  AssemblyAI/MiMo/OpenRouter STT watchlist: add only with real demand plus schema/docs/admin wiring);
+  the remaining `b8a4ceb3`/`e168bb27`/`999552b9`/`1f5ecf36`/`9d…` commits are WebUI
+  segmented-transcript-store / session-index / hover-inset churn (intentional WebUI divergence).
+- `GenericAgent` (`2026-06-11` pass): re-checked against upstream `main` through `260027c9`
+  (`2026-06-11`). Deltas are TUI/Codex polish (`a6c712b1` tool-display cards + runtime `/model`
+  and `/effort` switching, `260027c9` Codex native UA), `5e42bf3c` goal_mode continuation-prompt
+  strengthening (autonomous-loop framing — intentional divergence), `eae6d1f3` pid-keyed
+  project-mode anchor (extends the `19875716` project-mode plugin already covered last pass), and
+  `34d98955` `llmcore` empty-response failover (treat an empty streamed response as a transient
+  `ConnectionError` so the retry/mixin-failover path engages). That idea lives in GenericAgent's
+  monolithic single-file `llmcore.py`, but the underlying gap was real in hahobot too — a successful
+  but empty provider body (`finish_reason="stop"`, no content) was neither retried (the
+  `_run_with_retry` loop only retries `finish_reason == "error"`) nor failed over (the pool only
+  fails over on error), so it surfaced straight to the user as `empty_final_response`. **Ported this
+  pass, adapted**: a shared `LLMProvider._is_blank_retryable_response` classifier (guarded against
+  deliberate empties — `content_filter` / `length` / `tool_calls` / responses carrying reasoning)
+  now drives a bounded empty-retry in `_run_with_retry` (up to `len(_CHAT_RETRY_DELAYS)` attempts,
+  then the blank response is returned unchanged so `empty_final_response` UX is preserved) plus
+  blank-as-failover in `ProviderPoolProvider._dispatch`. Tests in
+  `tests/test_empty_response_retry.py`.
+- `claude-mem` (`2026-06-11` pass): re-checked against upstream `main` through `9586df67`
+  (`2026-06-11`, v13.5.6). All new work since `da703300` is **opt-in telemetry** (`384d3289`
+  real token/cost/model data + install-state snapshot, `245c9b4e` ingest-side GeoIP, `4ce51efd`
+  Plan 14 reliability signals — retrieval quality / compression trust / worker lifecycle / hook
+  failures) plus `c0b96288` worker-restart internals and changelog/version bumps. Anonymous
+  analytics and the Node worker-restart machinery are intentional divergences for hahobot's
+  file-first, zero-dependency memory model; nothing to adopt.
+- `nocturne_memory` (`2026-06-11` pass): re-checked against upstream `main` through `09b5e26f`
+  (`2026-06-11`). Only delta since `a3d8b9ea` is `09b5e26f` PostgreSQL connection-pool
+  configuration — graph-DB/separate-service backend hahobot already rejects as intentional
+  divergence. No new file-first idea to adopt.
+- `jiuwenswarm` (`2026-06-11` pass): atomgit is a client-rendered SPA with no public commit API,
+  so `WebFetch` against the commits page returns no server-side commit history (as in prior passes,
+  commit-level diffing is not available here). The Huawei Xiaoyi A2A WebSocket channel
+  (`channels.xiaoyi`) remains the ported surface; no new portable idea identified this pass.
 - `nanobot` (`2026-06-10` pass): re-checked against upstream `main` through `1b5f5b94`
   (`2026-06-10`); 51 commits since the last pass, the bulk WebUI fork-history / desktop-shell
   churn (intentional divergence). Three contract-stable items ported this pass: (1) the
@@ -309,6 +365,8 @@ This file therefore records both:
 | Per-subagent sampling temperature | `watchlist` | Upstream `spawn` now accepts an optional `temperature` argument so a model can pick determinism per subtask. Local `spawn(mode=...)` already enforces role boundaries through tool registry; add only if there is a concrete persona/subagent need that the model-level temperature default can't cover. |
 | OpenAI provider `apiType` + `extraBody` | `watchlist` | Upstream added an `apiType` (chat-completions vs responses) selector and `extraBody` passthrough for the OpenAI provider, with admin/WebUI settings wiring. Local `openai_compat_provider` already routes GPT-5/o-series to Responses via heuristics + circuit breaker; an explicit `apiType` would make it operator-controllable. Adopt with schema/admin/docs treatment together. |
 | OpenAI / OpenAI Codex / Zhipu / Ollama image-generation providers | `watchlist` | Upstream landed image-gen for OpenAI, OpenAI-Codex, Zhipu (智谱), and Ollama plus an HTTP-handling refactor and MiniMax mime-detection fix. Local `tools.imageGen` has its own contract — adopt per-provider only with config/docs/admin treatment and per-provider delivery tests. |
+| SiliconFlow transcription provider | `watchlist` | Upstream added SiliconFlow (硅基流动) as a speech-to-text provider (`9ed638ad` + `b8a4ceb3`). Local transcription set is Groq/OpenAI; same stance as the other STT-breadth watchlist items — add per-provider only with real demand plus schema/docs/admin wiring, not as speculative breadth. |
+| GenericAgent empty-response failover | `synced` | Adapted from GenericAgent `34d98955` (treat an empty streamed response as transient so retry/failover engages). `LLMProvider._is_blank_retryable_response` flags a non-error response with no content, no `tool_calls`, no `reasoning_content`/`thinking_blocks`, and a non-deliberate `finish_reason` (excludes `content_filter` / `length` / `tool_calls` so a deterministic empty is not re-requested). `_run_with_retry` now retries such a blank response up to `len(_CHAT_RETRY_DELAYS)` (3) times in both standard and persistent modes before returning it unchanged (so the runner's `empty_final_response` outcome is preserved on a genuinely empty model); `ProviderPoolProvider._dispatch` treats a blank-retryable response as a failover signal so the next pool entry is tried. Tests in `tests/test_empty_response_retry.py`. |
 | Transcription `apiBase` normalization | `watchlist` | Upstream now accepts chat-style transcription bases (e.g. `https://api.groq.com/openai/v1`) and appends `audio/transcriptions` automatically, with `OPENAI_TRANSCRIPTION_BASE_URL` / `GROQ_BASE_URL` env hooks. Local `OpenAITranscriptionProvider` / `GroqTranscriptionProvider` use hardcoded URLs and do not expose `apiBase` config; adopt only when a `channels.transcriptionApiBase` (or equivalent) is added with schema/admin/docs treatment. |
 | Apply-patch edits-only tool | `intentional_divergence` | Upstream removed the legacy unified-diff `patch` mode from `apply_patch` and now accepts only the structured `edits` array. Hahobot does not ship the `apply_patch` tool — file edits go through `notebook_edit` (for `.ipynb`) plus general `read_file` / shell write flows — so there is nothing to converge here. |
 | MCP preset setup / capability mentions | `intentional_divergence` | Upstream added a Settings-UI driven MCP preset wizard (`mcp_presets_api` + WebUI). Hahobot keeps MCP wiring under `tools.mcpServers.*` (file-first config with `enabledTools`); adopting a preset wizard would imply pulling in the WebUI settings stack and is rejected for the same reason as the standalone browser SPA divergence. |
