@@ -156,6 +156,9 @@ class LLMProvider(ABC):
     )
 
     _SENTINEL = object()
+    # finish_reason values that represent a *deliberate* empty completion the
+    # provider does not intend to fill — retrying these only burns tokens.
+    _DELIBERATE_EMPTY_FINISH_REASONS = frozenset({"content_filter", "length", "tool_calls"})
 
     def __init__(self, api_key: str | None = None, api_base: str | None = None):
         self.api_key = api_key
@@ -398,6 +401,31 @@ class LLMProvider(ABC):
             return True
 
         return cls._is_transient_error(response.content)
+
+    @classmethod
+    def _is_blank_retryable_response(cls, response: LLMResponse) -> bool:
+        """True when a non-error response carries no usable output and is safe to retry.
+
+        Some providers transiently return an empty body (overload, a dropped
+        stream that yields zero deltas) with an otherwise-normal finish_reason —
+        indistinguishable from a connection blip and worth one bounded retry /
+        failover. Deliberate empty completions (content filter, length cutoff,
+        tool-call-only turns) are excluded so a deterministic empty is not
+        re-requested.
+        """
+        if response.finish_reason == "error":
+            return False  # handled by the existing transient-error path
+        if (response.finish_reason or "").strip().lower() in cls._DELIBERATE_EMPTY_FINISH_REASONS:
+            return False
+        if response.tool_calls:
+            return False
+        if response.content is not None and response.content.strip():
+            return False
+        if response.reasoning_content and response.reasoning_content.strip():
+            return False
+        if response.thinking_blocks:
+            return False
+        return True
 
     @staticmethod
     def _normalize_error_token(value: Any) -> str | None:
@@ -772,6 +800,22 @@ class LLMProvider(ABC):
             attempt += 1
             response = await call(**kw)
             if response.finish_reason != "error":
+                if self._is_blank_retryable_response(response) and attempt <= len(delays):
+                    last_response = response
+                    delay = delays[min(attempt - 1, len(delays) - 1)]
+                    logger.warning(
+                        "LLM returned an empty response (attempt {}/{}), retrying in {}s",
+                        attempt,
+                        len(delays),
+                        int(round(delay)),
+                    )
+                    await self._sleep_with_heartbeat(
+                        delay,
+                        attempt=attempt,
+                        persistent=persistent,
+                        on_retry_wait=on_retry_wait,
+                    )
+                    continue
                 return response
             last_response = response
             error_key = (response.content or "").strip().lower() or None

@@ -138,7 +138,9 @@ class ProviderPoolProvider(LLMProvider):
                 on_content_delta=on_content_delta,
                 **{**kwargs, "model": resolved_model},
             )
-            if response.finish_reason != "error":
+            if response.finish_reason != "error" and not self._is_blank_retryable_response(
+                response
+            ):
                 self._mark_success(entry)
                 if streaming and on_content_delta and deltas:
                     for delta in deltas:
