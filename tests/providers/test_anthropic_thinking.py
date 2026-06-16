@@ -76,6 +76,25 @@ def test_opus_4_7_omits_temperature_with_adaptive_thinking() -> None:
     assert "temperature" not in kw
 
 
+def test_opus_4_8_omits_temperature() -> None:
+    assert "temperature" not in _build(_make_provider("claude-opus-4-8"), None)
+    kw = _build(_make_provider("claude-opus-4-8"), "adaptive")
+    assert "temperature" not in kw
+
+
+def test_fable_omits_temperature() -> None:
+    assert "temperature" not in _build(_make_provider("claude-fable-5"), None)
+    assert "temperature" not in _build(_make_provider("claude-fable-5"), "high")
+
+
+def test_omit_temperature_matches_mixed_case() -> None:
+    assert "temperature" not in _build(_make_provider("Claude-Opus-4-8"), None)
+
+
+def test_ordinary_model_keeps_temperature() -> None:
+    assert _build(_make_provider("claude-sonnet-4-6"), None)["temperature"] == 0.7
+
+
 def test_tool_result_converts_image_url_blocks() -> None:
     block = AnthropicProvider._tool_result_block(
         {

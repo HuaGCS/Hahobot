@@ -104,6 +104,18 @@ class TestHistoryWithCursor:
         assert len(entries) == 2
         assert entries[0]["cursor"] in {4, 5}
 
+    def test_read_entries_drops_malformed_external_entries(self, store):
+        store.append_history("good 1")
+        # Simulate an external writer appending JSON with a malformed shape:
+        # valid JSON, but missing int cursor / wrong-typed timestamp + content.
+        with open(store.history_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"cursor": "x", "timestamp": 5, "content": None}) + "\n")
+            f.write(json.dumps({"timestamp": "t", "content": "no cursor"}) + "\n")
+            f.write("not json at all\n")
+        store.append_history("good 2")
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert [e["content"] for e in entries] == ["good 1", "good 2"]
+
     def test_append_history_truncates_oversized_entries(self, store):
         store.append_history("x" * 20, max_chars=10)
         entries = store.read_unprocessed_history(since_cursor=0)

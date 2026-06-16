@@ -65,6 +65,70 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-06-16` pass): re-checked against upstream `main` through `3ce0cd97`
+  (`2026-06-15`); ~70 commits since `ffae1dca`, the bulk WebUI mobile-composer / cron-session
+  WebUI churn (intentional divergence). **Three contract-stable fixes ported this pass:**
+  (1) **Anthropic `omit_temperature` widened** (`29d71868`) — the temperature-suppression guard
+  in `anthropic_provider._build_kwargs` was hardcoded to `"opus-4-7" in model_name`, so the API
+  rejected `temperature` with a 400 on hahobot's own default `opus-4-8` (and `fable`). It now
+  lowercases `model_name` and matches `("opus-4-7", "opus-4-8", "fable")`. Tests added to
+  `tests/providers/test_anthropic_thinking.py` (opus-4-8 / fable across no-thinking + thinking
+  paths, a mixed-case match, and a negative test that ordinary models still send temperature).
+  (2) **Real LLM usage forwarded on the direct API path** (`9814a3b9`) — `hahobot serve`'s
+  `_chat_completion_response` hardcoded `prompt_tokens`/`completion_tokens`/`total_tokens` to `0`.
+  hahobot already tracks `AgentLoop._last_usage` (set by `run_runtime` after every run), so the
+  helper now takes an optional `usage` dict (deriving `total_tokens` when the provider omits it)
+  and the handler passes `getattr(agent_loop, "_last_usage", None)`. The streaming contract stays
+  unchanged (hahobot `serve` is intentionally non-streaming). Tests in `tests/test_openai_api.py`;
+  the MagicMock test agents gained `_last_usage = {}` so JSON serialization stays clean.
+  (3) **Malformed history entries dropped** (`f85101f0`) — `MemoryStore._read_entries` skipped
+  JSON-decode errors but not entries that parse as JSON with a malformed *shape*, and
+  `read_unprocessed_history` accesses `e["cursor"]` directly, so a shape-bad external write could
+  crash history slicing / dream / consolidation. `_read_entries` now drops entries failing a new
+  `_valid_history_payload` (int cursor, str timestamp, str content) and warns once. Tests in
+  `tests/agent/test_memory_store.py`.
+  Larger deltas reviewed and **not ported** this pass: `3ce0cd97` (keep auto-compact suffix on user
+  turn) + `0863e6e5` (summarize full session tail during idle compaction) are the same family as the
+  long-documented `retain_recent_legal_suffix` intentional divergence — hahobot's `autocompact._archive`
+  keeps the retained suffix *live* in `session.messages`, so a late correction in the kept suffix is
+  never lost (it stays in context and is archived on the next pass), unlike nanobot's non-contiguous
+  retention. `ac5e84d4` + `eb25df9b` + `2ebf7e2e` + `33e6da14` (save-boundary overshoot orphaning
+  tool results) are watchlisted: hahobot already sanitizes assistant/tool-result pairing and
+  tool-call ids on the outbound path. `a326ba40` + the large cron-session-binding cluster bind
+  scheduled automations to origin sessions through the WebUI automations panel — feature-level and
+  WebUI-coupled, overlapping hahobot's existing proactive-delivery session continuity; intentional
+  divergence / watchlist. `a54e56c6` (ignore empty injected payloads in `runner._drain_injections`)
+  is **not applicable** — hahobot has no `_drain_injections` mid-turn injection path; subagent
+  follow-ups land through session-history persistence instead. `cb2620c8` (stop Codex image SSE read
+  after `response.completed`) is **not applicable** — hahobot ships no Codex image-generation SSE
+  path (`image_gen` has its own contract). `df0f9f4d` + `44ce220a` + `fbbb09e9` (`tools.file.enable`
+  toggle for built-in filesystem tools + subagent toggle) is config-feature breadth — hahobot already
+  centralizes tool enable/disable in its own policy layer; watchlist. `2d9260cb` (Slack
+  `groupRequireMention`) is channel breadth (watchlist). `e9e1489c` + the named-custom-provider
+  cluster (multiple custom OpenAI-compatible providers, WebUI settings) is provider/WebUI breadth
+  (watchlist). `e36c43c9` (CLI `bot_icon` banner) is cosmetic and skipped.
+- `GenericAgent` (`2026-06-16` pass): re-checked against upstream `main` through `31a8c4b5`
+  (`2026-06-16`). Deltas are TUI v2/v3 polish (`4572854b` workspace project mode + `@`-file-reference
+  completion, `e38f2331`/`a6c712b1` plan-card/tool-display cards, `aa93782a` CJK table copy),
+  desktop-pet v2 / macOS AX accessibility (`8ca5a869` + `7b20f659`), wechat headless-login and QR
+  churn, conductor/supervisor SOP updates, and `ae7b028f` `/continue` default in-place restore +
+  per-session lock (copy-on-conflict). The `/continue` change overlaps hahobot's existing
+  `hahobot agent --continue` / `--pick-session` session-resume surface; no new portable runtime/memory
+  idea this pass (the TUI/desktop/macOS-AX churn is outside hahobot's scope).
+- `claude-mem` (`2026-06-16` pass): re-checked against upstream `main` through `b7479f81`
+  (`2026-06-15`, v13.6.1). All new work since `9586df67` is **opt-in telemetry** (`ccd907dc` +
+  `a600b89d` PostHog historical backfill / anonymized daily rollups / inferred install date) plus
+  `608611b6` stale-Claude-CLI observation guard and `c0b96288` worker-restart single-source-of-truth
+  — Node worker-lifecycle internals. Anonymous analytics and the Node worker machinery are intentional
+  divergences for hahobot's file-first, zero-dependency memory model; nothing to adopt.
+- `nocturne_memory` (`2026-06-16` pass): re-checked against upstream `main` through `beee74a3`
+  (`2026-06-15`). Deltas (`09b5e26f` PostgreSQL connection pool, `4ac6e449` Pydantic-annotated
+  `create_memory`, `e17db589` non-negative priority validation, `beee74a3` SSE lifespan) all sit on
+  the graph-DB / separate-service backend hahobot rejects as intentional divergence. The non-negative
+  priority validation is schema-specific to nocturne's memory model; no new file-first idea to adopt.
+- `jiuwenswarm` (`2026-06-16` pass): atomgit remains a client-rendered SPA with no public commit API,
+  so commit-level diffing is unavailable (as in prior passes). The Huawei Xiaoyi A2A WebSocket channel
+  (`channels.xiaoyi`) remains the ported surface; no new portable idea identified this pass.
 - `nanobot` (`2026-06-12` pass): re-checked against upstream `main` through `ffae1dca`
   (`2026-06-10`); the new deltas since `1b5f5b94` are the Telegram fenced-code-block split cluster,
   one transcription-provider addition, and WebUI churn. One contract-stable fix ported this pass:
@@ -288,6 +352,7 @@ This file therefore records both:
 | Responses compatibility circuit breaker | `synced` | Repeated Responses-API compatibility failures now open a short-lived per-`(model, reasoningEffort)` circuit before re-probing automatically, so direct OpenAI fallback does not keep paying the same failing probe cost every turn. |
 | Provider thinking toggles | `synced` | `ProviderSpec.thinking_style` now owns DashScope, DeepSeek, VolcEngine/BytePlus, and MiniMax thinking wire formats; legacy assistant turns receive empty `reasoning_content` when thinking mode is enabled mid-session. |
 | Anthropic adaptive / Opus reasoning | `synced` | `reasoningEffort=adaptive` maps to Anthropic `thinking={"type":"adaptive"}`, Opus 4.7 requests omit deprecated `temperature`, and tool-result image blocks are normalized before Anthropic submission. |
+| Anthropic temperature suppression for deprecated models | `synced` | `anthropic_provider._build_kwargs` lowercases `model_name` and omits `temperature` for `opus-4-7` / `opus-4-8` / `fable` (the Anthropic API 400s on the parameter for these models, on every thinking path). Previously hardcoded to `opus-4-7`, which 400'd on hahobot's own default `opus-4-8`. Ported from nanobot `29d71868`; tests in `tests/providers/test_anthropic_thinking.py`. |
 | Anthropic message alternation recovery | `synced` | Anthropic request normalization now also enforces leading-user, strips trailing assistant prefill, and recovers the empty-array edge case without rerouting `tool_use`-carrying assistant blocks into invalid user turns. |
 | Tool hint formatting / length control | `synced` | Exec hints handle quoted paths, path abbreviation, duplicate collapse, and hot-reloadable `agents.defaults.toolHintMaxLength` for channels that expose tool-call hints. |
 | Exec `pathAppend` safety | `synced` | Local POSIX `tools.exec.pathAppend` now passes the appended path through `HAHOBOT_PATH_APPEND` instead of interpolating the raw config value into shell syntax, while Windows still appends through the subprocess env. |
@@ -297,6 +362,7 @@ This file therefore records both:
 | Per-hop WebFetch redirect SSRF check | `synced` | `WebFetchTool` now walks redirect chains manually via `_get_with_safe_redirects`, validating each `Location` against the SSRF policy before issuing the next request. httpx's `follow_redirects=True` could otherwise briefly hit a disallowed intermediate hop even when the final URL passed validation. |
 | MCP HTTP/SSE redirect-SSRF check | `intentional_divergence` | nanobot `ed0aeb1e` blocks any MCP HTTP URL resolving to a private/internal address, including the operator-configured one. hahobot does **not** block the configured `cfg.url` (MCP servers are operator-configured and local servers like `http://127.0.0.1:3211/mcp` are the common case). Both transport httpx clients instead carry a host-scoped `_make_mcp_redirect_validator(cfg.url)` request `event_hooks` validator that trusts the configured host and rejects only a redirect to a *different* host resolving to a private/internal address (`validate_resolved_url`). Tests in `tests/agent/test_mcp_ssrf.py`. |
 | Empty-string `reasoning_content` preservation | `synced` | `openai_compat_provider._parse` now uses `is None` identity checks (not truthiness) for `reasoning_content` on both the dict and SDK-object paths, so a provider's explicit `""` (DeepSeek "no reasoning occurred") is preserved instead of coerced to `None` and dropped — which made strict providers reject the next request. Ported from nanobot `05de864f`. |
+| Malformed history-entry guard | `synced` | `MemoryStore._read_entries` drops `history.jsonl` lines that parse as JSON but carry a malformed shape (non-int cursor, non-string timestamp/content) via a new `_valid_history_payload`, warning once. Previously only JSON-decode errors were skipped, so an external writer's shape-bad entry could crash `read_unprocessed_history`'s `e["cursor"]` access (and downstream dream/consolidation). Ported from nanobot `f85101f0`; tests in `tests/agent/test_memory_store.py`. |
 | SQLite derived-cache concurrency pragmas | `synced` | `memory_facts_sqlite.py` and `history_sqlite.py` open their derived FTS caches through a `_connect()` helper that sets `journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`, and `timeout=5.0`, so concurrent gateway/CLI/Dream/`memory index rebuild` access no longer races into "database is locked". Adopted as a nocturne_memory idea (`52b47f4d`); the markdown/JSONL sidecars remain the source of truth and the caches stay rebuildable. |
 | Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
 | Streaming-idle httpx timeout | `synced` | `LLMProvider._stream_idle_timeout_s()` reads `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s). The anthropic, openai_compat, and openai_codex providers all share the helper, so the previously hardcoded 60s on the Codex provider no longer aborts streams sooner than its peers. The upstream nanobot env var is intentionally not honored here — this is a hahobot-native knob, not a legacy rename-transition. |
@@ -324,6 +390,7 @@ This file therefore records both:
 | Search provider breadth | `watchlist` | Upstream now also carries additional search backends such as Kagi/Olostep; local runtime still intentionally limits `tools.web.search.provider` to Brave, SearXNG, and DuckDuckGo until there is real demand for another backend plus matching config/admin/docs wiring. |
 | MCP terminated-session reconnect | `synced` | Ported from nanobot `e9145b7` + `d0eba7c`, adapted to hahobot's shared-`AsyncExitStack`/three-wrapper layout. `_is_session_terminated` matches "session terminated"/"connection closed" (in `str(exc)` and `exc.error.message`); a shared `_MCPWrapperBase._refresh_session_after_termination` reconnects once per `execute()` before falling back to the existing error-string behavior; a per-server `_MCPServerConnection` coordinator uses an `asyncio.Lock` + generation counter so concurrent terminated calls trigger exactly one rebuild and the rest adopt the fresh session; transport setup is factored into a shared `_open_session(name, cfg, stack)` used by both initial connect and reconnect. The existing `TimeoutError` / `CancelledError` (re-raise only on external cancel) / `McpError` handling is preserved unchanged. Tests in `tests/agent/test_mcp_reconnect.py`. |
 | OpenAI-compatible API file inputs | `synced` | `hahobot serve` now accepts both JSON and `multipart/form-data`, extracts text-like uploaded or inline base64 file payloads into the prompt, and emits stable placeholders for binary/image attachments while keeping the direct API path single-message and non-streaming. |
+| OpenAI-compatible API usage forwarding | `synced` | `hahobot serve`'s `_chat_completion_response` no longer hardcodes usage to zero. It accepts an optional `usage` dict (deriving `total_tokens` when the provider omits it) and the handler forwards `getattr(agent_loop, "_last_usage", None)` — already tracked by `run_runtime` after every LLM call. Non-streaming only, matching the existing API contract. Ported from nanobot `9814a3b9`; tests in `tests/test_openai_api.py`. |
 | OpenAI-compatible API streaming | `intentional_divergence` | Upstream now supports SSE when `stream=true`; local `hahobot serve` intentionally stays non-streaming until the API contract is deliberately expanded across docs, tests, and client expectations together. |
 | Memory/history pollution caps | `synced` | Recent-history prompt injection, raw archive fallback, and consolidated history entries now have explicit size caps so failed summarization or oversized legacy entries cannot bloat every future prompt. |
 | claude-mem-style private tags | `synced` | `<private>...</private>` blocks are stripped before session persistence, history archives, `HISTORY.md` entries, and Mem0 writes so marked secrets do not become long-term memory. |
@@ -370,6 +437,11 @@ This file therefore records both:
 | Transcription `apiBase` normalization | `watchlist` | Upstream now accepts chat-style transcription bases (e.g. `https://api.groq.com/openai/v1`) and appends `audio/transcriptions` automatically, with `OPENAI_TRANSCRIPTION_BASE_URL` / `GROQ_BASE_URL` env hooks. Local `OpenAITranscriptionProvider` / `GroqTranscriptionProvider` use hardcoded URLs and do not expose `apiBase` config; adopt only when a `channels.transcriptionApiBase` (or equivalent) is added with schema/admin/docs treatment. |
 | Apply-patch edits-only tool | `intentional_divergence` | Upstream removed the legacy unified-diff `patch` mode from `apply_patch` and now accepts only the structured `edits` array. Hahobot does not ship the `apply_patch` tool — file edits go through `notebook_edit` (for `.ipynb`) plus general `read_file` / shell write flows — so there is nothing to converge here. |
 | MCP preset setup / capability mentions | `intentional_divergence` | Upstream added a Settings-UI driven MCP preset wizard (`mcp_presets_api` + WebUI). Hahobot keeps MCP wiring under `tools.mcpServers.*` (file-first config with `enabledTools`); adopting a preset wizard would imply pulling in the WebUI settings stack and is rejected for the same reason as the standalone browser SPA divergence. |
+| Save-boundary orphaned tool results | `watchlist` | nanobot `ac5e84d4` + `eb25df9b` + `2ebf7e2e` + `33e6da14` anchor the session save boundary to prompt-prefix size and never persist tool results without a declared tool call (a save-boundary overshoot otherwise orphaned them). hahobot already sanitizes assistant/tool-result pairing and normalizes/dedupes tool-call ids on the outbound path; re-check the persistence-side boundary if orphaned-tool-result errors surface locally. |
+| Cron session-binding | `intentional_divergence` | nanobot `a326ba40` + cluster bind scheduled automations to their origin sessions and surface/manage them through the WebUI automations panel. hahobot already records proactive cron/heartbeat deliveries into the target `channel:chat` session for reply continuity and keeps cron under the workspace-scoped `cron/jobs.json` scheduler; the WebUI-coupled binding UX is a divergence. Revisit only if origin-session routing for cron needs first-class config. |
+| Built-in filesystem tool toggle | `watchlist` | nanobot `df0f9f4d` + `44ce220a` + `fbbb09e9` add `tools.file.enable` (default true) to disable built-in filesystem tools, with a subagent-aware toggle. hahobot centralizes tool enable/disable in its own policy layer; add a file-tool switch only with real demand plus schema/docs/admin wiring. |
+| Slack group mention gating | `watchlist` | nanobot `2d9260cb` adds `channels.slack.groupRequireMention` to require an explicit mention before responding in allowlisted channels. Local Slack config does not expose this; add with schema/docs/admin treatment if group-channel noise is reported. |
+| Named custom OpenAI-compatible providers | `watchlist` | nanobot `e9e1489c` + the dynamic-custom-provider cluster support multiple named custom OpenAI-compatible providers with alias-conflict rejection, endpoint validation, and WebUI settings exposure. hahobot's `providers.custom` is single-slot plus the provider pool; adopt a multi-named-custom shape only with schema/admin/docs treatment together. |
 | Future upstream channel/provider churn | `watchlist` | Re-audit `channels/`, `providers/`, `cron/`, `agent/hook.py`, `config/schema.py`, and runtime doctor whenever upstream lands new runtime toggles or transport behavior. |
 
 ## GenericAgent Detailed Matrix

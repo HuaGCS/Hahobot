@@ -421,7 +421,11 @@ class AnthropicProvider(LLMProvider):
 
         max_tokens = max(1, max_tokens)
         thinking_enabled = bool(reasoning_effort)
-        omit_temperature = "opus-4-7" in model_name
+        # Several Anthropic models (opus-4-7, opus-4-8, fable) deprecated the
+        # `temperature` parameter — the API returns 400 if it is present, on any
+        # code path. Normalize to lowercase so mixed-case configs still match.
+        _model_lower = model_name.lower()
+        omit_temperature = any(m in _model_lower for m in ("opus-4-7", "opus-4-8", "fable"))
 
         kwargs: dict[str, Any] = {
             "model": model_name,

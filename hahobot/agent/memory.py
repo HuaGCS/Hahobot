@@ -292,6 +292,7 @@ class MemoryStore:
         self._cursor_file = self.memory_dir / ".cursor"
         self._dream_cursor_file = self.memory_dir / ".dream_cursor"
         self._consecutive_failures = 0
+        self._malformed_entry_logged = False  # rate-limit bad history shape warning
         self._git = GitStore(
             workspace,
             tracked_files=[
@@ -568,20 +569,47 @@ class MemoryStore:
     # -- JSONL helpers -------------------------------------------------------
 
     def _read_entries(self) -> list[dict[str, Any]]:
-        """Read all entries from history.jsonl."""
+        """Read all well-formed entries from history.jsonl.
+
+        Entries that parse as JSON but carry a malformed shape (missing int
+        cursor, non-string timestamp/content) are dropped so an external writer
+        cannot crash history slicing, dream, or consolidation. Warns once.
+        """
         entries: list[dict[str, Any]] = []
+        malformed = False
         try:
             with open(self.history_file, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line:
-                        try:
-                            entries.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            continue
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not self._valid_history_payload(entry):
+                        malformed = True
+                        continue
+                    entries.append(entry)
         except FileNotFoundError:
             pass
+        if malformed and not self._malformed_entry_logged:
+            self._malformed_entry_logged = True
+            logger.warning(
+                "history.jsonl contains a malformed entry; dropping it. "
+                "Usually caused by an external writer; further occurrences suppressed."
+            )
         return entries
+
+    @staticmethod
+    def _valid_history_payload(entry: Any) -> bool:
+        if not isinstance(entry, dict):
+            return False
+        if not isinstance(entry.get("cursor"), int) or isinstance(entry.get("cursor"), bool):
+            return False
+        if not isinstance(entry.get("timestamp"), str):
+            return False
+        return isinstance(entry.get("content"), str)
 
     def _read_last_entry(self) -> dict[str, Any] | None:
         """Read the last entry from the JSONL file efficiently."""

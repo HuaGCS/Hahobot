@@ -38,6 +38,7 @@ def _make_mock_agent(response_text: str = "mock response") -> MagicMock:
     agent.process_direct = AsyncMock(return_value=response_text)
     agent._connect_mcp = AsyncMock()
     agent.close_mcp = AsyncMock()
+    agent._last_usage = {}
     return agent
 
 
@@ -83,6 +84,23 @@ def test_chat_completion_response() -> None:
     assert result["choices"][0]["message"]["content"] == "hello world"
     assert result["choices"][0]["finish_reason"] == "stop"
     assert result["id"].startswith("chatcmpl-")
+    # Without usage, counts default to zero.
+    assert result["usage"] == {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
+def test_chat_completion_response_forwards_usage() -> None:
+    result = _chat_completion_response("hi", "m", {"prompt_tokens": 12, "completion_tokens": 5})
+    assert result["usage"]["prompt_tokens"] == 12
+    assert result["usage"]["completion_tokens"] == 5
+    # total_tokens is derived when the provider does not supply it.
+    assert result["usage"]["total_tokens"] == 17
+
+
+def test_chat_completion_response_preserves_provider_total() -> None:
+    result = _chat_completion_response(
+        "hi", "m", {"prompt_tokens": 12, "completion_tokens": 5, "total_tokens": 20}
+    )
+    assert result["usage"]["total_tokens"] == 20
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
@@ -346,6 +364,7 @@ async def test_followup_requests_share_same_session_key(aiohttp_client) -> None:
     agent.process_direct = fake_process
     agent._connect_mcp = AsyncMock()
     agent.close_mcp = AsyncMock()
+    agent._last_usage = {}
 
     app = create_app(agent, model_name="m")
     client = await aiohttp_client(app)
@@ -379,6 +398,7 @@ async def test_fixed_session_requests_are_serialized(aiohttp_client) -> None:
     agent.process_direct = slow_process
     agent._connect_mcp = AsyncMock()
     agent.close_mcp = AsyncMock()
+    agent._last_usage = {}
 
     app = create_app(agent, model_name="m")
     client = await aiohttp_client(app)
@@ -565,6 +585,7 @@ async def test_empty_response_retry_then_success(aiohttp_client) -> None:
     agent.process_direct = sometimes_empty
     agent._connect_mcp = AsyncMock()
     agent.close_mcp = AsyncMock()
+    agent._last_usage = {}
 
     app = create_app(agent, model_name="m")
     client = await aiohttp_client(app)
@@ -594,6 +615,7 @@ async def test_empty_response_falls_back(aiohttp_client) -> None:
     agent.process_direct = always_empty
     agent._connect_mcp = AsyncMock()
     agent.close_mcp = AsyncMock()
+    agent._last_usage = {}
 
     app = create_app(agent, model_name="m")
     client = await aiohttp_client(app)
