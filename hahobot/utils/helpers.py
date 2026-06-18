@@ -128,6 +128,28 @@ def truncate_text(text: str, max_chars: int) -> str:
     return text[:max_chars] + "\n... (truncated)"
 
 
+def truncate_text_to_tokens(text: str, max_tokens: int) -> str:
+    """Truncate text to a token budget using the shared cl100k_base encoder.
+
+    Characters are a poor proxy for tokens: ~32k chars of English is ~8k tokens,
+    but the same character count of CJK text or code can be several times that,
+    so a character cap silently lets a section blow past its intended size on
+    non-English / code-heavy content. Decoding the truncated token slice keeps
+    the cap honest regardless of content. Ported from nanobot ``973a5ee5``.
+    """
+    if max_tokens <= 0 or not text:
+        return text
+    tokens = _TIKTOKEN_ENC.encode(text)
+    if len(tokens) <= max_tokens:
+        return text
+    try:
+        truncated = _TIKTOKEN_ENC.decode(tokens[:max_tokens])
+    except Exception:
+        # Approximate fallback encoder cannot round-trip decode; fall back to chars.
+        return truncate_text(text, max_tokens * 4)
+    return truncated + "\n... (truncated)"
+
+
 def find_legal_message_start(messages: list[dict[str, Any]]) -> int:
     """Find the first index whose tool results have matching assistant calls."""
     declared: set[str] = set()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import secrets
 import string
@@ -15,9 +16,28 @@ from hahobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 _ALNUM = string.ascii_letters + string.digits
 
+_VALID_TOOL_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
+
 
 def _gen_tool_id() -> str:
     return "toolu_" + "".join(secrets.choice(_ALNUM) for _ in range(22))
+
+
+def _sanitize_tool_id(tid: str) -> str:
+    """Coerce tool_use/tool_result IDs to Anthropic's required ``^[a-zA-Z0-9_-]+$``.
+
+    The Anthropic Messages API 400s ("String should match pattern") on tool IDs
+    carrying pipes, dots, or other characters — which can arrive from other
+    providers or restored multi-turn sessions. A short content hash is appended
+    so two distinct invalid IDs cannot collapse onto the same sanitized value
+    (which would orphan the matching tool_result pairing). Ported from nanobot
+    ``4d7c2074`` / ``bdf21c93``.
+    """
+    if not tid or _VALID_TOOL_ID.match(tid):
+        return tid
+    safe_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", tid)[:48].strip("_") or "toolu"
+    digest = hashlib.sha1(tid.encode()).hexdigest()[:8]
+    return f"{safe_prefix}_{digest}"
 
 
 class AnthropicProvider(LLMProvider):
@@ -172,7 +192,7 @@ class AnthropicProvider(LLMProvider):
         content = msg.get("content")
         block: dict[str, Any] = {
             "type": "tool_result",
-            "tool_use_id": msg.get("tool_call_id", ""),
+            "tool_use_id": _sanitize_tool_id(msg.get("tool_call_id", "")),
         }
         if isinstance(content, list):
             block["content"] = AnthropicProvider._convert_user_content(content)
@@ -215,7 +235,7 @@ class AnthropicProvider(LLMProvider):
             blocks.append(
                 {
                     "type": "tool_use",
-                    "id": tc.get("id") or _gen_tool_id(),
+                    "id": _sanitize_tool_id(tc.get("id") or _gen_tool_id()),
                     "name": func.get("name", ""),
                     "input": args,
                 }

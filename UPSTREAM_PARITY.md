@@ -65,6 +65,73 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-06-18` pass): re-checked against upstream `main` through `a1a62783`
+  (`2026-06-17`); ~65 commits since `3ce0cd97`, the bulk WebUI automation-management-view churn
+  (intentional divergence). **Three contract-stable fixes ported this pass:**
+  (1) **Anthropic tool_use/tool_result ID sanitization** (`4d7c2074` + `bdf21c93`) — the Anthropic
+  Messages API 400s ("String should match pattern") on tool IDs not matching `^[a-zA-Z0-9_-]+$`,
+  and IDs from other providers or restored multi-turn sessions can carry pipes/dots.
+  `anthropic_provider` gained `_sanitize_tool_id` (collision-resistant: invalid IDs get a
+  `sha1[:8]` suffix so two distinct bad IDs cannot collapse onto the same value and orphan the
+  `tool_use`/`tool_result` pairing), applied at both wire-format conversion points
+  (`_tool_result_block` `tool_use_id`, `_assistant_blocks` `tool_use` id). hahobot's existing
+  `_sanitize_messages` id-normalization runs earlier in the pipeline, but applying the coercion at
+  the Anthropic conversion boundary is the correct defense-in-depth spot (independent of upstream
+  normalization, covers restored sessions). Tests in `tests/providers/test_anthropic_tool_id_sanitize.py`.
+  (2) **Stream-idle timeout config validation** (`846410f9`) — `LLMProvider._stream_idle_timeout_s`
+  parsed the float but trusted it blindly, so `HAHOBOT_STREAM_IDLE_TIMEOUT_S=0` (or negative) would
+  make httpx time out the stream immediately and an absurd value defeated the idle guard entirely.
+  It now falls back to the default on non-positive / non-numeric input and clamps anything above
+  `3600`, warning once. Adapted to hahobot's native env var (no `NANOBOT_*` fallback — this is not a
+  rename-transition knob). Tests in `tests/providers/test_stream_idle_timeout_config.py`.
+  (3) **Recent-history digest capped by tokens, not characters** (`973a5ee5`) — `context.py`'s
+  recent-history system-prompt section was capped at `_MAX_HISTORY_CHARS = 32_000`. Characters are a
+  poor token proxy: ~32k English chars ≈ 8k tokens, but the same char count of CJK / code is several
+  times that, so the section could blow well past its intended size — directly relevant for hahobot's
+  default-Chinese users. A new `truncate_text_to_tokens()` helper (reusing the shared `cl100k_base`
+  encoder, with a char-based fallback when the approximate encoder cannot round-trip `decode`) now
+  caps the digest at `_MAX_HISTORY_TOKENS = 8_000`. Tests in `tests/utils/test_truncate_tokens.py`.
+  Larger deltas reviewed and **not ported** this pass: `d75f8043` + `7bec0f6e` (don't re-persist the
+  user turn on the API empty-response retry via `persist_user_message=False`) — hahobot's
+  `serve` does call `process_direct` twice on an empty body, so the duplicate-user-turn exposure is
+  real, but (a) hahobot already ships provider-level empty-response retry+failover (the GenericAgent
+  `34d98955` port), so the API-level retry rarely fires, and (b) the fix needs `persist_user_message`
+  threaded through hahobot's decomposed `process_direct` → `_process_message` → persistence path;
+  **watchlisted** pending that plumbing. `4c5e3401` (enable idle auto-compact by default) is a config
+  default flip — hahobot keeps `idleCompactAfterMinutes` opt-in; watchlist. `0023f6d9` + `72b8fc80`
+  (drop custom cloud httpx client, disable proxy for local endpoints / respect env proxy for cloud)
+  is the same family as the long-standing **Local/LAN provider transport** watchlist row; still
+  watchlisted (hahobot's local-endpoint error reporting is strong, transport-pooling policy unchanged).
+  `a630a789` + cluster (Keenable search provider), `d5f5eb43` (first-class Mistral — hahobot already
+  ships a Mistral provider via openai-compat; the dedicated-provider upgrade is watchlist breadth),
+  `25a55fe1` (Kimi K2.7 thinking), and `51bd3337` (bridge blue-tick read receipts) are
+  provider/channel/search breadth — same add-only-with-demand stance as the existing transcription/
+  search-provider watchlist. `15f218e9` + `515e418e` + `42ce2946` + `3f41605d` (exact-file
+  filesystem write-allowlist hardening for Dream memory writes) is a nanobot-specific filesystem-tool
+  allowlist surface hahobot does not mirror (hahobot centralizes write scoping in its own tool-policy
+  layer); reviewed, no portable gap, watchlist. `fc635377` + `09962895` (replay/avoid older long
+  turns, preserve user turns in replay) are the same auto-compact/replay family as the documented
+  `retain_recent_legal_suffix` intentional divergence. The automation-management WebUI cluster,
+  installer, and docs commits are out-of-scope housekeeping.
+- `GenericAgent` (`2026-06-18` pass): re-checked against upstream `main` through `12655687`
+  (`2026-06-18`). Deltas are `12655687` worldline checkpoint-tree rewind for TUI v2 (TUI feature,
+  divergence), `f8ecfdbf` `/update` reconciles the working tree (overlaps hahobot's `/update`
+  clean-worktree precheck + `git pull --ff-only`; the working-tree-reconcile idea is watchlisted
+  against the existing `/update` surface), `37a58c0d` `/continue` preserve session workspace
+  (overlaps hahobot's `--continue`/`--pick-session` resume, already covered), `650d0c5e` Codex
+  metadata on Responses requests (minor request-shape breadth — watchlist), `3a6380ff` MiniMax M3
+  default bump, and `be063e13` macOS AX crop helper (desktop, divergence). No new portable
+  runtime/memory idea this pass.
+- `claude-mem` (`2026-06-18` pass): re-checked against upstream `main` through `aafbb3a2`
+  (`2026-06-17`, v13.6.2). All new work since `b7479f81` is opt-in telemetry (`11eb9a1b` 5-min
+  PostHog rollup buffering), CI automation (`b1dfe1fd` auto-close tracked issues), and
+  changelog/version/version-bump-handoff housekeeping. Anonymous analytics remains an intentional
+  divergence for hahobot's file-first, zero-dependency memory model; nothing to adopt.
+- `nocturne_memory` (`2026-06-18` pass): re-checked against upstream `main`; `beee74a3`
+  (`2026-06-15`, the prior boundary) is still `HEAD` — no new commits since the last pass.
+- `jiuwenswarm` (`2026-06-18` pass): atomgit remains a client-rendered SPA with no public commit
+  API, so commit-level diffing is unavailable (as in prior passes). The Huawei Xiaoyi A2A WebSocket
+  channel (`channels.xiaoyi`) remains the ported surface; no new portable idea this pass.
 - `nanobot` (`2026-06-16` pass): re-checked against upstream `main` through `3ce0cd97`
   (`2026-06-15`); ~70 commits since `ffae1dca`, the bulk WebUI mobile-composer / cron-session
   WebUI churn (intentional divergence). **Three contract-stable fixes ported this pass:**
@@ -365,7 +432,9 @@ This file therefore records both:
 | Malformed history-entry guard | `synced` | `MemoryStore._read_entries` drops `history.jsonl` lines that parse as JSON but carry a malformed shape (non-int cursor, non-string timestamp/content) via a new `_valid_history_payload`, warning once. Previously only JSON-decode errors were skipped, so an external writer's shape-bad entry could crash `read_unprocessed_history`'s `e["cursor"]` access (and downstream dream/consolidation). Ported from nanobot `f85101f0`; tests in `tests/agent/test_memory_store.py`. |
 | SQLite derived-cache concurrency pragmas | `synced` | `memory_facts_sqlite.py` and `history_sqlite.py` open their derived FTS caches through a `_connect()` helper that sets `journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`, and `timeout=5.0`, so concurrent gateway/CLI/Dream/`memory index rebuild` access no longer races into "database is locked". Adopted as a nocturne_memory idea (`52b47f4d`); the markdown/JSONL sidecars remain the source of truth and the caches stay rebuildable. |
 | Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
-| Streaming-idle httpx timeout | `synced` | `LLMProvider._stream_idle_timeout_s()` reads `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s). The anthropic, openai_compat, and openai_codex providers all share the helper, so the previously hardcoded 60s on the Codex provider no longer aborts streams sooner than its peers. The upstream nanobot env var is intentionally not honored here — this is a hahobot-native knob, not a legacy rename-transition. |
+| Streaming-idle httpx timeout | `synced` | `LLMProvider._stream_idle_timeout_s()` reads `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s). The anthropic, openai_compat, and openai_codex providers all share the helper, so the previously hardcoded 60s on the Codex provider no longer aborts streams sooner than its peers. The upstream nanobot env var is intentionally not honored here — this is a hahobot-native knob, not a legacy rename-transition. The override is now validated: non-numeric / non-positive input falls back to the default and anything above `3600` is clamped (warned once), so `HAHOBOT_STREAM_IDLE_TIMEOUT_S=0` no longer makes httpx abort streams instantly. Hardened per nanobot `846410f9`; tests in `tests/providers/test_stream_idle_timeout_config.py`. |
+| Anthropic tool-id pattern sanitization | `synced` | `anthropic_provider._sanitize_tool_id` coerces tool IDs to Anthropic's required `^[a-zA-Z0-9_-]+$` at both wire-format conversion points (`_tool_result_block` `tool_use_id`, `_assistant_blocks` `tool_use` id), appending a `sha1[:8]` suffix to invalid IDs so two distinct bad IDs cannot collapse onto the same value and orphan the `tool_use`/`tool_result` pairing. Prevents a 400 ("String should match pattern") when tool IDs from other providers or restored sessions carry pipes/dots. Defense-in-depth past the earlier `_sanitize_messages` id-normalization. Ported from nanobot `4d7c2074` / `bdf21c93`; tests in `tests/providers/test_anthropic_tool_id_sanitize.py`. |
+| Recent-history digest token cap | `synced` | `context.py`'s recent-history system-prompt section is capped by a token budget (`_MAX_HISTORY_TOKENS = 8_000`) via the new `truncate_text_to_tokens()` helper (shared `cl100k_base` encoder, char-based fallback when the approximate encoder cannot `decode`), replacing the previous `_MAX_HISTORY_CHARS = 32_000`. Characters under-count tokens for CJK / code (relevant for hahobot's default-Chinese users), where 32k chars could be far more than the intended ~8k tokens. Ported from nanobot `973a5ee5`; tests in `tests/utils/test_truncate_tokens.py`. |
 | Session timestamp anchors in model context | `synced` | `Session.get_history(..., include_timestamps=True)` can annotate user/assistant text with `[Message Time: ...]`, and normal prompt assembly plus compaction probes use that timestamped view while persisted session format stays unchanged. |
 | Ask-user clarification tool | `watchlist` | Upstream added an `ask_user` tool plus CLI/WebUI choice rendering. Local hahobot should only adopt this after mapping the UX across CLI, gateway channels, buttons, and session-lock semantics. |
 | CLI input Unicode sanitization | `synced` | Interactive CLI input and prompt history writes replace malformed surrogate code points before dispatch/persistence while preserving valid surrogate pairs as normal Unicode characters. |
@@ -392,6 +461,7 @@ This file therefore records both:
 | OpenAI-compatible API file inputs | `synced` | `hahobot serve` now accepts both JSON and `multipart/form-data`, extracts text-like uploaded or inline base64 file payloads into the prompt, and emits stable placeholders for binary/image attachments while keeping the direct API path single-message and non-streaming. |
 | OpenAI-compatible API usage forwarding | `synced` | `hahobot serve`'s `_chat_completion_response` no longer hardcodes usage to zero. It accepts an optional `usage` dict (deriving `total_tokens` when the provider omits it) and the handler forwards `getattr(agent_loop, "_last_usage", None)` — already tracked by `run_runtime` after every LLM call. Non-streaming only, matching the existing API contract. Ported from nanobot `9814a3b9`; tests in `tests/test_openai_api.py`. |
 | OpenAI-compatible API streaming | `intentional_divergence` | Upstream now supports SSE when `stream=true`; local `hahobot serve` intentionally stays non-streaming until the API contract is deliberately expanded across docs, tests, and client expectations together. |
+| API empty-response retry user-turn dedup | `watchlist` | nanobot `d75f8043` + `7bec0f6e` pass `persist_user_message=False` on the non-streaming API empty-response retry so the retry recovers a response without re-recording the user turn. `hahobot serve` does call `process_direct` twice on an empty body, so the duplicate-user-turn exposure is real — but provider-level empty-response retry+failover (the GenericAgent `34d98955` port) means the API-level retry rarely fires, and the fix needs `persist_user_message` threaded through `process_direct` → `_process_message` → the persistence point. Tracked pending that plumbing. |
 | Memory/history pollution caps | `synced` | Recent-history prompt injection, raw archive fallback, and consolidated history entries now have explicit size caps so failed summarization or oversized legacy entries cannot bloat every future prompt. |
 | claude-mem-style private tags | `synced` | `<private>...</private>` blocks are stripped before session persistence, history archives, `HISTORY.md` entries, and Mem0 writes so marked secrets do not become long-term memory. |
 | claude-mem-style observations | `synced` | Archive sidecars now include observation metadata (`type`, `facts`, `concepts`, `files`, title/subtitle/narrative) derived from summarized turns and tool traces. |

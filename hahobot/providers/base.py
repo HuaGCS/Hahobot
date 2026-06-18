@@ -166,13 +166,35 @@ class LLMProvider(ABC):
         self.generation: GenerationSettings = GenerationSettings()
 
     @staticmethod
-    def _stream_idle_timeout_s(default: float = 90.0) -> float:
-        """Resolve the streaming-idle httpx timeout from ``HAHOBOT_STREAM_IDLE_TIMEOUT_S``."""
-        raw = (os.environ.get("HAHOBOT_STREAM_IDLE_TIMEOUT_S") or str(default)).strip()
-        try:
-            return float(raw)
-        except (TypeError, ValueError):
+    def _stream_idle_timeout_s(default: float = 90.0, maximum: float = 3600.0) -> float:
+        """Resolve the streaming-idle httpx timeout from ``HAHOBOT_STREAM_IDLE_TIMEOUT_S``.
+
+        Reject garbage and out-of-range overrides instead of trusting them: a
+        non-positive value (e.g. ``0``) would make httpx time out the stream
+        immediately, and an absurdly large one defeats the idle guard entirely.
+        Non-numeric / non-positive input falls back to ``default`` and anything
+        above ``maximum`` is clamped, warning once. Hardened per nanobot
+        ``846410f9``.
+        """
+        raw = os.environ.get("HAHOBOT_STREAM_IDLE_TIMEOUT_S")
+        if raw is None or not raw.strip():
             return default
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Ignoring invalid HAHOBOT_STREAM_IDLE_TIMEOUT_S={!r}; using {}", raw, default
+            )
+            return default
+        if value <= 0:
+            logger.warning(
+                "Ignoring non-positive HAHOBOT_STREAM_IDLE_TIMEOUT_S={!r}; using {}", raw, default
+            )
+            return default
+        if value > maximum:
+            logger.warning("Clamping HAHOBOT_STREAM_IDLE_TIMEOUT_S={!r} to {}", raw, maximum)
+            return maximum
+        return value
 
     @staticmethod
     def _sanitize_empty_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

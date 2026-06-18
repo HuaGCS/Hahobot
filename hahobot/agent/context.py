@@ -20,7 +20,7 @@ from hahobot.utils.helpers import (
     build_assistant_message,
     current_time_str,
     detect_image_mime,
-    truncate_text,
+    truncate_text_to_tokens,
 )
 from hahobot.utils.prompt_templates import render_template
 
@@ -34,7 +34,10 @@ class ContextBuilder:
     INSIGHTS_FILE = "INSIGHTS.md"
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
     _MAX_RECENT_HISTORY = 50
-    _MAX_HISTORY_CHARS = 32_000
+    # Token budget (not chars): ~32k English chars ≈ 8k tokens, but the same char
+    # count of CJK/code is several times that, so cap by tokens to hold the size
+    # regardless of content. See nanobot 973a5ee5.
+    _MAX_HISTORY_TOKENS = 8_000
 
     def __init__(
         self,
@@ -134,7 +137,8 @@ class ContextBuilder:
             capped = entries[-self._MAX_RECENT_HISTORY :]
             history_text = "\n".join(f"- [{e['timestamp']}] {e['content']}" for e in capped)
             parts.append(
-                "# Recent History\n\n" + truncate_text(history_text, self._MAX_HISTORY_CHARS)
+                "# Recent History\n\n"
+                + truncate_text_to_tokens(history_text, self._MAX_HISTORY_TOKENS)
             )
 
         return "\n\n---\n\n".join(parts)
