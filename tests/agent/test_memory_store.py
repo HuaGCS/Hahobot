@@ -141,6 +141,43 @@ class TestHistoryWithCursor:
         assert len(entries[0]["content"]) < 17_000
         assert "truncated" in entries[0]["content"]
 
+    def test_next_cursor_stays_monotonic_when_sidecar_lags(self, store):
+        """A stale/truncated .cursor must not re-allocate a used cursor."""
+        store.append_history("event 1")
+        store.append_history("event 2")
+        store.append_history("event 3")
+        # Simulate the .cursor sidecar lagging behind history.jsonl (external
+        # writer appended without updating it, or the file was truncated).
+        store._cursor_file.write_text("1", encoding="utf-8")
+        cursor = store.append_history("event 4")
+        assert cursor == 4
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert [e["cursor"] for e in entries] == [1, 2, 3, 4]
+
+    def test_next_cursor_rejects_negative_sidecar(self, store):
+        store.append_history("event 1")
+        store._cursor_file.write_text("-7", encoding="utf-8")
+        cursor = store.append_history("event 2")
+        assert cursor == 2
+
+    def test_next_cursor_survives_malformed_last_entry(self, store):
+        """A bad-shaped tail line must not crash _next_cursor on raw e['cursor']."""
+        store.append_history("event 1")
+        store.append_history("event 2")
+        with open(store.history_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"timestamp": "t", "content": "no cursor key"}) + "\n")
+        # Sidecar still authoritative here, but the tail read must not KeyError.
+        cursor = store.append_history("event 3")
+        assert cursor == 3
+
+    def test_read_entries_drops_negative_cursor(self, store):
+        store.append_history("good 1")
+        with open(store.history_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"cursor": -1, "timestamp": "t", "content": "negative"}) + "\n")
+        store.append_history("good 2")
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert [e["content"] for e in entries] == ["good 1", "good 2"]
+
 
 class TestDreamCursor:
     def test_initial_cursor_is_zero(self, store):

@@ -65,6 +65,63 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-06-22` pass): re-checked against upstream `main` through `e3c9aff4`
+  (`2026-06-22`); ~60 commits since `a1a62783`, the bulk a quick-start / onboarding-wizard rework
+  (`fc7971b3` → `e3c9aff4`, including `e3c9aff4` gateway background/service controls) plus WebUI
+  churn (intentional divergence). **One contract-stable fix ported this pass:**
+  (1) **History cursor stays monotonic + non-negative** (`be058c09` + `a81c5e70`) — builds directly
+  on the `f85101f0` malformed-history port. `MemoryStore._next_cursor` trusted the `.cursor` sidecar
+  blindly: a value that *lags* behind history.jsonl (truncation, an external writer that appended
+  higher cursors without updating the sidecar) re-allocated an already-used cursor, so
+  `read_unprocessed_history`'s `cursor > since` filter would skip or re-process entries through dream /
+  consolidation; a negative sidecar value (`-7` → `-6`) or a malformed JSONL tail line (raw
+  `last["cursor"]` → `KeyError`) were also unguarded. `_next_cursor` now takes
+  `max(.cursor counter, history tail / max history cursor) + 1` through new `_valid_cursor`
+  (non-negative int, rejects bool) and `_read_cursor_counter` helpers, and `_valid_history_payload`
+  now rejects negative cursors too so the non-negative invariant holds across every read path. Tests
+  in `tests/agent/test_memory_store.py` (`test_next_cursor_*`, `test_read_entries_drops_negative_cursor`).
+  Larger deltas reviewed and **not ported** this pass: `d7abf391` (set an explicit `httpx.Timeout`
+  on the streamableHttp transport instead of `timeout=None`) is **not applicable** — hahobot
+  deliberately runs the MCP HTTP client with `timeout=None` (documented at the call site) because the
+  outer `asyncio.wait_for` tool timeout (`_tool_timeout`) and `connect_timeout` already bound every
+  MCP call/connect, so adopting the upstream httpx-level timeout would just re-introduce the inner
+  preemption hahobot removed on purpose; intentional divergence. `33638417` (delete_session also
+  unlinks the legacy `~/.nanobot/sessions/` path to prevent history revival) is **not applicable** —
+  hahobot's `SessionManager` exposes no session-delete path at all (it only migrates legacy files on
+  load), so there is nothing to leak. `f9511049` + `bbd7bbd7` (ignore malformed / shape-variant MCP
+  progress notifications) is robustness against a custom progress handler hahobot does not register;
+  watchlist. `a5768a4e` (reject unknown builtin tool parameters via `additionalProperties: false`)
+  is a behavior change layered on nanobot's `ObjectSchema` / `validate_json_schema_value` registry,
+  which hahobot's tool layer does not mirror; watchlist. `0bb1b0b3` + `345ef805` + `b6a9a972`
+  (contextvars per-call SDK hooks to fix a concurrent `run()` race) is SDK-facade concurrency churn
+  for nanobot's run-hook surface; watchlist. `7275a81e` + `98916a31` (cache tool schema token
+  estimates) is a token-counting perf optimization; watchlist. `e9494c1d` + `a8c65b50` + `85036bac`
+  (Telegram Bot API 10.1 `sendRichMessage` + fallback latch) is channel-feature breadth; watchlist.
+  `74daa81a` + `d30f3d46` + `5feb6f48` (Keenable search without an API key) is the same Keenable
+  search-provider breadth already watchlisted last pass. `9ed3905a` (non-descriptive placeholder
+  when stripping images) overlaps hahobot's own direct-API image-placeholder contract; watchlist.
+  `215379ac` + `dd4d410c` (Feishu table-card extraction), `99e158c0` (WhatsApp LID→phone seeding),
+  and `adb737b6`/`44f7bbae` (OpenAI reference-image home expansion) are channel/provider breadth;
+  watchlist. The quick-start/onboarding-wizard cluster and WebUI commits are out-of-scope
+  housekeeping (intentional divergence).
+- `GenericAgent` (`2026-06-22` pass): re-checked against upstream `main` through `c85b59e0`
+  (`2026-06-20`). Deltas are `c85b59e0` generic `extra_sys_prompts` slot replacing a hardcoded
+  commit-signature module (GenericAgent-internal prompt architecture), `942bd315`/`be063e13`-family
+  `ljqCtrl` desktop/AX helpers (divergence), `b5a30f19` + `debf04cf` loop-mode + idle auto-action in
+  `stapp` (autonomous-loop framing — intentional divergence), `2057d86a` cleanup-SOP wording, and
+  `3dcca653`/`53b48aea` summary/log-field polish. No new portable runtime/memory idea this pass.
+- `claude-mem` (`2026-06-22` pass): re-checked against upstream `main` through `87e4836a`
+  (`2026-06-21`, v13.8.0). New work since `aafbb3a2` is a PostHog telemetry overhaul (`580621c9`
+  per-session rollups + `ebe61330` observation-volume carry), the `edc5cf7d` "Ponytail audit"
+  (−10.4k lines, worker-restart hardening — Node worker internals), and `87e4836a` a "what-the"
+  Claude Code skill for plain-English breakdowns (Claude-Code hook-layer skill, not a hahobot
+  runtime surface). Anonymous analytics and Node worker machinery remain intentional divergences for
+  hahobot's file-first, zero-dependency memory model; nothing to adopt.
+- `nocturne_memory` (`2026-06-22` pass): re-checked against upstream `main`; `beee74a3`
+  (`2026-06-15`) is still `HEAD` — no new commits since the last pass.
+- `jiuwenswarm` (`2026-06-22` pass): atomgit remains a client-rendered SPA with no public commit
+  API, so commit-level diffing is unavailable (as in prior passes). The Huawei Xiaoyi A2A WebSocket
+  channel (`channels.xiaoyi`) remains the ported surface; no new portable idea this pass.
 - `nanobot` (`2026-06-18` pass): re-checked against upstream `main` through `a1a62783`
   (`2026-06-17`); ~65 commits since `3ce0cd97`, the bulk WebUI automation-management-view churn
   (intentional divergence). **Three contract-stable fixes ported this pass:**

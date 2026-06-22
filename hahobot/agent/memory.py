@@ -539,18 +539,45 @@ class MemoryStore:
         self._cursor_file.write_text(str(cursor), encoding="utf-8")
         return cursor
 
+    @staticmethod
+    def _valid_cursor(value: Any) -> int | None:
+        """Non-negative int cursors only; reject bool (``isinstance(True, int)`` is True)."""
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return None
+        return value
+
+    def _read_cursor_counter(self) -> int | None:
+        """Return the persisted ``.cursor`` counter when it is a usable non-negative int."""
+        if not self._cursor_file.exists():
+            return None
+        try:
+            cursor = int(self._cursor_file.read_text(encoding="utf-8").strip())
+        except (ValueError, OSError):
+            return None
+        return cursor if cursor >= 0 else None
+
+    def _max_history_cursor(self) -> int:
+        return max((e["cursor"] for e in self._read_entries()), default=0)
+
     def _next_cursor(self) -> int:
-        """Read the current cursor counter and return next value."""
-        if self._cursor_file.exists():
-            try:
-                return int(self._cursor_file.read_text(encoding="utf-8").strip()) + 1
-            except (ValueError, OSError):
-                pass
-        # Fallback: read last line's cursor from the JSONL file.
-        last = self._read_last_entry()
-        if last:
-            return last["cursor"] + 1
-        return 1
+        """Read the current cursor counter and return the next value.
+
+        The allocated cursor must stay strictly monotonic even if the ``.cursor``
+        sidecar lags behind history.jsonl (truncation, external writers) or carries
+        a corrupt / negative value, otherwise ``read_unprocessed_history`` / dream /
+        consolidation would re-process or skip entries. So take the max of the
+        ``.cursor`` counter and the history tail rather than trusting either alone.
+        """
+        cursor_counter = self._read_cursor_counter()
+        last = self._read_last_entry() or {}
+        last_cursor = self._valid_cursor(last.get("cursor"))
+        if cursor_counter is not None:
+            if last_cursor is not None:
+                return max(cursor_counter, last_cursor) + 1
+            return max(cursor_counter, self._max_history_cursor()) + 1
+        if last_cursor is not None:
+            return last_cursor + 1
+        return self._max_history_cursor() + 1
 
     def read_unprocessed_history(self, since_cursor: int) -> list[dict[str, Any]]:
         """Return history entries with cursor > *since_cursor*."""
@@ -605,7 +632,9 @@ class MemoryStore:
     def _valid_history_payload(entry: Any) -> bool:
         if not isinstance(entry, dict):
             return False
-        if not isinstance(entry.get("cursor"), int) or isinstance(entry.get("cursor"), bool):
+        # Non-negative int cursor only (reject bool / negative); read_unprocessed_history
+        # filters on ``cursor > since`` and a negative cursor would break that ordering.
+        if MemoryStore._valid_cursor(entry.get("cursor")) is None:
             return False
         if not isinstance(entry.get("timestamp"), str):
             return False
