@@ -612,7 +612,10 @@ class DreamConfig(Base):
     _HOUR_MS = 3_600_000
 
     interval_h: int = Field(default=2, ge=1)  # Every 2 hours by default
-    cron: str | None = Field(default=None, exclude=True)  # Legacy compatibility override
+    # Legacy compatibility override. Use exclude_if (not exclude=True) so an operator-set cron
+    # survives a config round-trip: save_config() / admin saves re-dump the model, and exclude=True
+    # would silently drop a configured cron on the next write. Ported from nanobot 319791cd.
+    cron: str | None = Field(default=None, exclude_if=lambda value: value is None)
     model_override: str | None = Field(
         default=None,
         validation_alias=AliasChoices("modelOverride", "model", "model_override"),

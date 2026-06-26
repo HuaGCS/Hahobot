@@ -65,6 +65,74 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-06-26` pass): re-checked against upstream `main` through `06d5495b`
+  (`2026-06-25`); 75 commits since `e3c9aff4`, the bulk WebUI churn, provider/channel breadth, and a
+  thinking-tag-normalization cluster (intentional divergence / watchlist). **Two contract-stable
+  fixes ported this pass:**
+  (1) **Anthropic duplicate `tool_use` id drop** (`6689e2d3`, first layer) — the Anthropic Messages
+  API 400s ("tool_use ids must be unique") when one assistant turn carries two `tool_use` blocks
+  sharing an id. A mis-assembled stream can surface the same block twice; persisting it verbatim
+  re-sends the malformed turn on every subsequent request and permanently bricks the session (the
+  agent silently stops replying). `anthropic_provider._parse_response` now drops the duplicate (keeps
+  the first, warns) via a `seen_tool_ids` set as the response enters hahobot, so corruption is never
+  persisted. Both `chat()` and `chat_stream()` funnel through `_parse_response` (the stream resolves
+  to a final message first), so this one guard covers both paths. This is a genuine gap: hahobot's
+  existing charset-level `_sanitize_tool_id` does not drop an identical *valid* id, and its
+  duplicate-dedupe logic lived only in the openai-compat provider path, not the Anthropic provider.
+  nanobot's second runner-persistence layer was not needed — hahobot persists from the already-deduped
+  `LLMResponse`. Tests in `tests/providers/test_anthropic_duplicate_tool_id.py`.
+  (2) **Dream legacy `cron` preserved on config save** (`319791cd`) — `DreamConfig.cron` used
+  `exclude=True`, so it was always stripped from `model_dump`. hahobot's `save_config()` (loader.py)
+  and admin saves re-dump the model, so an operator-set legacy cron was silently dropped on the next
+  write (legacy-migration copy, admin save). Changed to `exclude_if=(value is None)` (pydantic 2.12
+  supports it) so a configured cron survives the round-trip while default configs stay clean. The
+  pre-existing `test_dream_config_dump_*` test that asserted a set cron was hidden was inverted to
+  the new contract, plus a round-trip regression test.
+  Larger deltas reviewed and **not ported** this pass: `6c880a66` + `f7b027a2` + `34f776b4`
+  (fast-forward the dream cursor at startup when Dream is disabled, to stop unbounded prompt history
+  injection) is **not applicable** — hahobot has no `dream.enabled` flag (Dream is always-on,
+  registered unconditionally in `serve.py`), so the cursor always advances on schedule, and the
+  recent-history digest is already double-capped (`_MAX_RECENT_HISTORY` entries + `_MAX_HISTORY_TOKENS`),
+  so the unbounded-growth vector the fix targets does not exist. `246ea8ef` + `03302c75` + `42aa37cf`
+  (gate MCP resource/prompt registration behind `enabledTools`, since they have no name filter) is
+  **not applicable** — hahobot never registers MCP resources/prompts at connect time (the
+  `MCPResourceWrapper` / `MCPPromptWrapper` classes exist but are unused in `connect_mcp_servers`), so
+  there is no unfiltered-capability leak to close. `c66a0217` (pass `proxy` to the `ddgs` `DDGS`
+  client) is **not applicable** — hahobot's `_search_duckduckgo` does not use the `ddgs` library; it
+  implements DDG search directly through `httpx.AsyncClient(proxy=self.proxy)`, which already honors
+  the configured proxy. `fbaa8511` (close MCP stdio transports from the agent task, wrapping the run
+  loop in try/finally for anyio same-task teardown) is **watchlisted, not ported** — hahobot's
+  `dispatch_runtime.run()` connects MCP in a *background* task (`schedule_background`) with a separate
+  stack and reconnect coordinator, a materially different teardown architecture; porting an anyio
+  task-affinity fix without reproducing the exact cross-task close failure risks regressions.
+  `de4009ef` (exclude WebUI-archived session keys from heartbeat target selection + fallback session
+  timestamps) is WebUI-archive-coupled (`read_webui_sidebar_state` / `archived_keys`), a surface
+  hahobot does not have; watchlist. The remaining deltas are provider/channel/search breadth — same
+  add-only-with-demand stance as prior passes: `ceae6d7b`+cluster (custom-provider `thinking_style`
+  config), `523bb928`+`35bd1be1`+`98dd883c`+`1e229323`+`a584ffe9` (thinking-tag normalization in
+  reasoning output), `44817b75`+`f9afc938` (Kimi Coding provider), `ddad6c5a` (OpenCode Zen/Go
+  providers), `28c8c89a` (Xiaomi MiMo WebM→WAV transcription), `638af123` (DingTalk richText +
+  timeout), `851a0ff5` (configurable subagent `fail_on_tool_error`), `9354b80a`+`78998572` (Keenable
+  in onboard wizard — same Keenable-search watchlist), `c930aa37`+`e9289960`+`160cec23` (Telegram
+  rich-messages opt-in), and `d481d5fb`+`d7f868b8` (pairing-store sender-id coercion). `0db9fbe2`
+  (default context window 200k) is a config-default flip hahobot keeps at its own default; watchlist.
+  The WebUI / gateway-lifecycle / docs commits are out-of-scope housekeeping (intentional divergence).
+- `GenericAgent` (`2026-06-26` pass): re-checked against upstream `main` through `d2b24f76`
+  (`2026-06-26`); 6 commits since `c85b59e0`. `92218901` + `70792af9` import a desktop client/bridge
+  from a downstream fork (desktop — divergence), `769af50a` + `de27ccc0` revert the v2 worldline
+  checkpoint-tree integration (TUI — already a divergence here), `889859d8` is a WeChat-QR doc bump,
+  and `d2b24f76` adds a `--func` pure-function subagent mode + background-launch merge (GenericAgent's
+  CLI subagent architecture, evaluated against hahobot's existing `spawn(mode=...)` surface — no
+  portable runtime/memory idea). Nothing to adopt this pass.
+- `claude-mem` (`2026-06-26` pass): re-checked against upstream `main` through `16b2c72d`
+  (`2026-06-24`, v13.8.1); 2 commits since `87e4836a` — `16b2c72d` repairs Codex startup hooks / a
+  stale MCP config (Claude-Code/Codex hook-layer internals) and `3fe0725a` a version bump. Both are
+  intentional divergences for hahobot's file-first, zero-dependency memory model; nothing to adopt.
+- `nocturne_memory` (`2026-06-26` pass): re-checked against upstream `main`; `beee74a3`
+  (`2026-06-15`) is still `HEAD` — no new commits since the last pass.
+- `jiuwenswarm` (`2026-06-26` pass): atomgit remains a client-rendered SPA with no public commit
+  API, so commit-level diffing is unavailable (as in prior passes). The Huawei Xiaoyi A2A WebSocket
+  channel (`channels.xiaoyi`) remains the ported surface; no new portable idea this pass.
 - `nanobot` (`2026-06-22` pass): re-checked against upstream `main` through `e3c9aff4`
   (`2026-06-22`); ~60 commits since `a1a62783`, the bulk a quick-start / onboarding-wizard rework
   (`fc7971b3` → `e3c9aff4`, including `e3c9aff4` gateway background/service controls) plus WebUI
@@ -491,6 +559,8 @@ This file therefore records both:
 | Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
 | Streaming-idle httpx timeout | `synced` | `LLMProvider._stream_idle_timeout_s()` reads `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s). The anthropic, openai_compat, and openai_codex providers all share the helper, so the previously hardcoded 60s on the Codex provider no longer aborts streams sooner than its peers. The upstream nanobot env var is intentionally not honored here — this is a hahobot-native knob, not a legacy rename-transition. The override is now validated: non-numeric / non-positive input falls back to the default and anything above `3600` is clamped (warned once), so `HAHOBOT_STREAM_IDLE_TIMEOUT_S=0` no longer makes httpx abort streams instantly. Hardened per nanobot `846410f9`; tests in `tests/providers/test_stream_idle_timeout_config.py`. |
 | Anthropic tool-id pattern sanitization | `synced` | `anthropic_provider._sanitize_tool_id` coerces tool IDs to Anthropic's required `^[a-zA-Z0-9_-]+$` at both wire-format conversion points (`_tool_result_block` `tool_use_id`, `_assistant_blocks` `tool_use` id), appending a `sha1[:8]` suffix to invalid IDs so two distinct bad IDs cannot collapse onto the same value and orphan the `tool_use`/`tool_result` pairing. Prevents a 400 ("String should match pattern") when tool IDs from other providers or restored sessions carry pipes/dots. Defense-in-depth past the earlier `_sanitize_messages` id-normalization. Ported from nanobot `4d7c2074` / `bdf21c93`; tests in `tests/providers/test_anthropic_tool_id_sanitize.py`. |
+| Anthropic duplicate `tool_use` id drop | `synced` | `anthropic_provider._parse_response` drops a duplicate `tool_use` id within one assistant turn (keeps the first, warns) via a `seen_tool_ids` set, so a mis-assembled stream surfacing the same block twice is never persisted and cannot brick the session with a repeated 400 ("tool_use ids must be unique"). Both `chat()` and `chat_stream()` funnel through `_parse_response`, so one guard covers both paths. Independent of the charset-level `_sanitize_tool_id` and the openai-compat-path dedupe (neither drops an identical *valid* Anthropic id). Ported from nanobot `6689e2d3`; tests in `tests/providers/test_anthropic_duplicate_tool_id.py`. |
+| Dream legacy `cron` preserved on config save | `synced` | `DreamConfig.cron` uses `exclude_if=(value is None)` instead of `exclude=True`, so an operator-set legacy cron survives a `save_config()` / admin-save `model_dump` round-trip instead of being silently dropped on the next write (only the default `None` stays out of the dump). Ported from nanobot `319791cd`; tests in `tests/config/test_dream_config.py`. |
 | Recent-history digest token cap | `synced` | `context.py`'s recent-history system-prompt section is capped by a token budget (`_MAX_HISTORY_TOKENS = 8_000`) via the new `truncate_text_to_tokens()` helper (shared `cl100k_base` encoder, char-based fallback when the approximate encoder cannot `decode`), replacing the previous `_MAX_HISTORY_CHARS = 32_000`. Characters under-count tokens for CJK / code (relevant for hahobot's default-Chinese users), where 32k chars could be far more than the intended ~8k tokens. Ported from nanobot `973a5ee5`; tests in `tests/utils/test_truncate_tokens.py`. |
 | Session timestamp anchors in model context | `synced` | `Session.get_history(..., include_timestamps=True)` can annotate user/assistant text with `[Message Time: ...]`, and normal prompt assembly plus compaction probes use that timestamped view while persisted session format stays unchanged. |
 | Ask-user clarification tool | `watchlist` | Upstream added an `ask_user` tool plus CLI/WebUI choice rendering. Local hahobot should only adopt this after mapping the UX across CLI, gateway channels, buttons, and session-lock semantics. |

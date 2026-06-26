@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import json_repair
+from loguru import logger
 
 from hahobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
@@ -493,11 +494,23 @@ class AnthropicProvider(LLMProvider):
         content_parts: list[str] = []
         tool_calls: list[ToolCallRequest] = []
         thinking_blocks: list[dict[str, Any]] = []
+        seen_tool_ids: set[str] = set()
 
         for block in response.content:
             if block.type == "text":
                 content_parts.append(block.text)
             elif block.type == "tool_use":
+                # Anthropic 400s ("tool_use ids must be unique") on any request whose
+                # assistant turn carries two tool_use blocks sharing an id. A mis-assembled
+                # stream can surface the same block twice; persisting it verbatim re-sends the
+                # malformed turn on every subsequent request and permanently bricks the session.
+                # Drop the duplicate as the response enters hahobot (keep the first) so it is
+                # never persisted. Both chat() and chat_stream() funnel through here, so this one
+                # guard covers the streaming and non-streaming paths. Ported from nanobot 6689e2d3.
+                if block.id in seen_tool_ids:
+                    logger.warning("dropping duplicate tool_use id from response: {}", block.id)
+                    continue
+                seen_tool_ids.add(block.id)
                 tool_calls.append(
                     ToolCallRequest(
                         id=block.id,
