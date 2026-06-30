@@ -1,5 +1,6 @@
 """Session management for conversation history."""
 
+import base64
 import json
 import os
 import shutil
@@ -143,10 +144,54 @@ class SessionManager:
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self._cache.clear()
 
+    @staticmethod
+    def _storage_key(key: str) -> str:
+        """Collision-resistant filename stem for a session key.
+
+        The previous scheme, ``safe_filename(key.replace(":", "_"))``, is lossy:
+        distinct keys collapse onto the same stem (e.g. ``tg:a_b`` and ``tg:a:b``
+        both became ``tg_a_b``), so one session's file silently overwrote another.
+        base64url (no padding) is reversible and collision-free.
+        Ported from nanobot 463f5367 / cf2f5896 / 00a907c4 / 3ce77633.
+        """
+        return base64.urlsafe_b64encode(key.encode()).decode().rstrip("=")
+
+    @staticmethod
+    def _decode_storage_key(stem: str) -> str | None:
+        """Reverse :meth:`_storage_key`: decode a base64url stem back to the key."""
+        try:
+            padding = 4 - len(stem) % 4
+            if padding != 4:
+                stem += "=" * padding
+            return base64.urlsafe_b64decode(stem).decode("utf-8")
+        except Exception:
+            return None
+
+    @staticmethod
+    def _stored_key_for_path(path: Path) -> str | None:
+        """Read the session key recorded in a file's metadata row, if present."""
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    if data.get("_type") == "metadata":
+                        stored = data.get("key")
+                        return stored if isinstance(stored, str) else None
+                    return None
+        except Exception:
+            return None
+        return None
+
     def _get_session_path(self, key: str) -> Path:
-        """Get the file path for a session."""
-        safe_key = safe_filename(key.replace(":", "_"))
-        return self.sessions_dir / f"{safe_key}.jsonl"
+        """Get the collision-resistant workspace path for a session."""
+        return self.sessions_dir / f"{self._storage_key(key)}.jsonl"
+
+    def _get_legacy_lossy_path(self, key: str) -> Path:
+        """Previous workspace path using the lossy ':' -> '_' replacement scheme."""
+        return self.sessions_dir / f"{safe_filename(key.replace(':', '_'))}.jsonl"
 
     def _get_legacy_session_path(self, key: str) -> Path:
         """Legacy global session path (~/.hahobot/sessions/)."""
@@ -177,11 +222,29 @@ class SessionManager:
         """Load a session from disk."""
         path = self._get_session_path(key)
         if not path.exists():
-            legacy_path = self._get_legacy_session_path(key)
-            if legacy_path.exists():
+            # Migrate from older filename schemes, newest-scheme-first. Guard each
+            # migration by the file's stored key so a lossy-scheme file shared by two
+            # colliding keys is only adopted by its rightful owner (the other key
+            # falls through to a fresh session instead of stealing the wrong history).
+            for legacy_path, desc in (
+                (self._get_legacy_lossy_path(key), "legacy lossy path"),
+                (self._get_legacy_session_path(key), "legacy global path"),
+            ):
+                if legacy_path == path or not legacy_path.exists():
+                    continue
+                stored_key = self._stored_key_for_path(legacy_path)
+                if stored_key and stored_key != key:
+                    logger.info(
+                        "Skipping migration of {} from {}: file belongs to {}",
+                        key,
+                        desc,
+                        stored_key,
+                    )
+                    continue
                 try:
                     shutil.move(str(legacy_path), str(path))
-                    logger.info("Migrated session {} from legacy path", key)
+                    logger.info("Migrated session {} from {}", key, desc)
+                    break
                 except Exception:
                     logger.exception("Failed to migrate session {}", key)
 
@@ -337,9 +400,14 @@ class SessionManager:
             raise
         self._mark_persisted(session)
 
-    def _repair(self, key: str) -> Session | None:
-        """Recover valid lines from a partially written or corrupt JSONL session."""
-        path = self._get_session_path(key)
+    def _repair(self, key: str, *, path: Path | None = None) -> Session | None:
+        """Recover valid lines from a partially written or corrupt JSONL session.
+
+        ``path`` may be passed explicitly so ``list_sessions`` can repair the actual
+        on-disk file even when its stem does not round-trip to *key*.
+        """
+        if path is None:
+            path = self._get_session_path(key)
         if not path.exists():
             return None
 
@@ -415,9 +483,12 @@ class SessionManager:
         sessions = []
 
         for path in self.sessions_dir.glob("*.jsonl"):
+            # Prefer the reversible base64url stem; fall back to the old lossy scheme
+            # for files written before the storage-key migration.
+            fallback_key = self._decode_storage_key(path.stem) or path.stem.replace("_", ":", 1)
             try:
                 created_at = None
-                key = path.stem.replace("_", ":", 1)
+                key = fallback_key
                 with open(path, encoding="utf-8") as f:
                     first_line = f.readline().strip()
                     if first_line:
@@ -437,7 +508,7 @@ class SessionManager:
                     }
                 )
             except Exception:
-                repaired = self._repair(path.stem.replace("_", ":", 1))
+                repaired = self._repair(fallback_key, path=path)
                 if repaired is not None:
                     sessions.append(
                         {

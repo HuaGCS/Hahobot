@@ -65,6 +65,89 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-06-30` pass): re-checked against upstream `main` through `8df10020`
+  (`2026-06-30`); 46 commits since `06d5495b`, the bulk a neonize WhatsApp-bridge rewrite
+  (`2a9e288d` + docker cluster — intentional divergence: hahobot keeps its TypeScript bridge),
+  WebUI reconnect/minimap churn, and a context-replay-cap refactor. **Five contract-stable fixes
+  ported this pass:**
+  (1) **Exec allowlist bypass via chained commands** (`aa6c1bf3` + `2bf111f4`) — `ExecTool._guard_command`
+  matched `allow_patterns` with `re.search`, so an allowlist like `^git status` was bypassed by
+  chaining (`git status; <anything>`): the pattern still matched at the start while the appended
+  command rode through. Changed to `re.fullmatch` so an allowlist entry must match the WHOLE
+  lowercased command. hahobot's deny-first structure is unchanged (deny patterns still `re.search`,
+  correctly matching anywhere); nanobot's intermediate shell-comment-stripping (`match_text`) was
+  added then reverted upstream, so hahobot never adopts it. Tests in
+  `tests/tools/test_exec_allow_patterns.py`. nanobot's companion `13c951aa` (flip exec login-shell
+  default true→false) is **not applicable** — hahobot's `ExecTool` has no login-shell concept.
+  (2) **Collision-resistant session storage keys** (`463f5367` + `cf2f5896` + `00a907c4` + `3ce77633`
+  + `c90e4330` + `89dc34df`) — `SessionManager` derived the on-disk filename from
+  `safe_filename(key.replace(":", "_"))`, which is lossy: distinct keys collapse onto one stem (e.g.
+  `tg:a_b` and `tg:a:b` both became `tg_a_b`), so one session silently overwrote another. A new
+  `_storage_key` (base64url, no padding) is reversible and collision-free; `_decode_storage_key`
+  reverses it for `list_sessions`. `_load` now migrates from the legacy lossy workspace path and the
+  legacy global path newest-scheme-first, guarding each migration by the file's stored metadata `key`
+  so a lossy file shared by two colliding keys is only adopted by its rightful owner. `_repair`
+  accepts an explicit `path=` so `list_sessions` can repair the actual on-disk file. nanobot's WebUI
+  `session_list_index` coupling is **not applicable** (hahobot has no WebUI). Tests in
+  `tests/test_session_collision.py`.
+  (3) **Anthropic typeless content blocks coerced to text** (`efb792ff` + `00a7de01`) — the Messages
+  API 400s on any content block missing a `type` ("content.0.type: Field required"). A tool that
+  returned a bare dict (no `type`) was forwarded verbatim by both `_assistant_blocks` and
+  `_convert_user_content`. Both now stringify a typeless dict through a new
+  `_stringify_typeless_block` (JSON, `default=str`) instead of emitting a block the API rejects.
+  Tests in `tests/providers/test_anthropic_typeless_block.py`.
+  (4) **Tool-call id dedup on the non-streaming parse paths** (`3ca82ea8`) — `OpenAICompatProvider`'s
+  streaming path already deduped reused tool_call ids (Zhipu/GLM reuse one id for parallel calls), but
+  both non-stream `_parse` paths (dict-mapping and SDK-object) minted `ToolCallRequest`s straight from
+  the upstream id, so a reused id produced ambiguous tool-result pairing. Both now run the same
+  seen-id reassignment as the streaming path. Tests in `tests/providers/test_nonstream_tool_id_dedup.py`.
+  (5) **Degenerate (nameless) tool calls dropped before persistence** (`8248d075`, portable core only)
+  — a tool call with `name=None`/`""` cannot execute and, once saved, bricks the session on replay
+  (Anthropic 400 "tool_use.name: Input should be a valid string") — the same session-bricking class
+  as the duplicate-tool_use-id fix. Added `ToolCallRequest.has_valid_name()`; `AgentRunner` now filters
+  invalid-name calls out of `response.tool_calls` (warning once) before they are persisted/executed, and
+  `format_tool_hints` skips them instead of raising `AttributeError`. nanobot's bulk
+  `context_governance.py` (+113) / `runner.py` (+97) governance machinery is nanobot-specific and **not
+  ported**. Tests in `tests/agent/test_malformed_tool_call.py`.
+  Larger deltas reviewed and **not ported** this pass: `2a9e288d` + `fbf96a35` + `5281e672` +
+  `dbb53109` + `bfb42466` (replace the WhatsApp bridge with the Python `neonize` library + docker
+  fallout) is a deliberate **intentional divergence** — hahobot ships and maintains its own TypeScript
+  `bridge/` project. `40282e3b` + `dacc6992` + `c8638dee` + `57f0c859` + `5692f7a6` + `8fa9eed6`
+  (scale the replay cap with the context window, retire the `maxMessages` setting, `RetentionResult`
+  refactor) is nanobot-specific context/retention plumbing that overlaps hahobot's own
+  `retain_recent_legal_suffix` / token-capped digest; watchlist. `3460ca3c` (gate microcompaction on
+  context pressure) targets nanobot's microcompaction surface hahobot does not mirror; watchlist.
+  `9b45fc11` (remove the `[Message Time: …]` replay prefixes) **reverses** the surface hahobot just
+  added via `get_history(..., include_timestamps=True)` — hahobot's variant is opt-in and read-only,
+  so this is watchlisted pending evidence the anchors hurt rather than help. `67ce6822` (deliver MCP
+  tool image content as artifacts) is an MCP media feature; watchlist. `66fc5442` (include `_stream_id`
+  in stream-delta coalescing key) sits in nanobot's `channels/manager.py` WebUI-stream path; watchlist.
+  `e5dbb15c` (guard cron public APIs against an unavailable store), `194e9d5f` / `5005bca3` (WebUI
+  reconnect), `8df10020` (WebUI minimap), and the docker/ci/docs commits are WebUI/housekeeping —
+  intentional divergence / out of scope.
+- `GenericAgent` (`2026-06-30` pass): re-checked against upstream `main` through `b1e173dc`
+  (`2026-06-28`); 7 commits since `d2b24f76`. The bulk is the new **ultraplan** orchestrator
+  (`eedc5e4f` phase/parallel/pipeline + phase-tree HTML monitor, `bcda2cef` `ga_httpapp` +
+  `ultraplan_sop` whitelist, `18b4a791` loop controller / service discovery, `5b5a3e4b` httpapp output
+  auth, `313e06d2` `--history` arg + in-memory intervene/keyinfo injection + `export_history`) plus
+  `c25ea7c1` cap parallel `max_workers` to 3 and `b1e173dc` a turn-end summary fallback fix. ultraplan
+  is GenericAgent's own multi-agent orchestration layer; it maps onto hahobot's existing
+  `spawn(mode=...)` / subagent surface and the workflow tooling, and the `max_workers` cap overlaps the
+  long-watchlisted `maxConcurrentSubagents` item. No portable contract-stable runtime/memory fix this
+  pass.
+- `claude-mem` (`2026-06-30` pass): re-checked against upstream `main` through `2648d37d`
+  (`2026-06-29`, v13.9.1); work since `16b2c72d` is `348d9ee4` scope-memories-by-platform-source
+  (recovery), `8d80ca4b` load Codex startup context through MCP, `c348d954` SDK job-terminal /
+  chroma-flag fixes, `ad4bd6f7` observer prose/quota guards, and telemetry/version housekeeping — all
+  Node worker / Claude-Code-Codex hook-layer / Chroma-backend internals. Intentional divergences for
+  hahobot's file-first, zero-dependency memory model; nothing to adopt.
+- `nocturne_memory` (`2026-06-30` pass): re-checked against upstream `main`; the only new commit since
+  `beee74a3` is `15930e09` (`2026-06-26`, update `heartbeat_engine.py`) — an IDE-integration heartbeat
+  surface on the graph-DB/separate-service backend hahobot rejects as intentional divergence. Nothing
+  to adopt.
+- `jiuwenswarm` (`2026-06-30` pass): atomgit remains a client-rendered SPA with no public commit API,
+  so commit-level diffing is unavailable (as in prior passes). The Huawei Xiaoyi A2A WebSocket channel
+  (`channels.xiaoyi`) remains the ported surface; no new portable idea this pass.
 - `nanobot` (`2026-06-26` pass): re-checked against upstream `main` through `06d5495b`
   (`2026-06-25`); 75 commits since `e3c9aff4`, the bulk WebUI churn, provider/channel breadth, and a
   thinking-tag-normalization cluster (intentional divergence / watchlist). **Two contract-stable

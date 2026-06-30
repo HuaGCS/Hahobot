@@ -275,7 +275,12 @@ class ExecTool(Tool):
                 return "Error: Command blocked by safety guard (dangerous pattern detected)"
 
         if self.allow_patterns:
-            if not any(re.search(p, lower) for p in self.allow_patterns):
+            # Use fullmatch (not search) so an allowlist entry must match the WHOLE
+            # command. With re.search, an allowlist like "^git status" is bypassed by
+            # chaining ("git status; <anything>") because the pattern still matches at
+            # the start while the appended command rides through. Ported from nanobot
+            # aa6c1bf3 / 2bf111f4.
+            if not any(re.fullmatch(p, lower) for p in self.allow_patterns):
                 return "Error: Command blocked by safety guard (not in allowlist)"
 
         if self.restrict_to_workspace:

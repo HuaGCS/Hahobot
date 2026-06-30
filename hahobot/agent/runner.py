@@ -142,6 +142,18 @@ class AgentRunner:
             raw_usage = response.usage or {}
             context.response = response
             context.usage = dict(raw_usage)
+            # Drop degenerate tool calls (name=None/"") before they are persisted or
+            # executed. A nameless tool_use block cannot run and, once saved, bricks
+            # the session on replay (Anthropic 400 "tool_use.name: Input should be a
+            # valid string"). Ported from nanobot 8248d075.
+            if response.tool_calls:
+                valid_tool_calls = [tc for tc in response.tool_calls if tc.has_valid_name()]
+                if len(valid_tool_calls) != len(response.tool_calls):
+                    logger.warning(
+                        "Dropped {} tool call(s) with empty/invalid name",
+                        len(response.tool_calls) - len(valid_tool_calls),
+                    )
+                    response.tool_calls = valid_tool_calls
             context.tool_calls = list(response.tool_calls)
             self._accumulate_usage(usage, raw_usage)
 

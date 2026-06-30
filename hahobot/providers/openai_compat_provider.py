@@ -684,6 +684,10 @@ class OpenAICompatProvider(LLMProvider):
                 if reasoning_content is None:
                     reasoning_content = m.get("reasoning_content")
 
+            # Some providers reuse the same tool_call id for parallel calls; the
+            # streaming path already dedupes, so mirror it here. Ported from nanobot
+            # 3ca82ea8.
+            _seen_tc_ids: set[str] = set()
             parsed_tool_calls = []
             for tc in raw_tool_calls:
                 tc_map = self._maybe_mapping(tc) or {}
@@ -692,9 +696,13 @@ class OpenAICompatProvider(LLMProvider):
                 if isinstance(args, str):
                     args = json_repair.loads(args)
                 ec, prov, fn_prov = _extract_tc_extras(tc)
+                raw_id = str(tc_map.get("id") or _short_tool_id())
+                if not raw_id or raw_id in _seen_tc_ids:
+                    raw_id = _short_tool_id()
+                _seen_tc_ids.add(raw_id)
                 parsed_tool_calls.append(
                     ToolCallRequest(
-                        id=str(tc_map.get("id") or _short_tool_id()),
+                        id=raw_id,
                         name=str(fn.get("name") or ""),
                         arguments=args if isinstance(args, dict) else {},
                         extra_content=ec,
@@ -731,15 +739,21 @@ class OpenAICompatProvider(LLMProvider):
             if not content and getattr(m, "reasoning", None):
                 content = m.reasoning
 
+        # Dedup reused tool_call ids on the SDK-object path too (nanobot 3ca82ea8).
+        _seen_tc_ids: set[str] = set()
         tool_calls = []
         for tc in raw_tool_calls:
             args = tc.function.arguments
             if isinstance(args, str):
                 args = json_repair.loads(args)
             ec, prov, fn_prov = _extract_tc_extras(tc)
+            raw_id = str(getattr(tc, "id", None) or _short_tool_id())
+            if not raw_id or raw_id in _seen_tc_ids:
+                raw_id = _short_tool_id()
+            _seen_tc_ids.add(raw_id)
             tool_calls.append(
                 ToolCallRequest(
-                    id=str(getattr(tc, "id", None) or _short_tool_id()),
+                    id=raw_id,
                     name=tc.function.name,
                     arguments=args,
                     extra_content=ec,
