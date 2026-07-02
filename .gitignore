@@ -5,11 +5,9 @@
 .env
 .web
 
-# Local-only / inherited docs kept out of the public repo
+# Local-only AI-agent / contributor guidance (kept out of the public repo)
 AGENTS.md
 CLAUDE.md
-COMMUNICATION.md
-CONTRIBUTING.md
 
 # Python bytecode & caches
 *.pyc
