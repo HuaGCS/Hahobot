@@ -259,6 +259,20 @@ _CONFIG_FIELDS = (
         "admin_config_gateway_admin_auth_key_label",
     ),
     ConfigFieldSpec(
+        "gateway_webui_enabled",
+        ("gateway", "webui", "enabled"),
+        "bool",
+        "admin_config_gateway_webui_enabled_label",
+        restart_required=True,
+    ),
+    ConfigFieldSpec(
+        "gateway_webui_title",
+        ("gateway", "webui", "title"),
+        "text",
+        "admin_config_gateway_webui_title_label",
+        placeholder="Hahobot",
+    ),
+    ConfigFieldSpec(
         "gateway_status_enabled",
         ("gateway", "status", "enabled"),
         "bool",
