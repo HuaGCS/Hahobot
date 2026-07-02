@@ -614,6 +614,8 @@
         "admin_config_api_port_tooltip": "API 服务的监听端口。修改后需重启 <code>serve</code> 新端口才会生效。",
         "admin_config_api_timeout_label": "api.timeout",
         "admin_config_api_timeout_tooltip": "API 服务每个请求的超时时间（秒）。模型较慢或工具链较长时可调大。",
+        "admin_config_api_auth_key_label": "api.authKey",
+        "admin_config_api_auth_key_tooltip": "<code>hahobot serve</code> API 的可选 Bearer 密钥。设置后,除 <code>/health</code> 外每个请求都必须带 <code>Authorization: Bearer &lt;key&gt;</code>。绑定到通配地址（<code>0.0.0.0</code>/<code>::</code>）时<strong>必须</strong>设置,否则 serve 拒绝启动。需重启生效。",
         "admin_config_a2a_enabled_label": "a2a.enabled",
         "admin_config_a2a_enabled_hint": "对外提供 A2A Agent Card 与 JSON-RPC 端点。",
         "admin_config_a2a_enabled_tooltip": "启用后，<code>hahobot serve</code> 会同时提供标准 A2A 协议：<code>/.well-known/agent-card.json</code> 暴露 Agent Card，<code>/a2a</code> 为 JSON-RPC 端点，供其它 A2A agent 调用本 bot。",

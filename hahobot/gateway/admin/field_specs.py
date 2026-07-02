@@ -350,6 +350,13 @@ _CONFIG_FIELDS = (
         "admin_config_api_timeout_label",
         restart_required=True,
     ),
+    ConfigFieldSpec(
+        "api_auth_key",
+        ("api", "authKey"),
+        "text",
+        "admin_config_api_auth_key_label",
+        restart_required=True,
+    ),
     # --- Standard A2A (Agent2Agent) adapter ---
     ConfigFieldSpec(
         "a2a_enabled",

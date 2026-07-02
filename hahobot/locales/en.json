@@ -614,6 +614,8 @@
         "admin_config_api_port_tooltip": "Listen port for the API server. A restart of <code>serve</code> is required before a new port takes effect.",
         "admin_config_api_timeout_label": "api.timeout",
         "admin_config_api_timeout_tooltip": "Per-request timeout in seconds for the API server. Increase it for slow models or long tool chains.",
+        "admin_config_api_auth_key_label": "api.authKey",
+        "admin_config_api_auth_key_tooltip": "Optional Bearer key for the <code>hahobot serve</code> API. When set, every request (except <code>/health</code>) must send <code>Authorization: Bearer &lt;key&gt;</code>. It is <strong>required</strong> when binding to a wildcard address (<code>0.0.0.0</code>/<code>::</code>) — serve refuses to start otherwise. Restart-required.",
         "admin_config_a2a_enabled_label": "a2a.enabled",
         "admin_config_a2a_enabled_hint": "Serve the A2A Agent Card and JSON-RPC endpoint.",
         "admin_config_a2a_enabled_tooltip": "When on, <code>hahobot serve</code> also serves the standard A2A protocol: an Agent Card at <code>/.well-known/agent-card.json</code> and a JSON-RPC endpoint at <code>/a2a</code> so other A2A-compliant agents can call this bot.",
