@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · {{ brand }}</title>
+  <style>
+{% include "gateway/webui/_styles.css" %}
+  </style>
+</head>
+<body>
+  <div class="app">
+    {% with active = 'chat' %}{% include "gateway/webui/_topbar.html" %}{% endwith %}
+
+    <div class="body">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <span>{{ sessions_heading }}</span>
+        </div>
+        <form method="post" action="/app/session/new" class="new-session">
+          <input type="text" name="name" placeholder="{{ new_session_placeholder }}" autocomplete="off">
+          <button type="submit">{{ new_session_label }}</button>
+        </form>
+        <ul class="session-list">
+          {% for s in sessions %}
+          <li>
+            <a class="session-item{% if s.key == active_session %} active{% endif %}"
+               href="/app?session={{ s.key | urlencode }}">
+              <span class="session-key">{{ s.key.split(':', 1)[1] if ':' in s.key else s.key }}</span>
+              <span class="session-time">{{ s.updated_at[:19] if s.updated_at else '' }}</span>
+            </a>
+          </li>
+          {% endfor %}
+          {% if active_session not in (sessions | map(attribute='key') | list) %}
+          <li>
+            <a class="session-item active" href="/app?session={{ active_session | urlencode }}">
+              <span class="session-key">{{ active_session.split(':', 1)[1] }}</span>
+              <span class="session-time">new</span>
+            </a>
+          </li>
+          {% endif %}
+        </ul>
+      </aside>
+
+      <main class="chat" data-session="{{ active_session }}">
+        <button id="scroll-latest" type="button" class="scroll-latest" title="{{ scroll_latest_label }}" hidden>↓</button>
+        <div class="chat-scroll" id="chat-scroll">
+          {% if not messages %}
+          <div class="empty">{{ empty_conversation }}</div>
+          {% endif %}
+          {% for m in messages %}
+          <div class="msg {{ m.role }}">
+            <div class="bubble">{{ m.content }}</div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="checkpoint" id="checkpoint-panel"{% if not checkpoint %} hidden{% endif %}
+             data-heading="{{ checkpoint_heading }}"
+             data-goal-label="{{ checkpoint_goal_label }}"
+             data-current-label="{{ checkpoint_current_label }}"
+             data-next-label="{{ checkpoint_next_label }}">
+          {% if checkpoint %}
+          <div class="checkpoint-head">{{ checkpoint_heading }}</div>
+          {% if checkpoint.goal %}<div class="checkpoint-row"><span>{{ checkpoint_goal_label }}</span>{{ checkpoint.goal }}</div>{% endif %}
+          {% if checkpoint.current_step %}<div class="checkpoint-row"><span>{{ checkpoint_current_label }}</span>{{ checkpoint.current_step }}</div>{% endif %}
+          {% if checkpoint.next_step %}<div class="checkpoint-row"><span>{{ checkpoint_next_label }}</span>{{ checkpoint.next_step }}</div>{% endif %}
+          {% endif %}
+        </div>
+
+        <div class="composer">
+          <form method="post" action="/app/session/fork" class="clear-form">
+            <input type="hidden" name="session" value="{{ active_session }}">
+            <button type="submit" class="ghost" title="{{ fork_label }}">{{ fork_label }}</button>
+          </form>
+          <form method="post" action="/app/session/clear" class="clear-form">
+            <input type="hidden" name="session" value="{{ active_session }}">
+            <button type="submit" class="ghost" title="{{ clear_label }}">{{ clear_label }}</button>
+          </form>
+          <label class="persona-picker" title="{{ persona_label }}">
+            <select id="persona-select">
+              {% for p in personas %}
+              <option value="{{ p }}"{% if p == current_persona %} selected{% endif %}>{{ p }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button id="mic-btn" type="button" class="ghost" title="{{ mic_label }}"
+                  data-recording="{{ mic_recording }}" data-transcribing="{{ mic_transcribing }}"
+                  data-error="{{ mic_error }}">🎤</button>
+          <textarea id="composer-input" rows="1" placeholder="{{ composer_placeholder }}"></textarea>
+          <button id="composer-send" type="button">{{ send_label }}</button>
+        </div>
+        <div class="status-line" id="status-line">{{ connecting_label }}</div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const chat = document.querySelector(".chat");
+      const scroll = document.getElementById("chat-scroll");
+      const input = document.getElementById("composer-input");
+      const sendBtn = document.getElementById("composer-send");
+      const statusLine = document.getElementById("status-line");
+      const personaSelect = document.getElementById("persona-select");
+      const checkpointPanel = document.getElementById("checkpoint-panel");
+      const micBtn = document.getElementById("mic-btn");
+      const scrollLatestBtn = document.getElementById("scroll-latest");
+      const sessionKey = chat.getAttribute("data-session");
+      const CONNECTING = {{ connecting_label | tojson }};
+      const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+
+      function esc(s) {
+        const d = document.createElement("div");
+        d.textContent = s == null ? "" : s;
+        return d.innerHTML;
+      }
+
+      function updateCheckpoint(cp) {
+        if (!checkpointPanel) return;
+        if (!cp || (!cp.goal && !cp.current_step && !cp.next_step)) {
+          checkpointPanel.hidden = true;
+          checkpointPanel.innerHTML = "";
+          return;
+        }
+        const rows = ['<div class="checkpoint-head">' + esc(checkpointPanel.dataset.heading) + "</div>"];
+        if (cp.goal) rows.push('<div class="checkpoint-row"><span>' + esc(checkpointPanel.dataset.goalLabel) + "</span>" + esc(cp.goal) + "</div>");
+        if (cp.current_step) rows.push('<div class="checkpoint-row"><span>' + esc(checkpointPanel.dataset.currentLabel) + "</span>" + esc(cp.current_step) + "</div>");
+        if (cp.next_step) rows.push('<div class="checkpoint-row"><span>' + esc(checkpointPanel.dataset.nextLabel) + "</span>" + esc(cp.next_step) + "</div>");
+        checkpointPanel.innerHTML = rows.join("");
+        checkpointPanel.hidden = false;
+      }
+
+      let ws = null;
+      let assistantBubble = null;
+
+      function scrollToBottom() { scroll.scrollTop = scroll.scrollHeight; }
+
+      function atBottom() {
+        return scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 60;
+      }
+      if (scrollLatestBtn) {
+        scroll.addEventListener("scroll", () => { scrollLatestBtn.hidden = atBottom(); });
+        scrollLatestBtn.addEventListener("click", () => { scrollToBottom(); scrollLatestBtn.hidden = true; });
+      }
+
+      function clearEmpty() {
+        const e = scroll.querySelector(".empty");
+        if (e) e.remove();
+      }
+
+      function addMessage(role, text) {
+        clearEmpty();
+        const wrap = document.createElement("div");
+        wrap.className = "msg " + role;
+        const bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.textContent = text;
+        wrap.appendChild(bubble);
+        scroll.appendChild(wrap);
+        scrollToBottom();
+        return bubble;
+      }
+
+      function renderMedia(bubble, media) {
+        if (!media || !media.length) return;
+        if (!bubble) bubble = addMessage("assistant", "");
+        media.forEach((url) => {
+          if (IMAGE_RE.test(url.split("?")[0])) {
+            const img = document.createElement("img");
+            img.className = "msg-media";
+            img.src = url;
+            img.loading = "lazy";
+            bubble.appendChild(img);
+          } else {
+            const a = document.createElement("a");
+            a.className = "msg-file";
+            a.href = url;
+            a.target = "_blank";
+            a.rel = "noopener";
+            a.textContent = url.split("/").pop();
+            bubble.appendChild(a);
+          }
+        });
+        scrollToBottom();
+      }
+
+      function connect() {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(proto + "//" + location.host + "/app/ws");
+        ws.onopen = () => { statusLine.textContent = ""; };
+        ws.onclose = () => { statusLine.textContent = CONNECTING; setTimeout(connect, 2000); };
+        ws.onerror = () => { statusLine.textContent = CONNECTING; };
+        ws.onmessage = (evt) => {
+          let data;
+          try { data = JSON.parse(evt.data); } catch (e) { return; }
+          if (data.event === "delta") {
+            if (!assistantBubble) assistantBubble = addMessage("assistant", "");
+            assistantBubble.textContent += data.text || "";
+            scrollToBottom();
+          } else if (data.event === "progress") {
+            statusLine.textContent = data.text || "";
+          } else if (data.event === "stream_end") {
+            if (!assistantBubble && data.text) assistantBubble = addMessage("assistant", data.text);
+            else if (assistantBubble && data.text) assistantBubble.textContent = data.text;
+            renderMedia(assistantBubble, data.media);
+            updateCheckpoint(data.checkpoint);
+            assistantBubble = null;
+            statusLine.textContent = "";
+            sendBtn.disabled = false;
+          } else if (data.event === "error") {
+            statusLine.textContent = data.text || "error";
+            assistantBubble = null;
+            sendBtn.disabled = false;
+          }
+        };
+      }
+
+      function send() {
+        const text = input.value.trim();
+        if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+        addMessage("user", text);
+        assistantBubble = null;
+        sendBtn.disabled = true;
+        ws.send(JSON.stringify({ event: "message", text: text, session: sessionKey }));
+        input.value = "";
+        input.style.height = "auto";
+      }
+
+      function sendCommand(text) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        assistantBubble = null;
+        sendBtn.disabled = true;
+        ws.send(JSON.stringify({ event: "message", text: text, session: sessionKey }));
+      }
+
+      if (personaSelect) {
+        personaSelect.addEventListener("change", () => {
+          const name = personaSelect.value;
+          if (name) sendCommand("/persona set " + name);
+        });
+      }
+
+      sendBtn.addEventListener("click", send);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+      });
+      input.addEventListener("input", () => {
+        input.style.height = "auto";
+        input.style.height = Math.min(input.scrollHeight, 160) + "px";
+      });
+
+      // --- voice input (MediaRecorder → /app/transcribe) ---
+      let mediaRecorder = null;
+      let recordChunks = [];
+
+      async function startRecording() {
+        if (!navigator.mediaDevices || !window.MediaRecorder) {
+          statusLine.textContent = micBtn.dataset.error;
+          return;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          recordChunks = [];
+          mediaRecorder = new MediaRecorder(stream);
+          mediaRecorder.ondataavailable = (e) => { if (e.data.size) recordChunks.push(e.data); };
+          mediaRecorder.onstop = () => {
+            stream.getTracks().forEach((t) => t.stop());
+            uploadAudio(new Blob(recordChunks, { type: mediaRecorder.mimeType || "audio/webm" }));
+          };
+          mediaRecorder.start();
+          micBtn.classList.add("recording");
+          statusLine.textContent = micBtn.dataset.recording;
+        } catch (e) {
+          statusLine.textContent = micBtn.dataset.error;
+        }
+      }
+
+      function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+        micBtn.classList.remove("recording");
+      }
+
+      async function uploadAudio(blob) {
+        statusLine.textContent = micBtn.dataset.transcribing;
+        const fd = new FormData();
+        fd.append("audio", blob, "voice.webm");
+        try {
+          const resp = await fetch("/app/transcribe", { method: "POST", body: fd });
+          if (!resp.ok) { statusLine.textContent = micBtn.dataset.error; return; }
+          const data = await resp.json();
+          if (data.text) {
+            input.value = input.value ? input.value + " " + data.text : data.text;
+            input.dispatchEvent(new Event("input"));
+            input.focus();
+          }
+          statusLine.textContent = "";
+        } catch (e) {
+          statusLine.textContent = micBtn.dataset.error;
+        }
+      }
+
+      if (micBtn) {
+        micBtn.addEventListener("click", () => {
+          if (mediaRecorder && mediaRecorder.state === "recording") stopRecording();
+          else startRecording();
+        });
+      }
+
+      connect();
+      scrollToBottom();
+    })();
+  </script>
+</body>
+</html>

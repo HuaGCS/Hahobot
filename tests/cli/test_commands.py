@@ -990,6 +990,7 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         host: str = "127.0.0.1",
         port: int = 8900,
         a2a_config=None,
+        auth_key: str = "",
     ):
         seen["agent_loop"] = agent_loop
         seen["model_name"] = model_name
@@ -997,6 +998,7 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         seen["create_app_host"] = host
         seen["create_app_port"] = port
         seen["a2a_config"] = a2a_config
+        seen["auth_key"] = auth_key
         return _FakeApiApp()
 
     def _fake_run_app(api_app, host: str, port: int, print):
@@ -1416,6 +1418,8 @@ def test_gateway_constructs_http_server_without_public_file_options(
             runtime_status_tracker,
             heartbeat_service,
             subagent_manager=None,
+            agent=None,
+            session_manager=None,
         ) -> None:
             seen["host"] = host
             seen["port"] = port
@@ -1426,6 +1430,8 @@ def test_gateway_constructs_http_server_without_public_file_options(
             seen["runtime_status_tracker"] = runtime_status_tracker
             seen["heartbeat_service"] = heartbeat_service
             seen["subagent_manager"] = subagent_manager
+            seen["agent"] = agent
+            seen["session_manager"] = session_manager
             seen["http_server_ctor"] = True
             raise _StopGatewayError("stop")
 

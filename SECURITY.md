@@ -109,6 +109,22 @@ File operations have path traversal protection, but:
 - Timeouts are configured to prevent hanging requests
 - Consider using a firewall to restrict outbound connections if needed
 
+**OpenAI-compatible API server (`hahobot serve`):**
+- Binds to `127.0.0.1` by default (local-only). Set `api.authKey` to require
+  `Authorization: Bearer <authKey>` on every request (the `/health` probe stays open).
+- Must set `api.authKey` when binding to a wildcard address (`0.0.0.0` or `::`);
+  otherwise startup fails to prevent unauthenticated network access.
+
+**Gateway admin & chat WebUI:**
+- The built-in admin page (`/admin`) and the chat WebUI (`/app`) are disabled by default. Both are
+  unreachable (`404`) unless `gateway.admin` is enabled with a non-empty `authKey`; the WebUI shares
+  the admin login session (there is no separate WebUI credential) and its chat WebSocket (`/app/ws`)
+  rejects unauthenticated connections with `401`.
+
+**MCP servers:**
+- MCP server URLs may embed credentials (`https://user:token@host/sse` or a `?token=`
+  query). Such URLs are redacted (origin only, path masked) before being written to logs.
+
 **WhatsApp Bridge:**
 - The bridge binds to `127.0.0.1:3001` (localhost only, not accessible from external network)
 - Set `bridgeToken` in config to enable shared-secret authentication between Python and Node.js

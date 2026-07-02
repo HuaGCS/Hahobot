@@ -16,6 +16,7 @@ from hahobot.agent.personas import DEFAULT_PERSONA
 from hahobot.config.loader import load_config
 from hahobot.gateway.admin import register_admin_routes, update_admin_runtime_workspace
 from hahobot.gateway.runtime_status import GatewayRuntimeStatusTracker
+from hahobot.gateway.webui import register_webui_routes
 from hahobot.heartbeat.service import HeartbeatService, HeartbeatStatusSnapshot
 from hahobot.star_office import StarOfficeStatusTracker
 from hahobot.utils.html_templates import render_html_template
@@ -204,6 +205,8 @@ def create_http_app(
     runtime_status_tracker: GatewayRuntimeStatusTracker | None = None,
     heartbeat_service: HeartbeatService | None = None,
     subagent_manager: object | None = None,
+    agent: object | None = None,
+    session_manager: object | None = None,
 ) -> web.Application:
     """Create the gateway HTTP app."""
     app = web.Application()
@@ -267,6 +270,9 @@ def create_http_app(
             reload_runtime=reload_runtime,
             subagent_manager=subagent_manager,
         )
+        # WebUI shares the admin config/workspace/auth wiring; routes no-op at
+        # request time unless gateway.webui + gateway.admin are enabled.
+        register_webui_routes(app, agent=agent, session_manager=session_manager)
     return app
 
 
@@ -285,6 +291,8 @@ class GatewayHttpServer:
         runtime_status_tracker: GatewayRuntimeStatusTracker | None = None,
         heartbeat_service: HeartbeatService | None = None,
         subagent_manager: object | None = None,
+        agent: object | None = None,
+        session_manager: object | None = None,
     ):
         self.host = host
         self.port = port
@@ -296,6 +304,8 @@ class GatewayHttpServer:
             runtime_status_tracker=runtime_status_tracker,
             heartbeat_service=heartbeat_service,
             subagent_manager=subagent_manager,
+            agent=agent,
+            session_manager=session_manager,
         )
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None

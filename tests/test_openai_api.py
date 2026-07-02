@@ -105,6 +105,44 @@ def test_chat_completion_response_preserves_provider_total() -> None:
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
+async def test_no_auth_key_allows_unauthenticated_requests(aiohttp_client, mock_agent) -> None:
+    """Default (no auth_key) keeps the API open for local use."""
+    app = create_app(mock_agent, model_name="test-model", request_timeout=10.0)
+    client = await aiohttp_client(app)
+    resp = await client.get("/v1/models")
+    assert resp.status == 200
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_auth_key_rejects_missing_and_wrong_bearer(aiohttp_client, mock_agent) -> None:
+    app = create_app(mock_agent, model_name="test-model", request_timeout=10.0, auth_key="s3cret")
+    client = await aiohttp_client(app)
+    # Missing header
+    resp = await client.get("/v1/models")
+    assert resp.status == 401
+    # Wrong key
+    resp = await client.get("/v1/models", headers={"Authorization": "Bearer wrong"})
+    assert resp.status == 401
+    body = await resp.json()
+    assert body["error"]["code"] == 401
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_auth_key_accepts_correct_bearer_and_open_health(aiohttp_client, mock_agent) -> None:
+    app = create_app(mock_agent, model_name="test-model", request_timeout=10.0, auth_key="s3cret")
+    client = await aiohttp_client(app)
+    # Health check stays open even with auth enabled.
+    resp = await client.get("/health")
+    assert resp.status == 200
+    # Correct key passes.
+    resp = await client.get("/v1/models", headers={"Authorization": "Bearer s3cret"})
+    assert resp.status == 200
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
 async def test_missing_messages_returns_400(aiohttp_client, app) -> None:
     client = await aiohttp_client(app)
     resp = await client.post("/v1/chat/completions", json={"model": "test"})

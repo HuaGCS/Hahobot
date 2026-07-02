@@ -1,6 +1,7 @@
 """MCP client: connects to MCP servers and wraps their tools as native hahobot tools."""
 
 import asyncio
+import urllib.parse
 from contextlib import AsyncExitStack
 from typing import Any, TextIO
 
@@ -10,6 +11,26 @@ from loguru import logger
 from hahobot.agent.tools.base import Tool
 from hahobot.agent.tools.registry import ToolRegistry
 from hahobot.security.network import validate_resolved_url
+
+
+def _redact_url(url: str) -> str:
+    """Strip credentials and query/fragment before logging an MCP URL.
+
+    Server URLs may embed secrets (``https://user:token@host/sse`` or a
+    ``?token=`` query). Some deployments also put opaque tokens in the path, so
+    log only the origin and a path placeholder. Ported from nanobot ``780093d0``
+    / ``bfc2a74e`` / ``f9b02496``.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+        hostname = parts.hostname or ""
+        netloc = f"[{hostname}]" if ":" in hostname else hostname
+        if parts.port:
+            netloc = f"{netloc}:{parts.port}"
+        path = "/..." if parts.path and parts.path != "/" else parts.path
+        return urllib.parse.urlunsplit((parts.scheme, netloc, path, "", ""))
+    except Exception:
+        return "<redacted-url>"
 
 
 def _make_mcp_redirect_validator(configured_url: str):
@@ -36,7 +57,7 @@ def _make_mcp_redirect_validator(configured_url: str):
         ok, error = await validate_resolved_url(str(request.url))
         if not ok:
             raise httpx.RequestError(
-                f"Blocked MCP redirect to unsafe URL {request.url} ({error})",
+                f"Blocked MCP redirect to unsafe URL {_redact_url(str(request.url))} ({error})",
                 request=request,
             )
 

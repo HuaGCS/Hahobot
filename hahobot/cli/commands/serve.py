@@ -83,10 +83,19 @@ def serve(
     console.print(f"  [cyan]Model[/cyan]    : {model_name}")
     console.print("  [cyan]Session[/cyan]  : api:default")
     console.print(f"  [cyan]Timeout[/cyan]  : {timeout}s")
+    auth_key = (api_cfg.auth_key or "").strip()
     if host in {"0.0.0.0", "::"}:
+        if not auth_key:
+            console.print(
+                "[red]Error:[/red] API is bound to all interfaces "
+                f"({host}) but api.authKey is not set. Set api.authKey in config "
+                "to prevent unauthenticated network access."
+            )
+            raise typer.Exit(1)
         console.print(
-            "[yellow]Warning:[/yellow] API is bound to all interfaces. "
-            "Only do this behind a trusted network boundary, firewall, or reverse proxy."
+            "[yellow]Warning:[/yellow] API is bound to all interfaces "
+            "(authentication required). Only do this behind a trusted network "
+            "boundary, firewall, or reverse proxy."
         )
     console.print()
     if runtime_config.a2a.enabled:
@@ -99,6 +108,7 @@ def serve(
         host=host,
         port=port,
         a2a_config=runtime_config.a2a,
+        auth_key=auth_key,
     )
 
     async def on_startup(_app):
@@ -356,6 +366,8 @@ def gateway(
         runtime_status_tracker=runtime_status_tracker,
         heartbeat_service=heartbeat,
         subagent_manager=agent.subagents,
+        agent=agent,
+        session_manager=session_manager,
     )
 
     if channels.enabled_channels:

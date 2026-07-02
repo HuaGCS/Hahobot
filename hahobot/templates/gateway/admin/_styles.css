@@ -76,6 +76,23 @@
       box-shadow: var(--shadow);
       backdrop-filter: blur(14px);
     }
+    /* Shared chrome with the chat WebUI: a topbar above the admin header when
+       gateway.webui is enabled, so /app and /admin read as one application. */
+    .webui-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.22);
+    }
+    .webui-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; }
+    .webui-brand-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      background: #f05a3c; box-shadow: 0 0 12px #f05a3c;
+    }
+    .webui-topnav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     header {
       padding: 18px 22px 20px;
       border-bottom: 1px solid var(--line);

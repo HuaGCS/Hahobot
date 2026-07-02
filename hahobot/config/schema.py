@@ -795,6 +795,9 @@ class ApiConfig(Base):
     host: str = "127.0.0.1"  # Safer default: local-only bind.
     port: int = 8900
     timeout: float = 120.0  # Per-request timeout in seconds.
+    # Optional Bearer-token key. Required when binding to a wildcard address
+    # (0.0.0.0 / ::); `serve` refuses to start on a wildcard bind without it.
+    auth_key: str = ""
 
 
 class A2AConfig(Base):
@@ -822,6 +825,18 @@ class GatewayAdminConfig(Base):
 
     enabled: bool = False
     auth_key: str = ""
+
+
+class GatewayWebuiConfig(Base):
+    """Built-in server-rendered chat WebUI (nanobot-style, folds admin into Settings).
+
+    Auth is shared with the admin surface: the WebUI is only reachable when
+    ``gateway.admin`` is enabled with an ``authKey``, and it reuses the admin
+    login session. There is no separate WebUI credential.
+    """
+
+    enabled: bool = False
+    title: str = "Hahobot"
 
 
 class GatewayStatusPushConfig(Base):
@@ -873,6 +888,7 @@ class GatewayConfig(Base):
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
     cron: GatewayCronConfig = Field(default_factory=GatewayCronConfig)
     admin: GatewayAdminConfig = Field(default_factory=GatewayAdminConfig)
+    webui: GatewayWebuiConfig = Field(default_factory=GatewayWebuiConfig)
     status: GatewayStatusConfig = Field(default_factory=GatewayStatusConfig)
 
 

@@ -132,7 +132,9 @@ def _normalize_next_path(value: str | None) -> str:
     if not isinstance(value, str):
         return "/admin"
     value = value.strip()
-    if not value.startswith("/admin"):
+    # Allow returning to either the admin surface or the shared chat WebUI
+    # (which reuses the admin login session).
+    if not value.startswith(("/admin", "/app")):
         return "/admin"
     return value
 
@@ -245,8 +247,29 @@ def _page(
 ) -> web.Response:
     heading_text = heading or title
     lang = _admin_language(request)
+    authenticated = _is_authenticated(request)
+
+    # When the chat WebUI is enabled, admin pages share its top chrome: a
+    # WebUI-style topbar (brand + Chat/Settings + logout) sits above the admin
+    # header and the admin section links become the subnav below it.
+    webui_enabled = False
+    try:
+        webui_enabled = bool(_load_current_config(request).gateway.webui.enabled)
+    except Exception:
+        webui_enabled = False
+
     nav = ""
-    if _is_authenticated(request):
+    if authenticated:
+        logout_html = (
+            ""
+            if webui_enabled
+            else (
+                '<form method="post" action="/admin/logout" class="inline-form">'
+                f'<button type="submit" class="ghost nav-link nav-link-button">'
+                f"{escape(_t(request, 'admin_nav_logout'))}</button>"
+                "</form>"
+            )
+        )
         nav = (
             '<nav class="nav">'
             f"{_nav_link(request, '/admin', 'admin_nav_overview')}"
@@ -258,11 +281,17 @@ def _page(
             f"{_nav_link(request, '/admin/weixin', 'admin_nav_weixin')}"
             f"{_nav_link(request, '/admin/commands', 'admin_nav_commands')}"
             f"{_nav_link(request, '/admin/personas', 'admin_nav_personas')}"
-            '<form method="post" action="/admin/logout" class="inline-form">'
-            f'<button type="submit" class="ghost nav-link nav-link-button">{escape(_t(request, "admin_nav_logout"))}</button>'
-            "</form>"
+            f"{logout_html}"
             "</nav>"
         )
+
+    show_topbar = authenticated and webui_enabled
+    webui_title = "Hahobot"
+    if show_topbar:
+        try:
+            webui_title = _load_current_config(request).gateway.webui.title or "Hahobot"
+        except Exception:
+            webui_title = "Hahobot"
 
     notices: list[str] = []
     if flash:
@@ -283,6 +312,11 @@ def _page(
         language_switch_html=_markup(_language_switch(request)),
         nav_html=_markup(nav),
         notices_html=_markup("".join(notices)),
+        show_webui_topbar=show_topbar,
+        webui_title=webui_title,
+        webui_chat_label=_t(request, "webui_nav_chat"),
+        webui_settings_label=_t(request, "webui_nav_settings"),
+        webui_logout_label=_t(request, "admin_nav_logout"),
         **context,
     )
     response = web.Response(text=html, content_type="text/html")

@@ -180,6 +180,12 @@ OpenAI-compatible API:
 hahobot serve
 ```
 
+The API binds to `127.0.0.1` by default and is unauthenticated for local use. Set
+`api.authKey` to require `Authorization: Bearer <authKey>` on every request (the
+`/health` probe stays open). Binding to a wildcard address (`api.host` = `0.0.0.0`
+or `::`) **requires** `api.authKey`; `hahobot serve` refuses to start otherwise so
+a network-reachable API is never left unauthenticated.
+
 Useful checks:
 
 ```bash
@@ -546,6 +552,17 @@ Notable gateway features:
   `PROFILE.md` / `INSIGHTS.md` memory-layer summary
 - optional status push integration for Star-Office-UI style dashboards
 - optional built-in admin UI at `/admin`
+- optional built-in **chat WebUI** at `/app` (`gateway.webui.enabled`): a nanobot-style,
+  server-rendered chat surface with a conversation sidebar and streaming replies over a WebSocket
+  (`/app/ws`), with the admin pages folded in as its "Settings" area (`/app/settings` — a hub with a
+  runtime panel, last-turn token usage, the active persona's memory-layer summary, and links to every
+  admin section). It shares the admin login
+  session (enable `gateway.admin` with an `authKey`) and runs in the same aiohttp/Jinja runtime —
+  there is no separate SPA. Chat is scoped to `webui:*` sessions so it never writes into a live
+  channel conversation. It also renders generated media inline (images served from `workspace/out`
+  via `/app/media/...`), has an in-chat persona selector, a live working-checkpoint panel, voice
+  input (mic → `/app/transcribe`, using the configured transcription provider), conversation forking,
+  and a responsive mobile layout.
 - Hermes-inspired dashboard styling for `/admin` and browser `/status`, without introducing a
   second SPA runtime
 - read-only sessions, skills, and cron pages in the admin UI for the active runtime workspace

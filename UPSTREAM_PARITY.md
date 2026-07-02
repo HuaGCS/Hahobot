@@ -65,6 +65,83 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-07-01` pass): re-checked against upstream `main` through `c78421cf`
+  (`2026-07-01`); 34 commits since `8df10020`, the bulk WebUI churn (dollar skill shortcuts, provider
+  model catalog kind, prompt-rail minimap — intentional divergence), a typed-outbound-events bus
+  refactor + legacy-metadata/stream-hook compat cluster (`5f4cfbcb` / `03be51ad` / `c78421cf` /
+  `c757c546` — nanobot's channel-plugin runtime event contract, not a hahobot surface), a
+  structured-tool-error refactor (`84935609` / `21aa900d` / `b0258e8b`), and session-recency cleanup
+  (`a6a489e0` / `840ba5af` / `3403b876`). **Two contract-stable security fixes ported this pass:**
+  (1) **MCP server URLs redacted before logging** (`780093d0` + `bfc2a74e` + `f9b02496`) — an MCP
+  server URL can embed credentials (`https://user:token@host/sse` or a `?token=` query), and
+  hahobot's `_make_mcp_redirect_validator` raised `httpx.RequestError` with the raw `request.url` in
+  the message (which propagates to the connect-failure `logger.error`), leaking secrets to logs. Added
+  `_redact_url` (origin only: scheme + host + port, path masked to `/...`, IPv6 brackets preserved,
+  userinfo/query/fragment dropped) and applied it at the blocked-redirect raise. Tests in
+  `tests/agent/test_mcp_ssrf.py` (`test_redact_url_strips_secrets`,
+  `test_blocked_redirect_message_does_not_leak_credentials`).
+  (2) **OpenAI-compatible API Bearer auth + wildcard-bind guard** (`ed483253` + docs `a6d5e4f3`) —
+  hahobot's `serve` had **no auth at all** on the OpenAI-compatible API and only *warned* on a
+  wildcard bind, so `api.host=0.0.0.0` exposed an unauthenticated agent to the network. Added an
+  `api.authKey` schema field; `create_app` now installs an `auth_middleware` that requires
+  `Authorization: Bearer <authKey>` on every request except `/health` (constant-time
+  `hmac.compare_digest`) when a key is set, and the `serve` command refuses to start
+  (`typer.Exit(1)`) on a `0.0.0.0` / `::` bind without a key. Empty `authKey` keeps the API open for
+  local use (unchanged default). README/README_ZH/SECURITY updated. Tests in
+  `tests/test_openai_api.py` (auth middleware) and `tests/cli/test_serve_auth_guard.py` (wildcard
+  guard).
+  Larger deltas reviewed and **not ported** this pass: `f6d1dba3` (tolerate `EINVAL` on parent-dir
+  fsync in cron `_atomic_write`) is **not applicable** — hahobot's `_atomic_write_text`
+  (`agent/memory.py`) does a plain write+`os.replace` with no parent-directory fsync, so there is no
+  `EINVAL` vector. `070aed8a` (skip non-file-edit tools in `apply_final_call_ids`) is **not
+  applicable** — hahobot has no `file_edit_events.py` / streamed file-edit-id remapping machinery.
+  `84935609` + `21aa900d` + `b0258e8b` (structured tool error results / honor MCP tool error results
+  / preserve legacy plugin tool errors) is nanobot's plugin tool-result-contract refactor, layered on
+  its channel-plugin runtime event system hahobot does not mirror; watchlist. `44a5ed1b`
+  (provider-scoped proxy config), `4beca25c` (GitHub Copilot enterprise endpoint overrides),
+  `839d1ecf` (WhatsApp blue-tick read receipts — hahobot ships a TypeScript bridge, and this is the
+  long-watchlisted read-receipt breadth), and `edada598` + `735a2438` (weixin stream-buffer reply
+  retry) are provider/channel breadth — same add-only-with-demand stance. `4726ca04` (explicit
+  gateway restart mode), `bfbae5a7` + `58cce14a` (oauth-login provider default models), `2527ce5d`
+  (bwrap exec sandbox mounts), and the WebUI / bus-event-typing commits are out-of-scope
+  housekeeping / intentional divergence. **WebUI note:** nanobot's React/Vite/Tailwind/shadcn SPA
+  (`webui/` + the `nanobot/webui/` API package) remains an `intentional_divergence` — hahobot does
+  not port the SPA. Instead, hahobot now ships a **server-rendered** chat WebUI (`local_extension`)
+  at `/app` in the existing aiohttp/Jinja gateway runtime (`hahobot/gateway/webui/`), reusing the
+  admin login session, `agent.process_direct` streaming, `SessionManager`, and the WebSocket
+  channel's `ready`/`delta`/`stream_end` frame shape; the admin pages are folded in as its Settings
+  area (`/app/settings`: runtime + last-turn token-usage panels, active-persona memory-layer summary,
+  and links to every admin section). This maps nanobot's WebUI *feature surface* onto hahobot's
+  server-rendered stack rather than mirroring its SPA architecture (target: nanobot feature parity,
+  delivered in phases — chat + settings + inline media + in-chat persona switch + working-checkpoint
+  panel + voice input (`/app/transcribe`) + session forking + mobile/scroll UX landed. Two nanobot
+  WebUI items are **intentional divergences**, not pending work: session-bound *automations* need a
+  persistent server→client push path the WebUI lacks (request-scoped WS, no proactive-delivery route
+  to a `webui:*` session), and *workspace switching* conflicts with hahobot's single-workspace-per-
+  instance model (use admin config's `agents.defaults.workspace`). A pixel-accurate minimap is also
+  out of scope; a scroll-to-latest affordance covers the practical need.
+- `GenericAgent` (`2026-07-01` pass): re-checked against upstream `main` through `fc4235da`
+  (`2026-06-30`); 3 commits since `b1e173dc`. `fc4235da` (background `ljqCtrl` GUI tool + GUI SOP
+  guardrails) is desktop/AX automation (intentional divergence), `66f259c5` refines the UltraPlan
+  orchestration workflow (GenericAgent's own multi-agent layer — maps onto hahobot's
+  `spawn(mode=...)` / workflow tooling, no portable runtime idea), and `2eaca66e fix(llmcore):
+  suppress intermediate error yield during retry and handle ChunkedEncodingError` is a 2-line fix in
+  GenericAgent's monolithic `llmcore.py` streaming-retry path that yields the error string to the UI
+  on every retry attempt — **not applicable**: hahobot retries inside `_run_with_retry` and only
+  surfaces a result after retries/failover, so it never streams intermediate `!!!Error!!!` strings.
+  No portable contract-stable fix this pass.
+- `claude-mem` (`2026-07-01` pass): re-checked against upstream `main` through `cbdce2d6`
+  (`2026-07-01`, v13.9.2); work since `2648d37d` is the hosted-server beta (`d4a7e42a` remote
+  authenticated MCP recall endpoint, `82d6afb8` usage metering / rate-limiting / key issuance,
+  `441c6377` + `482b4f0a` data-deletion / project-purge, `5def0529` docs) plus `29af0284`
+  (`fix(providers): remove client-side context truncation`) — all Node worker / hosted-server /
+  Claude-Code-Codex hook-layer internals. Intentional divergences for hahobot's file-first,
+  zero-dependency memory model; nothing to adopt.
+- `nocturne_memory` (`2026-07-01` pass): re-checked against upstream `main`; `15930e09`
+  (`2026-06-26`, the prior boundary) is still `HEAD` — no new commits since the last pass.
+- `jiuwenswarm` (`2026-07-01` pass): atomgit remains a client-rendered SPA with no public commit
+  API, so commit-level diffing is unavailable (as in prior passes). The Huawei Xiaoyi A2A WebSocket
+  channel (`channels.xiaoyi`) remains the ported surface; no new portable idea this pass.
 - `nanobot` (`2026-06-30` pass): re-checked against upstream `main` through `8df10020`
   (`2026-06-30`); 46 commits since `06d5495b`, the bulk a neonize WhatsApp-bridge rewrite
   (`2a9e288d` + docker cluster — intentional divergence: hahobot keeps its TypeScript bridge),

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ settings_heading }} · {{ title }}</title>
+  <style>
+{% include "gateway/webui/_styles.css" %}
+  </style>
+</head>
+<body>
+  <div class="app">
+    {% with active = 'settings' %}{% include "gateway/webui/_topbar.html" %}{% endwith %}
+
+    <div class="settings-scroll">
+      <h1 class="settings-title">{{ settings_heading }}</h1>
+
+      <div class="panel-grid">
+        <section class="panel">
+          <h2>{{ runtime_heading }}</h2>
+          <div class="kv"><span>{{ model_label }}</span><code>{{ model }}</code></div>
+          <div class="kv"><span>{{ config_label }}</span><code>{{ config_path }}</code></div>
+          <div class="kv"><span>{{ workspace_label }}</span><code>{{ workspace }}</code></div>
+        </section>
+
+        <section class="panel">
+          <h2>{{ usage_heading }}</h2>
+          {% if usage %}
+          <div class="kv"><span>{{ usage_prompt_label }}</span><code>{{ usage.prompt_tokens | default(0) }}</code></div>
+          <div class="kv"><span>{{ usage_completion_label }}</span><code>{{ usage.completion_tokens | default(0) }}</code></div>
+          <div class="kv"><span>{{ usage_total_label }}</span><code>{{ usage.total_tokens | default(0) }}</code></div>
+          {% else %}
+          <div class="muted">{{ usage_empty }}</div>
+          {% endif %}
+        </section>
+
+        <section class="panel">
+          <h2>{{ memory_heading }}</h2>
+          {% if memory %}
+          <div class="kv"><span>persona</span><code>{{ memory.persona }}</code></div>
+          <div class="mem-row">
+            <strong>PROFILE.md</strong>
+            <span class="muted">{{ memory.profile.bullet_count }} {{ memory_bullets_label }}</span>
+            <span class="muted">{{ memory.profile.metadata.tagged_bullets }} {{ memory_tagged_label }}</span>
+            <span class="muted">{{ memory.profile.metadata.with_last_verified }} {{ memory_verified_label }}</span>
+          </div>
+          <div class="mem-row">
+            <strong>INSIGHTS.md</strong>
+            <span class="muted">{{ memory.insights.bullet_count }} {{ memory_bullets_label }}</span>
+            <span class="muted">{{ memory.insights.metadata.tagged_bullets }} {{ memory_tagged_label }}</span>
+            <span class="muted">{{ memory.insights.metadata.with_last_verified }} {{ memory_verified_label }}</span>
+          </div>
+          {% else %}
+          <div class="muted">-</div>
+          {% endif %}
+        </section>
+      </div>
+
+      <h2 class="settings-subtitle">{{ sections_heading }}</h2>
+      <div class="section-grid">
+        {% for href, label in sections %}
+        <a class="section-card" href="{{ href }}">
+          <span class="section-card-title">{{ label }}</span>
+          <span class="section-card-arrow">→</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -13,7 +13,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from hahobot.agent.tools.mcp import _make_mcp_redirect_validator
+from hahobot.agent.tools.mcp import _make_mcp_redirect_validator, _redact_url
 
 
 def _http_cfg(url: str) -> SimpleNamespace:
@@ -80,3 +80,41 @@ async def test_same_host_redirect_is_allowed_even_if_local() -> None:
     validate = _make_mcp_redirect_validator("http://127.0.0.1:3211/mcp")
     redirect = httpx.Request("GET", "http://127.0.0.1:3211/mcp/stream")
     await validate(redirect)  # must not raise
+
+
+# --- URL redaction before logging (nanobot 780093d0 / bfc2a74e / f9b02496) ---
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # userinfo credentials are dropped
+        ("https://user:token@host.example.com/sse", "https://host.example.com/..."),
+        # query/fragment secrets are dropped
+        ("https://host.example.com/mcp?token=SECRET#frag", "https://host.example.com/..."),
+        # opaque path token becomes a placeholder
+        ("https://host.example.com/AbC123SecretPath", "https://host.example.com/..."),
+        # port is preserved
+        ("http://127.0.0.1:3211/mcp", "http://127.0.0.1:3211/..."),
+        # bare origin / root path stays intact
+        ("https://host.example.com/", "https://host.example.com/"),
+        ("https://host.example.com", "https://host.example.com"),
+        # IPv6 host keeps its brackets
+        ("http://[::1]:9000/mcp?k=v", "http://[::1]:9000/..."),
+    ],
+)
+def test_redact_url_strips_secrets(raw: str, expected: str) -> None:
+    assert _redact_url(raw) == expected
+
+
+@pytest.mark.asyncio
+async def test_blocked_redirect_message_does_not_leak_credentials() -> None:
+    """The blocked-redirect error must not echo userinfo/query secrets into logs."""
+    validate = _make_mcp_redirect_validator("https://mcp.example.com/mcp")
+    redirect = httpx.Request("GET", "http://user:s3cr3t@169.254.169.254/meta?token=abc")
+    with pytest.raises(httpx.RequestError) as exc:
+        await validate(redirect)
+    message = str(exc.value)
+    assert "s3cr3t" not in message
+    assert "token=abc" not in message
+    assert "169.254.169.254" in message  # host itself is still useful for triage

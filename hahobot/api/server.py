@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import hmac
 import json
 import mimetypes
 import re
@@ -529,6 +530,7 @@ def create_app(
     host: str = "127.0.0.1",
     port: int = 8900,
     a2a_config: Any | None = None,
+    auth_key: str = "",
 ) -> web.Application:
     """Create the aiohttp application.
 
@@ -539,6 +541,8 @@ def create_app(
         host: Bind address (used for A2A Agent Card URL derivation).
         port: Bind port (used for A2A Agent Card URL derivation).
         a2a_config: Optional A2AConfig; if enabled, registers A2A endpoints.
+        auth_key: Optional Bearer-token key. When set, every request except the
+            health check must send ``Authorization: Bearer <auth_key>``.
     """
     app = web.Application(client_max_size=_API_CLIENT_MAX_SIZE)
     app[AGENT_LOOP_KEY] = agent_loop
@@ -550,6 +554,27 @@ def create_app(
     max_session_locks = 1024
     app[SESSION_LOCKS_KEY] = {}  # per-user locks, keyed by session_key
     app[MAX_SESSION_LOCKS_KEY] = max_session_locks
+
+    auth_key = (auth_key or "").strip()
+    if auth_key:
+
+        @web.middleware
+        async def auth_middleware(request: web.Request, handler):
+            # Allow unauthenticated health checks (used by orchestrators/probes).
+            if request.path == "/health":
+                return await handler(request)
+            auth = request.headers.get("Authorization", "")
+            if not auth.startswith("Bearer "):
+                return _error_json(
+                    401,
+                    "Missing Authorization header. Use: Bearer <api_key>",
+                    err_type="invalid_request_error",
+                )
+            if not hmac.compare_digest(auth[len("Bearer ") :], auth_key):
+                return _error_json(401, "Invalid API key", err_type="invalid_request_error")
+            return await handler(request)
+
+        app.middlewares.append(auth_middleware)
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_models)

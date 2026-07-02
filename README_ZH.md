@@ -1260,6 +1260,26 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
 - admin 页面处理的是当前实例自己的 `config.json` 和当前运行 workspace 下的 persona 文件
 - 多实例下，每个 `--config` 启动的进程都有自己独立的 admin 开关、密钥和 workspace 作用域
 
+内置聊天 WebUI（`gateway.webui.enabled`，默认关闭）：
+
+- 同一个 gateway 进程下的 `/app`，nanobot 风格的**服务端渲染**聊天界面（左侧会话栏 + 流式回复），
+  现有 admin 页面折叠为它的"设置"区（`/app/settings`：运行时面板、最近一轮 token 用量、当前 persona
+  的记忆层摘要，以及指向各 admin 分区的入口卡片）
+- 流式通过 `/app/ws`（aiohttp WebSocket）驱动 `agent.process_direct(on_stream=...)`，复用 WebSocket
+  channel 的 `ready`/`delta`/`stream_end` 帧协议
+- **与 admin 共用登录态**：必须先开启 `gateway.admin` 并设置 `authKey` 才可访问，没有单独的 WebUI 密钥；
+  未登录时跳转到 `/admin/login`
+- 聊天仅限 `webui:*` 会话键，绝不会把消息写进某个真实渠道（如 Telegram）的会话
+- 支持内联媒体：生成的图片经 `/app/media/...` 从 `workspace/out` 提供并在气泡内展示；聊天区带人格选择器，
+  切换时通过 WS 发送 `/persona set <name>`（复用既有命令路由）
+- 带实时工作检查点面板（读取会话 `working_checkpoint`），以及语音输入（麦克风 → `/app/transcribe`，
+  复用已配置的转写 provider：`channels.transcriptionProvider` + `providers.openai`/`groq` 的 key）
+- 支持会话分叉（`/app/session/fork` 复制当前会话为新分支）、回到最新按钮与移动端自适应布局
+- 未做（有意分歧）：会话级定时任务需要服务端→客户端的常驻推送通道（WebUI 的 WS 是请求级、无到 `webui:*`
+  会话的主动投递路径），workspace 切换与 hahobot 单实例单 workspace 模型冲突（改 `agents.defaults.workspace`
+  走 admin 配置）
+- 全程在现有 aiohttp/Jinja 运行时，不引入独立 SPA（nanobot 的 React 前端仍属有意分歧）
+
 当前 admin 页面支持：
 
 - 可视化编辑并校验 `config.json`，同时保留高级 JSON 兜底编辑器
@@ -1662,7 +1682,10 @@ pip install -e ".[api]"
 hahobot serve
 ```
 
-默认绑定地址为 `127.0.0.1:8900`。
+默认绑定地址为 `127.0.0.1:8900`，本地使用时无需鉴权。设置 `api.authKey` 后，除
+`/health` 探针外的每个请求都必须携带 `Authorization: Bearer <authKey>`。当绑定到通配地址
+（`api.host` = `0.0.0.0` 或 `::`）时**必须**设置 `api.authKey`，否则 `hahobot serve`
+会拒绝启动，以避免把可被网络访问的接口暴露成无鉴权状态。
 
 ### 行为约束
 
