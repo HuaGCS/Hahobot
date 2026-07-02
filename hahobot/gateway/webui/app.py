@@ -9,6 +9,7 @@ channel so behavior stays consistent across surfaces.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import os
@@ -37,10 +38,12 @@ from hahobot.gateway.admin.base import (
     _set_lang_cookie,
     _t,
 )
+from hahobot.gateway.webui.broadcast import WebUIBroadcaster, WebUIConnection
 from hahobot.utils.html_templates import render_html_template
 
 _WEBUI_AGENT_KEY = web.AppKey("webui_agent", object)
 _WEBUI_SESSION_MANAGER_KEY = web.AppKey("webui_session_manager", object)
+_WEBUI_BROADCASTER_KEY = web.AppKey("webui_broadcaster", object)
 
 _WEBUI_SESSION_PREFIX = "webui:"
 _DEFAULT_WEBUI_SESSION = "webui:default"
@@ -78,6 +81,11 @@ def _agent(request: web.Request):
 
 def _session_manager(request: web.Request):
     return request.app.get(_WEBUI_SESSION_MANAGER_KEY)
+
+
+def _broadcaster(request: web.Request) -> WebUIBroadcaster | None:
+    value = request.app.get(_WEBUI_BROADCASTER_KEY)
+    return value if isinstance(value, WebUIBroadcaster) else None
 
 
 # --- session helpers ------------------------------------------------------
@@ -444,59 +452,103 @@ async def webui_chat_ws(request: web.Request) -> web.WebSocketResponse:
     if agent is None:
         raise web.HTTPServiceUnavailable(text="agent unavailable")
 
+    # The connection is bound to one conversation for its lifetime: the session
+    # selected on the page. This is the key proactive pushes (cron/heartbeat) are
+    # broadcast under, so it must match the page's `webui:<id>`.
+    session_key = _normalize_session_key(request.query.get("session"))
+    chat_id = session_key.split(":", 1)[1]
+
     ws = web.WebSocketResponse(heartbeat=25.0, max_msg_size=_MAX_WS_MSG_BYTES)
     await ws.prepare(request)
-    await ws.send_json({"event": "ready"})
 
-    async for msg in ws:
-        if msg.type == WSMsgType.ERROR:
-            logger.warning("webui ws connection error: {}", ws.exception())
-            continue
-        if msg.type != WSMsgType.TEXT:
-            continue
-        try:
-            data = json.loads(msg.data)
-        except (ValueError, TypeError):
-            continue
-        if not isinstance(data, dict) or data.get("event") != "message":
-            continue
-        text = str(data.get("text") or data.get("content") or "").strip()
-        if not text:
-            continue
-        session_key = _normalize_session_key(data.get("session"))
-        chat_id = session_key.split(":", 1)[1]
+    broadcaster = _broadcaster(request)
+    conn = WebUIConnection(session_key) if broadcaster is not None else None
 
-        async def on_stream(delta: str) -> None:
-            if delta:
-                await ws.send_json({"event": "delta", "text": delta})
+    async def _emit(frame: dict[str, Any]) -> None:
+        """Single-writer sink: every outbound frame goes through the per-conn queue."""
+        if conn is not None:
+            conn.enqueue(frame)
+        else:
+            await ws.send_json(frame)
 
-        async def on_progress(hint: str, tool_hint: bool = False) -> None:
-            if hint:
-                await ws.send_json({"event": "progress", "text": hint, "tool_hint": tool_hint})
+    async def _writer() -> None:
+        if conn is None:
+            return
+        while True:
+            frame = await conn.queue.get()
+            if frame is None:  # sentinel → shut down
+                return
+            try:
+                await ws.send_json(frame)
+            except (ConnectionResetError, RuntimeError):
+                return
 
-        try:
-            resp = await agent.process_direct(
-                text,
-                session_key=session_key,
-                channel="webui",
-                chat_id=chat_id,
-                on_progress=on_progress,
-                on_stream=on_stream,
+    writer_task = asyncio.create_task(_writer()) if conn is not None else None
+    if broadcaster is not None and conn is not None:
+        broadcaster.register(conn)
+
+    await _emit({"event": "ready"})
+
+    try:
+        async for msg in ws:
+            if msg.type == WSMsgType.ERROR:
+                logger.warning("webui ws connection error: {}", ws.exception())
+                continue
+            if msg.type != WSMsgType.TEXT:
+                continue
+            try:
+                data = json.loads(msg.data)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(data, dict) or data.get("event") != "message":
+                continue
+            text = str(data.get("text") or data.get("content") or "").strip()
+            if not text:
+                continue
+
+            async def on_stream(delta: str) -> None:
+                if delta:
+                    await _emit({"event": "delta", "text": delta})
+
+            async def on_progress(hint: str, tool_hint: bool = False) -> None:
+                if hint:
+                    await _emit({"event": "progress", "text": hint, "tool_hint": tool_hint})
+
+            try:
+                resp = await agent.process_direct(
+                    text,
+                    session_key=session_key,
+                    channel="webui",
+                    chat_id=chat_id,
+                    on_progress=on_progress,
+                    on_stream=on_stream,
+                )
+            except Exception as exc:  # noqa: BLE001 - report failures to the client
+                logger.exception("webui chat turn failed")
+                await _emit({"event": "error", "text": str(exc)})
+                continue
+
+            media = _media_urls(
+                getattr(resp, "media", None) if resp else None, _media_root(request)
             )
-        except Exception as exc:  # noqa: BLE001 - report failures to the client
-            logger.exception("webui chat turn failed")
-            await ws.send_json({"event": "error", "text": str(exc)})
-            continue
-
-        media = _media_urls(getattr(resp, "media", None) if resp else None, _media_root(request))
-        await ws.send_json(
-            {
-                "event": "stream_end",
-                "text": resp.content if resp else "",
-                "media": media,
-                "checkpoint": _working_checkpoint(request, session_key),
-            }
-        )
+            await _emit(
+                {
+                    "event": "stream_end",
+                    "text": resp.content if resp else "",
+                    "media": media,
+                    "checkpoint": _working_checkpoint(request, session_key),
+                }
+            )
+    finally:
+        if broadcaster is not None and conn is not None:
+            broadcaster.unregister(conn)
+        if conn is not None:
+            conn.close()
+        if writer_task is not None:
+            try:
+                await writer_task
+            except asyncio.CancelledError:
+                pass
 
     return ws
 
@@ -506,12 +558,15 @@ def register_webui_routes(
     *,
     agent: object | None = None,
     session_manager: object | None = None,
+    broadcaster: WebUIBroadcaster | None = None,
 ) -> None:
     """Register the WebUI routes on the gateway aiohttp app."""
     if agent is not None:
         app[_WEBUI_AGENT_KEY] = agent
     if session_manager is not None:
         app[_WEBUI_SESSION_MANAGER_KEY] = session_manager
+    if broadcaster is not None:
+        app[_WEBUI_BROADCASTER_KEY] = broadcaster
     app.router.add_get("/app", webui_index)
     app.router.add_get("/app/settings", webui_settings)
     app.router.add_get("/app/media/{name:.*}", webui_media)

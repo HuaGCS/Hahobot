@@ -187,7 +187,7 @@
 
       function connect() {
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
-        ws = new WebSocket(proto + "//" + location.host + "/app/ws");
+        ws = new WebSocket(proto + "//" + location.host + "/app/ws?session=" + encodeURIComponent(sessionKey));
         ws.onopen = () => { statusLine.textContent = ""; };
         ws.onclose = () => { statusLine.textContent = CONNECTING; setTimeout(connect, 2000); };
         ws.onerror = () => { statusLine.textContent = CONNECTING; };
@@ -208,6 +208,11 @@
             assistantBubble = null;
             statusLine.textContent = "";
             sendBtn.disabled = false;
+          } else if (data.event === "push") {
+            // Proactive server-initiated message (cron / heartbeat / message tool).
+            const bubble = data.text ? addMessage("assistant", data.text) : addMessage("assistant", "");
+            renderMedia(bubble, data.media);
+            if (data.checkpoint !== undefined) updateCheckpoint(data.checkpoint);
           } else if (data.event === "error") {
             statusLine.textContent = data.text || "error";
             assistantBubble = null;

@@ -272,6 +272,18 @@ def gateway(
     # Create channel manager
     channels = ChannelManager(config, bus)
 
+    # WebUI proactive-push wiring: one shared broadcaster feeds both the /app/ws
+    # connection registry and a `webui` pseudo-channel injected into the manager,
+    # so cron/heartbeat/message-tool output routed to channel="webui" reaches live
+    # clients (and is persisted into the webui:<id> session for offline reload).
+    webui_broadcaster = None
+    if config.gateway.webui.enabled:
+        from hahobot.gateway.webui.broadcast import WebUIBroadcaster
+        from hahobot.gateway.webui.channel import WebUIChannel
+
+        webui_broadcaster = WebUIBroadcaster()
+        channels.channels["webui"] = WebUIChannel(webui_broadcaster, bus, config.workspace_path)
+
     async def _reload_runtime_state() -> None:
         """Force-reload runtime-configurable state after admin config saves."""
         reloaded = load_config(runtime_config_path)
@@ -368,6 +380,7 @@ def gateway(
         subagent_manager=agent.subagents,
         agent=agent,
         session_manager=session_manager,
+        webui_broadcaster=webui_broadcaster,
     )
 
     if channels.enabled_channels:

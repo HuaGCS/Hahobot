@@ -114,12 +114,15 @@ This file therefore records both:
   and links to every admin section). This maps nanobot's WebUI *feature surface* onto hahobot's
   server-rendered stack rather than mirroring its SPA architecture (target: nanobot feature parity,
   delivered in phases — chat + settings + inline media + in-chat persona switch + working-checkpoint
-  panel + voice input (`/app/transcribe`) + session forking + mobile/scroll UX landed. Two nanobot
-  WebUI items are **intentional divergences**, not pending work: session-bound *automations* need a
-  persistent server→client push path the WebUI lacks (request-scoped WS, no proactive-delivery route
-  to a `webui:*` session), and *workspace switching* conflicts with hahobot's single-workspace-per-
-  instance model (use admin config's `agents.defaults.workspace`). A pixel-accurate minimap is also
-  out of scope; a scroll-to-latest affordance covers the practical need.
+  panel + voice input (`/app/transcribe`) + session forking + mobile/scroll UX + **proactive push**
+  landed. Proactive push closed the former automations gap: a `WebUIBroadcaster` connection registry
+  (`hahobot/gateway/webui/broadcast.py`) + a single-writer bidirectional `/app/ws` + a `webui`
+  pseudo-channel (`channel.py`) injected into `ChannelManager` route cron/heartbeat/`message`-tool
+  output to live clients, with `_record_proactive_delivery` persistence as the offline fallback;
+  scheduling reuses the existing cron tool (captures `channel=webui`). One nanobot WebUI item remains
+  an **intentional divergence**: *workspace switching* conflicts with hahobot's single-workspace-per-
+  instance model (use admin config's `agents.defaults.workspace`). A pixel-accurate minimap is out of
+  scope; a scroll-to-latest affordance covers the practical need.
 - `GenericAgent` (`2026-07-01` pass): re-checked against upstream `main` through `fc4235da`
   (`2026-06-30`); 3 commits since `b1e173dc`. `fc4235da` (background `ljqCtrl` GUI tool + GUI SOP
   guardrails) is desktop/AX automation (intentional divergence), `66f259c5` refines the UltraPlan

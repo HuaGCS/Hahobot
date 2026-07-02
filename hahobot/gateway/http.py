@@ -207,6 +207,7 @@ def create_http_app(
     subagent_manager: object | None = None,
     agent: object | None = None,
     session_manager: object | None = None,
+    webui_broadcaster: object | None = None,
 ) -> web.Application:
     """Create the gateway HTTP app."""
     app = web.Application()
@@ -272,7 +273,12 @@ def create_http_app(
         )
         # WebUI shares the admin config/workspace/auth wiring; routes no-op at
         # request time unless gateway.webui + gateway.admin are enabled.
-        register_webui_routes(app, agent=agent, session_manager=session_manager)
+        register_webui_routes(
+            app,
+            agent=agent,
+            session_manager=session_manager,
+            broadcaster=webui_broadcaster,
+        )
     return app
 
 
@@ -293,6 +299,7 @@ class GatewayHttpServer:
         subagent_manager: object | None = None,
         agent: object | None = None,
         session_manager: object | None = None,
+        webui_broadcaster: object | None = None,
     ):
         self.host = host
         self.port = port
@@ -306,6 +313,7 @@ class GatewayHttpServer:
             subagent_manager=subagent_manager,
             agent=agent,
             session_manager=session_manager,
+            webui_broadcaster=webui_broadcaster,
         )
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None

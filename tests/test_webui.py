@@ -54,7 +54,9 @@ class _StreamingAgent:
         return SimpleNamespace(content=self.reply, media=list(self.media))
 
 
-def _make_app(tmp_path: Path, *, webui_enabled: bool, admin_enabled: bool = True, agent=None):
+def _make_app(
+    tmp_path: Path, *, webui_enabled: bool, admin_enabled: bool = True, agent=None, broadcaster=None
+):
     config_path = tmp_path / "config.json"
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
@@ -68,6 +70,7 @@ def _make_app(tmp_path: Path, *, webui_enabled: bool, admin_enabled: bool = True
         workspace=workspace,
         agent=agent,
         session_manager=SessionManager(workspace),
+        webui_broadcaster=broadcaster,
     )
 
 
@@ -544,3 +547,108 @@ async def test_webui_media_disabled_returns_404(tmp_path: Path, client_factory) 
     client = await client_factory(app)
     resp = await client.get("/app/media/pic.png", cookies=_auth_cookies())
     assert resp.status == 404
+
+
+# --- WebUI proactive push (broadcaster + webui pseudo-channel) -------------
+
+
+@pytest.mark.asyncio
+async def test_broadcaster_register_and_scope() -> None:
+    from hahobot.gateway.webui.broadcast import WebUIBroadcaster, WebUIConnection
+
+    b = WebUIBroadcaster()
+    a1 = WebUIConnection("webui:default")
+    a2 = WebUIConnection("webui:default")
+    other = WebUIConnection("webui:other")
+    b.register(a1)
+    b.register(a2)
+    b.register(other)
+    assert b.connection_count("webui:default") == 2
+
+    n = await b.broadcast("webui:default", {"event": "push", "text": "hi"})
+    assert n == 2
+    assert a1.queue.get_nowait()["text"] == "hi"
+    assert a2.queue.get_nowait()["text"] == "hi"
+    assert other.queue.empty()  # scoped to the target session only
+
+    b.unregister(a1)
+    assert b.connection_count("webui:default") == 1
+    # broadcasting to a session with no connections is a no-op
+    assert await b.broadcast("webui:nobody", {"event": "push"}) == 0
+
+
+@pytest.mark.asyncio
+async def test_webui_channel_send_maps_frame(tmp_path: Path) -> None:
+    from hahobot.bus.events import OutboundMessage
+    from hahobot.gateway.webui.broadcast import WebUIBroadcaster, WebUIConnection
+    from hahobot.gateway.webui.channel import WebUIChannel
+
+    workspace = tmp_path / "workspace"
+    (workspace / "out").mkdir(parents=True)
+    media_file = workspace / "out" / "pic.png"
+    media_file.write_bytes(b"x")
+
+    b = WebUIBroadcaster()
+    conn = WebUIConnection("webui:default")
+    b.register(conn)
+    ch = WebUIChannel(b, bus=None, workspace=workspace)
+    await ch.send(
+        OutboundMessage(
+            channel="webui", chat_id="default", content="reminder", media=[str(media_file)]
+        )
+    )
+    frame = conn.queue.get_nowait()
+    assert frame["event"] == "push"
+    assert frame["text"] == "reminder"
+    assert frame["media"] == ["/app/media/pic.png"]
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_ws_receives_proactive_push(tmp_path: Path, client_factory) -> None:
+    from hahobot.bus.events import OutboundMessage
+    from hahobot.gateway.webui.broadcast import WebUIBroadcaster
+    from hahobot.gateway.webui.channel import WebUIChannel
+
+    broadcaster = WebUIBroadcaster()
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent(), broadcaster=broadcaster)
+    client = await client_factory(app)
+
+    ws = await client.ws_connect(
+        "/app/ws?session=webui:default", headers={"Cookie": _cookie_header()}
+    )
+    assert (await ws.receive_json())["event"] == "ready"
+
+    # a proactive delivery routed through the webui pseudo-channel reaches the client
+    ch = WebUIChannel(broadcaster, bus=None, workspace=tmp_path / "workspace")
+    await ch.send(OutboundMessage(channel="webui", chat_id="default", content="scheduled ping"))
+
+    frame = await ws.receive_json()
+    assert frame["event"] == "push"
+    assert frame["text"] == "scheduled ping"
+
+    # a push to a different session is not delivered to this client
+    await ch.send(OutboundMessage(channel="webui", chat_id="other", content="not for you"))
+    await ws.send_json({"event": "message", "text": "hi", "session": "webui:default"})
+    seen = []
+    while True:
+        f = await ws.receive_json()
+        seen.append(f)
+        if f["event"] == "stream_end":
+            break
+    await ws.close()
+    assert all(f.get("text") != "not for you" for f in seen)
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_push_offline_no_client(tmp_path: Path) -> None:
+    # No connected client: broadcast is a no-op and must not raise.
+    from hahobot.bus.events import OutboundMessage
+    from hahobot.gateway.webui.broadcast import WebUIBroadcaster
+    from hahobot.gateway.webui.channel import WebUIChannel
+
+    b = WebUIBroadcaster()
+    ch = WebUIChannel(b, bus=None, workspace=tmp_path / "workspace")
+    await ch.send(OutboundMessage(channel="webui", chat_id="default", content="ping"))
+    assert b.connection_count("webui:default") == 0

@@ -1420,6 +1420,7 @@ def test_gateway_constructs_http_server_without_public_file_options(
             subagent_manager=None,
             agent=None,
             session_manager=None,
+            webui_broadcaster=None,
         ) -> None:
             seen["host"] = host
             seen["port"] = port
