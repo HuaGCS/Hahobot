@@ -552,20 +552,20 @@ Notable gateway features:
   `PROFILE.md` / `INSIGHTS.md` memory-layer summary
 - optional status push integration for Star-Office-UI style dashboards
 - optional built-in admin UI at `/admin`
-- optional built-in **chat WebUI** at `/app` (`gateway.webui.enabled`): a nanobot-style,
-  server-rendered chat surface with a conversation sidebar and streaming replies over a WebSocket
-  (`/app/ws`), with the admin pages folded in as its "Settings" area (`/app/settings` — a hub with a
-  runtime panel, last-turn token usage, the active persona's memory-layer summary, and links to every
-  admin section). It shares the admin login
-  session (enable `gateway.admin` with an `authKey`) and runs in the same aiohttp/Jinja runtime —
-  there is no separate SPA. Chat is scoped to `webui:*` sessions so it never writes into a live
-  channel conversation. It also renders generated media inline (images served from `workspace/out`
-  via `/app/media/...`), has an in-chat persona selector, a live working-checkpoint panel, voice
-  input (mic → `/app/transcribe`, using the configured transcription provider), conversation forking,
-  and a responsive mobile layout. Proactive/scheduled output (cron, heartbeat, the `message` tool) is
-  pushed live into an open conversation and persisted so it also shows on reload — so you can ask the
-  agent in the WebUI to "remind me in 10 minutes" (or use the composer's reminder form) and see it
-  arrive.
+- optional built-in **chat WebUI** at `/app` (enable with `gateway.webui.enabled`): a nanobot-style,
+  server-rendered chat surface in the same aiohttp/Jinja runtime — there is no separate SPA. It shares
+  the admin login session (enable `gateway.admin` with an `authKey`) and folds the admin pages in as
+  its "Settings" area (`/app/settings`: runtime + last-turn token usage, the active persona's
+  memory-layer summary, and links to every admin section). Chat is scoped to `webui:*` sessions, so it
+  never writes into a live channel conversation. It includes:
+    - streaming replies and a conversation sidebar over a WebSocket (`/app/ws`)
+    - inline media (images served from `workspace/out` via `/app/media/...`)
+    - an in-chat persona selector, a live working-checkpoint panel, and conversation forking
+    - voice input (mic → `/app/transcribe`, using the configured transcription provider)
+    - proactive/scheduled delivery: cron, heartbeat, and the `message` tool push into an open
+      conversation (and persist so they show on reload) — ask the agent to "remind me in 10 minutes"
+      or use the composer's reminder form
+    - a responsive mobile layout
 - Hermes-inspired dashboard styling for `/admin` and browser `/status`, without introducing a
   second SPA runtime
 - read-only sessions, skills, and cron pages in the admin UI for the active runtime workspace
