@@ -381,6 +381,7 @@ def gateway(
         agent=agent,
         session_manager=session_manager,
         webui_broadcaster=webui_broadcaster,
+        webui_cron_service=cron if config.gateway.webui.enabled else None,
     )
 
     if channels.enabled_channels:

@@ -54,8 +54,25 @@ class _StreamingAgent:
         return SimpleNamespace(content=self.reply, media=list(self.media))
 
 
+class _FakeCron:
+    """Records add_job calls for the schedule-form tests."""
+
+    def __init__(self) -> None:
+        self.jobs: list[dict] = []
+
+    def add_job(self, **kwargs):
+        self.jobs.append(kwargs)
+        return SimpleNamespace(id="job1")
+
+
 def _make_app(
-    tmp_path: Path, *, webui_enabled: bool, admin_enabled: bool = True, agent=None, broadcaster=None
+    tmp_path: Path,
+    *,
+    webui_enabled: bool,
+    admin_enabled: bool = True,
+    agent=None,
+    broadcaster=None,
+    cron_service=None,
 ):
     config_path = tmp_path / "config.json"
     workspace = tmp_path / "workspace"
@@ -71,6 +88,7 @@ def _make_app(
         agent=agent,
         session_manager=SessionManager(workspace),
         webui_broadcaster=broadcaster,
+        webui_cron_service=cron_service,
     )
 
 
@@ -652,3 +670,96 @@ async def test_webui_push_offline_no_client(tmp_path: Path) -> None:
     ch = WebUIChannel(b, bus=None, workspace=tmp_path / "workspace")
     await ch.send(OutboundMessage(channel="webui", chat_id="default", content="ping"))
     assert b.connection_count("webui:default") == 0
+
+
+@pytest.mark.asyncio
+async def test_proactive_push_routes_through_channel_manager(tmp_path: Path) -> None:
+    """End-to-end: bus -> ChannelManager._dispatch_outbound -> WebUIChannel -> client."""
+    import asyncio
+    import contextlib
+
+    from hahobot.bus.events import OutboundMessage
+    from hahobot.bus.queue import MessageBus
+    from hahobot.channels.manager import ChannelManager
+    from hahobot.gateway.webui.broadcast import WebUIBroadcaster, WebUIConnection
+    from hahobot.gateway.webui.channel import WebUIChannel
+
+    bus = MessageBus()
+    manager = ChannelManager(Config(), bus)
+    broadcaster = WebUIBroadcaster()
+    conn = WebUIConnection("webui:default")
+    broadcaster.register(conn)
+    manager.channels["webui"] = WebUIChannel(broadcaster, bus, tmp_path / "workspace")
+
+    task = asyncio.create_task(manager._dispatch_outbound())
+    try:
+        await bus.publish_outbound(
+            OutboundMessage(channel="webui", chat_id="default", content="scheduled ping")
+        )
+        frame = await asyncio.wait_for(conn.queue.get(), timeout=2.0)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert frame["event"] == "push"
+    assert frame["text"] == "scheduled ping"
+
+
+# --- schedule form (reminder → cron → webui push) -------------------------
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_schedule_form_shown_only_with_cron(tmp_path: Path, client_factory) -> None:
+    # no cron service → no form
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent())
+    client = await client_factory(app)
+    body = await (await client.get("/app", cookies=_auth_cookies())).text()
+    assert 'action="/app/schedule"' not in body
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_schedule_creates_bound_reminder(tmp_path: Path, client_factory) -> None:
+    cron = _FakeCron()
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent(), cron_service=cron)
+    client = await client_factory(app)
+
+    body = await (await client.get("/app", cookies=_auth_cookies())).text()
+    assert 'action="/app/schedule"' in body
+
+    resp = await client.post(
+        "/app/schedule",
+        data={"session": "webui:default", "delay": "5", "message": "stand up"},
+        cookies=_auth_cookies(),
+        allow_redirects=False,
+    )
+    assert resp.status == 302
+    assert len(cron.jobs) == 1
+    job = cron.jobs[0]
+    assert job["channel"] == "webui"
+    assert job["to"] == "default"
+    assert job["deliver"] is True
+    assert job["message"] == "stand up"
+    assert job["delete_after_run"] is True
+    assert job["schedule"].kind == "at"
+    assert job["schedule"].at_ms > 0
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_schedule_ignores_bad_input(tmp_path: Path, client_factory) -> None:
+    cron = _FakeCron()
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent(), cron_service=cron)
+    client = await client_factory(app)
+    # empty message / non-positive delay → no job created, still redirects
+    for data in (
+        {"session": "webui:default", "delay": "5", "message": ""},
+        {"session": "webui:default", "delay": "0", "message": "x"},
+    ):
+        resp = await client.post(
+            "/app/schedule", data=data, cookies=_auth_cookies(), allow_redirects=False
+        )
+        assert resp.status == 302
+    assert cron.jobs == []

@@ -208,6 +208,7 @@ def create_http_app(
     agent: object | None = None,
     session_manager: object | None = None,
     webui_broadcaster: object | None = None,
+    webui_cron_service: object | None = None,
 ) -> web.Application:
     """Create the gateway HTTP app."""
     app = web.Application()
@@ -278,6 +279,7 @@ def create_http_app(
             agent=agent,
             session_manager=session_manager,
             broadcaster=webui_broadcaster,
+            cron_service=webui_cron_service,
         )
     return app
 
@@ -300,6 +302,7 @@ class GatewayHttpServer:
         agent: object | None = None,
         session_manager: object | None = None,
         webui_broadcaster: object | None = None,
+        webui_cron_service: object | None = None,
     ):
         self.host = host
         self.port = port
@@ -314,6 +317,7 @@ class GatewayHttpServer:
             agent=agent,
             session_manager=session_manager,
             webui_broadcaster=webui_broadcaster,
+            webui_cron_service=webui_cron_service,
         )
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None

@@ -564,7 +564,8 @@ Notable gateway features:
   input (mic → `/app/transcribe`, using the configured transcription provider), conversation forking,
   and a responsive mobile layout. Proactive/scheduled output (cron, heartbeat, the `message` tool) is
   pushed live into an open conversation and persisted so it also shows on reload — so you can ask the
-  agent in the WebUI to "remind me in 10 minutes" and see it arrive.
+  agent in the WebUI to "remind me in 10 minutes" (or use the composer's reminder form) and see it
+  arrive.
 - Hermes-inspired dashboard styling for `/admin` and browser `/status`, without introducing a
   second SPA runtime
 - read-only sessions, skills, and cron pages in the admin UI for the active runtime workspace

@@ -108,6 +108,20 @@ body {
 .checkpoint-row { padding: 2px 0; }
 .checkpoint-row span { color: var(--muted); margin-right: 6px; }
 
+.schedule { margin: 0 clamp(16px, 8vw, 120px); font-size: 13px; color: var(--muted); }
+.schedule > summary { cursor: pointer; padding: 6px 0; user-select: none; }
+.schedule-form { display: flex; gap: 6px; align-items: center; padding: 4px 0 8px; }
+.schedule-form input[type="number"] { width: 76px; }
+.schedule-form input {
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text); padding: 7px 10px; font: inherit; font-size: 13px;
+}
+.schedule-form input[type="text"] { flex: 1; min-width: 0; }
+.schedule-form button {
+  background: var(--accent); color: #fff; border: none; border-radius: 9px;
+  padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer;
+}
+
 .composer {
   display: flex; gap: 8px; align-items: flex-end; padding: 12px clamp(16px, 8vw, 120px) 4px;
   border-top: 1px solid var(--border); background: var(--bg-elev);

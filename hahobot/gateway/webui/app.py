@@ -16,6 +16,7 @@ import os
 import re
 import secrets
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -44,6 +45,7 @@ from hahobot.utils.html_templates import render_html_template
 _WEBUI_AGENT_KEY = web.AppKey("webui_agent", object)
 _WEBUI_SESSION_MANAGER_KEY = web.AppKey("webui_session_manager", object)
 _WEBUI_BROADCASTER_KEY = web.AppKey("webui_broadcaster", object)
+_WEBUI_CRON_KEY = web.AppKey("webui_cron_service", object)
 
 _WEBUI_SESSION_PREFIX = "webui:"
 _DEFAULT_WEBUI_SESSION = "webui:default"
@@ -86,6 +88,10 @@ def _session_manager(request: web.Request):
 def _broadcaster(request: web.Request) -> WebUIBroadcaster | None:
     value = request.app.get(_WEBUI_BROADCASTER_KEY)
     return value if isinstance(value, WebUIBroadcaster) else None
+
+
+def _cron_service(request: web.Request):
+    return request.app.get(_WEBUI_CRON_KEY)
 
 
 # --- session helpers ------------------------------------------------------
@@ -306,6 +312,11 @@ async def webui_index(request: web.Request) -> web.Response:
         mic_recording=_t(request, "webui_mic_recording"),
         mic_transcribing=_t(request, "webui_mic_transcribing"),
         mic_error=_t(request, "webui_mic_error"),
+        can_schedule=_cron_service(request) is not None,
+        schedule_label=_t(request, "webui_schedule_label"),
+        schedule_delay_label=_t(request, "webui_schedule_delay"),
+        schedule_message_label=_t(request, "webui_schedule_message"),
+        schedule_submit=_t(request, "webui_schedule_submit"),
         default_session=_DEFAULT_WEBUI_SESSION,
         sessions_heading=_t(request, "webui_sessions_heading"),
         new_session_label=_t(request, "webui_new_session"),
@@ -441,6 +452,40 @@ async def webui_session_fork(request: web.Request) -> web.Response:
     raise _redirect(request, f"/app?session={quote(fork_key)}")
 
 
+async def webui_schedule(request: web.Request) -> web.Response:
+    """Schedule a one-off reminder that pushes into the current webui session.
+
+    Creates a cron job with ``channel="webui", to=<id>`` so the existing cron
+    ``on_job`` path delivers it back through the WebUIChannel (live push) and
+    persists it into the ``webui:<id>`` session (offline fallback).
+    """
+    _require_webui_auth(request)
+    cron = _cron_service(request)
+    form = await request.post()
+    key = _normalize_session_key(str(form.get("session", "")))
+    chat_id = key.split(":", 1)[1]
+    message = str(form.get("message", "")).strip()
+    try:
+        delay_min = float(str(form.get("delay", "")).strip() or "0")
+    except ValueError:
+        delay_min = 0.0
+
+    if cron is not None and message and delay_min > 0:
+        from hahobot.cron.types import CronSchedule
+
+        at_ms = int(time.time() * 1000) + int(delay_min * 60_000)
+        cron.add_job(
+            name="webui-reminder",
+            schedule=CronSchedule(kind="at", at_ms=at_ms),
+            message=message,
+            deliver=True,
+            channel="webui",
+            to=chat_id,
+            delete_after_run=True,
+        )
+    raise _redirect(request, f"/app?session={quote(key)}")
+
+
 # --- chat WebSocket -------------------------------------------------------
 
 
@@ -559,6 +604,7 @@ def register_webui_routes(
     agent: object | None = None,
     session_manager: object | None = None,
     broadcaster: WebUIBroadcaster | None = None,
+    cron_service: object | None = None,
 ) -> None:
     """Register the WebUI routes on the gateway aiohttp app."""
     if agent is not None:
@@ -567,6 +613,8 @@ def register_webui_routes(
         app[_WEBUI_SESSION_MANAGER_KEY] = session_manager
     if broadcaster is not None:
         app[_WEBUI_BROADCASTER_KEY] = broadcaster
+    if cron_service is not None:
+        app[_WEBUI_CRON_KEY] = cron_service
     app.router.add_get("/app", webui_index)
     app.router.add_get("/app/settings", webui_settings)
     app.router.add_get("/app/media/{name:.*}", webui_media)
@@ -575,3 +623,4 @@ def register_webui_routes(
     app.router.add_post("/app/session/new", webui_session_new)
     app.router.add_post("/app/session/clear", webui_session_clear)
     app.router.add_post("/app/session/fork", webui_session_fork)
+    app.router.add_post("/app/schedule", webui_schedule)

@@ -68,6 +68,20 @@
           {% endif %}
         </div>
 
+        {% if can_schedule %}
+        <details class="schedule">
+          <summary>{{ schedule_label }}</summary>
+          <form method="post" action="/app/schedule" class="schedule-form">
+            <input type="hidden" name="session" value="{{ active_session }}">
+            <input type="number" name="delay" min="0.1" step="0.1" value="10"
+                   title="{{ schedule_delay_label }}" aria-label="{{ schedule_delay_label }}">
+            <input type="text" name="message" placeholder="{{ schedule_message_label }}"
+                   autocomplete="off">
+            <button type="submit">{{ schedule_submit }}</button>
+          </form>
+        </details>
+        {% endif %}
+
         <div class="composer">
           <form method="post" action="/app/session/fork" class="clear-form">
             <input type="hidden" name="session" value="{{ active_session }}">

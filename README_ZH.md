@@ -1277,7 +1277,8 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
 - 支持会话分叉（`/app/session/fork` 复制当前会话为新分支）、回到最新按钮与移动端自适应布局
 - 主动推送：cron / heartbeat / `message` 工具产生的主动消息会**实时推**进已打开的 WebUI 对话，并落库,
   无客户端连接时也会在下次打开页面时显示。可在 WebUI 对话里让 agent "10 分钟后提醒我"并看到它到点出现。
-  实现为 `webui` 伪渠道 + 连接注册表(`WebUIBroadcaster`)+ 单写者双向 `/app/ws`；调度复用既有 cron 工具
+  实现为 `webui` 伪渠道 + 连接注册表(`WebUIBroadcaster`)+ 单写者双向 `/app/ws`；调度可用两种方式：
+  在对话里让 agent 排程,或用输入区的"排定提醒"表单(`POST /app/schedule` → `CronService.add_job`)
 - 未做（有意分歧）：workspace 切换与 hahobot 单实例单 workspace 模型冲突（改 `agents.defaults.workspace`
   走 admin 配置）
 - 全程在现有 aiohttp/Jinja 运行时，不引入独立 SPA（nanobot 的 React 前端仍属有意分歧）
