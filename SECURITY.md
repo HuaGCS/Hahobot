@@ -5,7 +5,7 @@
 If you discover a security vulnerability in hahobot, please report it by:
 
 1. **DO NOT** open a public GitHub issue
-2. Create a private security advisory on GitHub or contact the repository maintainers (xubinrencs@gmail.com)
+2. Create a private security advisory on GitHub (Security → Advisories → "Report a vulnerability") — do not email personal addresses
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
