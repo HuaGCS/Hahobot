@@ -2131,3 +2131,28 @@ async def test_admin_config_model_picker_lists_configured_providers(tmp_path: Pa
     assert "data-model-provider" in page.text
     assert '<option value="custom" selected>' in page.text
     assert '<option value="openrouter">' in page.text
+
+
+@pytest.mark.asyncio
+async def test_admin_config_model_picker_default_reflects_auto_resolution(tmp_path: Path) -> None:
+    # provider=auto with a local `custom` base + an openrouter key: the dropdown
+    # default must reveal where auto actually lands (custom), not just list[0].
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    config.agents.defaults.provider = "auto"
+    config.agents.defaults.model = "deepseek-v4-flash-free"
+    config.providers.custom.api_base = "http://10.0.1.130:1234/v1"
+    config.providers.custom.api_key = "sk-local"
+    config.providers.openrouter.api_key = "or-key"
+    save_config(config, config_path)
+    app = create_http_app(config_path=config_path, workspace=tmp_path / "workspace")
+    cookie = await _admin_login_cookie(app)
+
+    page = await _call_route(app, "GET", "/admin/config", cookies={"hahobot_admin_session": cookie})
+    assert page.status == 200
+    # auto lands on `custom` here (local base+key), so it is the selected default…
+    assert '<option value="custom" selected>' in page.text
+    # …but openrouter is still offered so its models can be fetched on demand.
+    assert '<option value="openrouter">' in page.text

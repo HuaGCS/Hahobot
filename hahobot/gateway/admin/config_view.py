@@ -997,18 +997,24 @@ def _render_model_provider_select(request: web.Request) -> str:
 
     Independent of ``agents.defaults.provider`` so the operator can browse, e.g.,
     OpenRouter's models without changing the provider the agent actually runs on.
-    Defaults to the forced provider when it is a concrete (configured) one.
+    Defaults to the provider the agent actually resolves to — for ``auto`` that is
+    whatever ``get_provider_name()`` picks from the model name — so the dropdown
+    reveals where ``auto`` actually landed.
     """
     from hahobot.providers.model_listing import configured_provider_names
 
     config = _load_current_config(request)
     current = config.agents.defaults.provider or ""
     names = configured_provider_names(config)
-    if current and current != "auto" and current not in names:
-        names = [current, *names]
+    if current and current != "auto":
+        default = current
+    else:
+        # Mirror runtime resolution so the dropdown shows the true active provider.
+        default = config.get_provider_name() or (names[0] if names else "")
+    if default and default not in names:
+        names = [default, *names]
     if not names:
         return ""
-    default = current if current and current != "auto" else names[0]
     options = "".join(
         f'<option value="{escape(name)}"{" selected" if name == default else ""}>'
         f"{escape(name)}</option>"
