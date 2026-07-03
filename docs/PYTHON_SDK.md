@@ -1,6 +1,6 @@
 # Python SDK
 
-> **Note:** This interface is currently an experiment in the latest source code version and is planned to officially ship in `v0.1.5`.
+> **Note:** This interface ships as part of the hahobot `v0.1.0` release.
 
 Use nanobot programmatically — load config, run the agent, get results.
 

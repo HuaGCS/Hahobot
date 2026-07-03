@@ -1,6 +1,6 @@
 # Memory in nanobot
 
-> **Note:** This design is currently an experiment in the latest source code version and is planned to officially ship in `v0.1.5`.
+> **Note:** This design ships as part of the hahobot `v0.1.0` release.
 
 nanobot's memory is built on a simple belief: memory should feel alive, but it should not feel chaotic.
 
