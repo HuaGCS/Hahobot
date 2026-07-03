@@ -336,6 +336,11 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert "配置编辑" in config_page.text
     assert "/admin/commands" in config_page.text
     assert 'name="agents_defaults_model"' in config_page.text
+    # Model picker: free-text input + fetch-from-provider datalist button.
+    assert "data-model-field" in config_page.text
+    assert "data-fetch-models" in config_page.text
+    assert 'list="agents_defaults_model__models"' in config_page.text
+    assert "获取模型" in config_page.text
     assert 'name="agents_defaults_provider_pool_strategy"' in config_page.text
     assert 'name="agents_defaults_provider_pool_targets_provider"' in config_page.text
     assert 'name="agents_defaults_provider_pool_targets_model"' in config_page.text
@@ -2021,3 +2026,81 @@ async def test_gateway_admin_persona_shows_memory_metadata_summary(tmp_path: Pat
     assert re.search(r"中置信度</span>\s*<strong>1</strong>", persona_page.text)
     assert re.search(r"低置信度</span>\s*<strong>1</strong>", persona_page.text)
     assert re.search(r"旧版 \(verify\)</span>\s*<strong>1</strong>", persona_page.text)
+
+
+async def _admin_login_cookie(app) -> str:
+    """Log in with the shared test auth key and return the session cookie value."""
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin"},
+    )
+    return login.cookies["hahobot_admin_session"].value
+
+
+@pytest.mark.asyncio
+async def test_admin_config_models_requires_auth(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+    app = create_http_app(config_path=config_path, workspace=tmp_path / "workspace")
+
+    resp = await _call_route(app, "GET", "/admin/config/models?provider=custom")
+    assert resp.status == 302
+    assert resp.headers["Location"].startswith("/admin/login")
+
+
+@pytest.mark.asyncio
+async def test_admin_config_models_returns_list(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+    app = create_http_app(config_path=config_path, workspace=tmp_path / "workspace")
+    cookie = await _admin_login_cookie(app)
+
+    async def _fake_list(cfg, provider_name=None, **kwargs):
+        assert provider_name == "custom"
+        return ["a-model", "b-model"]
+
+    monkeypatch.setattr("hahobot.providers.model_listing.list_provider_models", _fake_list)
+    resp = await _call_route(
+        app,
+        "GET",
+        "/admin/config/models?provider=custom",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert resp.status == 200
+    body = json.loads(resp.text)
+    assert body["provider"] == "custom"
+    assert body["models"] == ["a-model", "b-model"]
+
+
+@pytest.mark.asyncio
+async def test_admin_config_models_error_returns_502(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+    app = create_http_app(config_path=config_path, workspace=tmp_path / "workspace")
+    cookie = await _admin_login_cookie(app)
+
+    from hahobot.providers.model_listing import ModelListingError
+
+    async def _boom(cfg, provider_name=None, **kwargs):
+        raise ModelListingError("no api_base")
+
+    monkeypatch.setattr("hahobot.providers.model_listing.list_provider_models", _boom)
+    resp = await _call_route(
+        app,
+        "GET",
+        "/admin/config/models?provider=custom",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert resp.status == 502
+    assert "no api_base" in json.loads(resp.text)["error"]

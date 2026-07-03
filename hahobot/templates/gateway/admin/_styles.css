@@ -414,6 +414,11 @@
     .provider-pool-move, .provider-pool-remove { white-space: nowrap; }
     .provider-pool-actions { justify-content: flex-start; }
 
+    .model-picker { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .model-picker input[list] { flex: 1 1 220px; min-width: 0; }
+    .model-picker button { white-space: nowrap; flex: 0 0 auto; }
+    .model-picker-status { flex-basis: 100%; font-size: 13px; }
+
     @media (max-width: 1080px) {
       .hero-grid, .section-layout, .editor-grid, .command-browser { grid-template-columns: 1fr; }
       .sticky-stack, .command-sidebar { position: static; }

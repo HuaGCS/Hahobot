@@ -120,6 +120,11 @@ File operations have path traversal protection, but:
   unreachable (`404`) unless `gateway.admin` is enabled with a non-empty `authKey`; the WebUI shares
   the admin login session (there is no separate WebUI credential) and its chat WebSocket (`/app/ws`)
   rejects unauthenticated connections with `401`.
+- The config page's model picker (`GET /admin/config/models`, admin-authenticated) fetches the model
+  list from a **configured** provider's `/models` endpoint. The target host comes from the
+  operator-set provider `apiBase` (never from request input — the request only selects *which*
+  configured provider), so a private/LAN provider base is intentionally reachable. This mirrors the
+  MCP rule of trusting the operator-configured host rather than the model-chosen-URL WebFetch policy.
 
 **MCP servers:**
 - MCP server URLs may embed credentials (`https://user:token@host/sse` or a `?token=`

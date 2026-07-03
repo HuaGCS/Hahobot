@@ -32,7 +32,7 @@ _CONFIG_FIELDS = (
     ConfigFieldSpec(
         "agents_defaults_model",
         ("agents", "defaults", "model"),
-        "text",
+        "model",
         "admin_config_agents_model_label",
         placeholder="openrouter/openai/gpt-4o-mini",
     ),

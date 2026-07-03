@@ -10,6 +10,7 @@ from aiohttp import web
 from hahobot.agent.tools.image_gen import ImageGenTool
 from hahobot.gateway.admin.base import _admin_login_page, _admin_login_submit, _admin_logout
 from hahobot.gateway.admin.config_view import (
+    _admin_config_models,
     _admin_config_page,
     _admin_config_submit,
     _admin_memory_migrate_legacy,
@@ -84,6 +85,7 @@ def register_admin_routes(
     app.router.add_post("/admin/login", _admin_login_submit)
     app.router.add_post("/admin/logout", _admin_logout)
     app.router.add_get("/admin/config", _admin_config_page)
+    app.router.add_get("/admin/config/models", _admin_config_models)
     app.router.add_post("/admin/config", _admin_config_submit)
     app.router.add_post("/admin/memory/migrate-legacy", _admin_memory_migrate_legacy)
     app.router.add_get("/admin/sessions", _admin_sessions_page)

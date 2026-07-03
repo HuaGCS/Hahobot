@@ -55,7 +55,9 @@ from hahobot.gateway.admin.field_specs import (
 # rows, the custom-headers JSON editor, the dynamic memorix MCP entry, and the
 # multi-instance channel cards) is handled explicitly in _config_form_values.
 _MISSING = object()
-_AUTO_VALUE_KINDS = frozenset({"text", "select", "textarea", "int", "float", "bool", "csv"})
+_AUTO_VALUE_KINDS = frozenset(
+    {"text", "model", "select", "textarea", "int", "float", "bool", "csv"}
+)
 _AUTO_VALUE_EXCLUDED_FIELDS = (
     _CHANNEL_CONFIG_FIELD_NAMES | _PROVIDER_POOL_CONFIG_FIELD_NAMES | _MEMORIX_CONFIG_FIELD_NAMES
 )
@@ -990,6 +992,33 @@ def _render_channel_groups_section(
     return f'<div class="provider-groups">{"".join(groups)}</div>'
 
 
+def _render_model_field(
+    request: web.Request,
+    field: ConfigFieldSpec,
+    value: Any,
+    label_row: str,
+    hint: str,
+) -> str:
+    """Free-text model input augmented with a fetch-from-provider datalist."""
+    placeholder = f' placeholder="{escape(field.placeholder)}"' if field.placeholder else ""
+    list_id = f"{field.name}__models"
+    control = (
+        '<div class="model-picker" data-model-field'
+        ' data-provider-field="agents_defaults_provider"'
+        f' data-loading-text="{escape(_t(request, "admin_config_model_fetching"))}"'
+        f' data-count-text="{escape(_t(request, "admin_config_model_count"))}"'
+        f' data-error-text="{escape(_t(request, "admin_config_model_error"))}">'
+        f'<input type="text" name="{escape(field.name)}" value="{escape(str(value))}"'
+        f' list="{list_id}" autocomplete="off"{placeholder}>'
+        f'<datalist id="{list_id}"></datalist>'
+        '<button type="button" class="ghost" data-fetch-models>'
+        f"{escape(_t(request, 'admin_config_model_fetch'))}</button>"
+        '<span class="model-picker-status muted" data-model-status></span>'
+        "</div>"
+    )
+    return f'<label class="field">{label_row}{control}{hint}</label>'
+
+
 def _render_config_field(request: web.Request, field: ConfigFieldSpec, value: Any) -> str:
     label_row, hint = _render_field_chrome(request, field)
 
@@ -1013,6 +1042,9 @@ def _render_config_field(request: web.Request, field: ConfigFieldSpec, value: An
             f'<textarea name="{escape(field.name)}" rows="{rows}" spellcheck="false">'
             f"{escape(str(value))}</textarea>{hint}</label>"
         )
+
+    if field.kind == "model":
+        return _render_model_field(request, field, value, label_row, hint)
 
     if field.kind == "select":
         options = []
@@ -1186,6 +1218,25 @@ async def _admin_config_page(request: web.Request) -> web.Response:
         flash=flash,
         error=error,
     )
+
+
+async def _admin_config_models(request: web.Request) -> web.Response:
+    """Return the model ids advertised by a configured provider's ``/models``.
+
+    Used by the config page's model picker. The provider host is taken from the
+    operator-configured provider (never from request input), so a LAN/private
+    provider base is intentionally reachable here — see model_listing.py.
+    """
+    _require_admin_auth(request)
+    from hahobot.providers.model_listing import ModelListingError, list_provider_models
+
+    config = _load_current_config(request)
+    provider = (request.query.get("provider") or "").strip()
+    try:
+        models = await list_provider_models(config, provider or None)
+    except ModelListingError as exc:
+        return web.json_response({"error": str(exc)}, status=502)
+    return web.json_response({"provider": provider or "auto", "models": models})
 
 
 async def _admin_memory_migrate_legacy(request: web.Request) -> web.Response:
