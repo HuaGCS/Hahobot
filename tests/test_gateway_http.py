@@ -407,7 +407,8 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
         in config_page.text
     )
     assert "color-scheme: light dark" in config_page.text
-    assert "@media (prefers-color-scheme: dark)" in config_page.text
+    # Admin shares the chat WebUI theme: dark by default with a light override.
+    assert "@media (prefers-color-scheme: light)" in config_page.text
 
     commands_page = await _call_route(
         app,
