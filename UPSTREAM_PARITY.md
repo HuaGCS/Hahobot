@@ -1507,6 +1507,13 @@ These are local choices. When upstream behaves differently, that is not automati
   separate-service memory backends (nocturne_memory style) are rejected for the same reason as the
   claude-mem Chroma divergence; core memory layers also load always-on rather than behind a
   model-invoked boot/recall protocol.
+- Versioning and release tags are decoupled from `nanobot`. Hahobot runs its own `v0.x` line
+  starting at `v0.1.0`; upstream nanobot version tags (`v0.1.x`–`v0.2.x`) are **not carried** in
+  this repo and were removed from local/origin. The `nanobot-upstream` / `genericagent-upstream`
+  remotes are set with `tagOpt = --no-tags`, so `git fetch` never re-imports their tags and the
+  `v*` tag namespace stays exclusively hahobot's. GitHub Releases are cut from `origin`
+  (HuaGCS/Hahobot) against `v*` tags. The nanobot version history itself lives only here, as this
+  note — not as tags in the repo.
 
 ## Watchlist For Next Upstream Sync
 
