@@ -27,6 +27,23 @@ class ModelListingError(Exception):
     """Raised when the model list cannot be resolved or fetched."""
 
 
+def configured_provider_names(config: Config) -> list[str]:
+    """Registry names of providers that have an api_key or api_base configured.
+
+    Ordered by the registry so the model picker can offer every provider the
+    operator actually set up (e.g. both ``custom`` and ``openrouter``), not just
+    the single forced default.
+    """
+    from hahobot.providers.registry import PROVIDERS
+
+    names: list[str] = []
+    for spec in PROVIDERS:
+        pconf = getattr(config.providers, spec.name, None)
+        if pconf and (getattr(pconf, "api_key", "") or getattr(pconf, "api_base", "")):
+            names.append(spec.name)
+    return names
+
+
 def _resolve_provider(config: Config, provider_name: str | None) -> tuple[str, str, str | None]:
     """Return (registry_name, api_base, api_key) for the provider to query."""
     name = (
@@ -113,6 +130,13 @@ async def list_provider_models(
         payload = await fetch(url, headers, timeout)
     except ModelListingError:
         raise
+    except TimeoutError as exc:
+        raise ModelListingError(
+            f"Provider '{name}' timed out after {timeout:.0f}s on {url}. "
+            "The host is reachable but did not answer GET /models — this provider "
+            "likely does not expose a model list (common for local inference servers)."
+        ) from exc
     except Exception as exc:  # noqa: BLE001 - normalize transport errors for the UI
-        raise ModelListingError(f"Failed to reach provider: {exc}") from exc
+        detail = str(exc) or type(exc).__name__
+        raise ModelListingError(f"Failed to reach provider '{name}': {detail}") from exc
     return _parse_model_ids(payload)

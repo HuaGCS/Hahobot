@@ -10,6 +10,7 @@ from hahobot.providers.model_listing import (
     _models_url_and_headers,
     _parse_model_ids,
     _resolve_provider,
+    configured_provider_names,
     list_provider_models,
 )
 
@@ -80,8 +81,31 @@ async def test_list_provider_models_wraps_transport_errors() -> None:
     async def _boom(url: str, headers: dict[str, str], timeout: float):
         raise ConnectionError("refused")
 
-    with pytest.raises(ModelListingError):
+    with pytest.raises(ModelListingError) as exc:
         await list_provider_models(_config_with_custom(), None, get_json=_boom)
+    assert "refused" in str(exc.value)
+
+
+async def test_list_provider_models_timeout_has_clear_message() -> None:
+    async def _timeout(url: str, headers: dict[str, str], timeout: float):
+        raise TimeoutError
+
+    with pytest.raises(ModelListingError) as exc:
+        await list_provider_models(_config_with_custom(), None, get_json=_timeout)
+    # asyncio.TimeoutError stringifies to "" — the message must still be useful.
+    assert "timed out" in str(exc.value)
+    assert "GET /models" in str(exc.value)
+
+
+def test_configured_provider_names_lists_providers_with_key_or_base() -> None:
+    config = Config()
+    config.providers.openrouter.api_key = "or-key"
+    config.providers.custom.api_base = "http://10.0.1.130:1234/v1"
+    names = configured_provider_names(config)
+    assert "openrouter" in names
+    assert "custom" in names
+    # a provider with neither key nor base is not offered
+    assert "anthropic" not in names
 
 
 async def test_list_provider_models_requires_api_base() -> None:

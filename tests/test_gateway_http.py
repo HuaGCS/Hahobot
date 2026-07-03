@@ -2104,3 +2104,30 @@ async def test_admin_config_models_error_returns_502(tmp_path: Path, monkeypatch
     )
     assert resp.status == 502
     assert "no api_base" in json.loads(resp.text)["error"]
+
+
+@pytest.mark.asyncio
+async def test_admin_config_model_picker_lists_configured_providers(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    config.agents.defaults.provider = "custom"
+    config.providers.custom.api_base = "http://10.0.1.130:1234/v1"
+    config.providers.openrouter.api_key = "or-key"
+    save_config(config, config_path)
+    app = create_http_app(config_path=config_path, workspace=tmp_path / "workspace")
+    cookie = await _admin_login_cookie(app)
+
+    page = await _call_route(
+        app,
+        "GET",
+        "/admin/config",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert page.status == 200
+    # A provider dropdown lets the operator fetch e.g. OpenRouter's models even
+    # though the forced runtime provider is custom.
+    assert "data-model-provider" in page.text
+    assert '<option value="custom" selected>' in page.text
+    assert '<option value="openrouter">' in page.text

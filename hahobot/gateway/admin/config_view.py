@@ -992,6 +992,31 @@ def _render_channel_groups_section(
     return f'<div class="provider-groups">{"".join(groups)}</div>'
 
 
+def _render_model_provider_select(request: web.Request) -> str:
+    """Dropdown of configured providers to fetch a model list from.
+
+    Independent of ``agents.defaults.provider`` so the operator can browse, e.g.,
+    OpenRouter's models without changing the provider the agent actually runs on.
+    Defaults to the forced provider when it is a concrete (configured) one.
+    """
+    from hahobot.providers.model_listing import configured_provider_names
+
+    config = _load_current_config(request)
+    current = config.agents.defaults.provider or ""
+    names = configured_provider_names(config)
+    if current and current != "auto" and current not in names:
+        names = [current, *names]
+    if not names:
+        return ""
+    default = current if current and current != "auto" else names[0]
+    options = "".join(
+        f'<option value="{escape(name)}"{" selected" if name == default else ""}>'
+        f"{escape(name)}</option>"
+        for name in names
+    )
+    return f'<select data-model-provider aria-label="provider">{options}</select>'
+
+
 def _render_model_field(
     request: web.Request,
     field: ConfigFieldSpec,
@@ -1002,6 +1027,7 @@ def _render_model_field(
     """Free-text model input augmented with a fetch-from-provider datalist."""
     placeholder = f' placeholder="{escape(field.placeholder)}"' if field.placeholder else ""
     list_id = f"{field.name}__models"
+    provider_select = _render_model_provider_select(request)
     control = (
         '<div class="model-picker" data-model-field'
         ' data-provider-field="agents_defaults_provider"'
@@ -1011,6 +1037,7 @@ def _render_model_field(
         f'<input type="text" name="{escape(field.name)}" value="{escape(str(value))}"'
         f' list="{list_id}" autocomplete="off"{placeholder}>'
         f'<datalist id="{list_id}"></datalist>'
+        f"{provider_select}"
         '<button type="button" class="ghost" data-fetch-models>'
         f"{escape(_t(request, 'admin_config_model_fetch'))}</button>"
         '<span class="model-picker-status muted" data-model-status></span>'

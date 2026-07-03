@@ -9,11 +9,20 @@
     if (!input || !datalist || !button) return;
 
     button.addEventListener("click", function () {
-      var providerField = wrap.dataset.providerField;
-      var providerInput = providerField
-        ? document.querySelector('[name="' + providerField + '"]')
-        : null;
-      var provider = providerInput ? providerInput.value.trim() : "";
+      // Prefer the picker's own provider dropdown (lets you browse e.g.
+      // OpenRouter without changing agents.defaults.provider); fall back to the
+      // provider config field.
+      var providerSelect = wrap.querySelector("[data-model-provider]");
+      var provider = "";
+      if (providerSelect && providerSelect.value) {
+        provider = providerSelect.value.trim();
+      } else {
+        var providerField = wrap.dataset.providerField;
+        var providerInput = providerField
+          ? document.querySelector('[name="' + providerField + '"]')
+          : null;
+        provider = providerInput ? providerInput.value.trim() : "";
+      }
 
       button.disabled = true;
       if (status) status.textContent = wrap.dataset.loadingText || "…";
