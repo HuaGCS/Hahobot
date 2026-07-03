@@ -323,10 +323,13 @@ async def webui_index(request: web.Request) -> web.Response:
         new_session_placeholder=_t(request, "webui_new_session_placeholder"),
         clear_label=_t(request, "webui_clear_session"),
         fork_label=_t(request, "webui_fork_session"),
+        delete_label=_t(request, "webui_delete_session"),
+        delete_confirm=_t(request, "webui_delete_confirm"),
         empty_conversation=_t(request, "webui_empty_conversation"),
         composer_placeholder=_t(request, "webui_composer_placeholder"),
         send_label=_t(request, "webui_send"),
         connecting_label=_t(request, "webui_connecting"),
+        processing_label=_t(request, "webui_processing"),
         scroll_latest_label=_t(request, "webui_scroll_latest"),
         config_path=str(_current_config_path(request)),
         workspace=str(_runtime_workspace(request)),
@@ -429,6 +432,21 @@ async def webui_session_clear(request: web.Request) -> web.Response:
         session.clear()
         sm.save(session)
     raise _redirect(request, f"/app?session={quote(key)}")
+
+
+async def webui_session_delete(request: web.Request) -> web.Response:
+    """Delete a webui conversation entirely (file + cache), not just clear it."""
+    _require_webui_auth(request)
+    form = await request.post()
+    key = _normalize_session_key(str(form.get("session", "")))
+    current = _normalize_session_key(str(form.get("current", "")))
+    sm = _session_manager(request)
+    if sm is not None:
+        sm.delete_session(key)
+    # Stay on the conversation being viewed unless it is the one just deleted,
+    # in which case fall back to the default session.
+    dest = _DEFAULT_WEBUI_SESSION if key == current else current
+    raise _redirect(request, f"/app?session={quote(dest)}")
 
 
 async def webui_session_fork(request: web.Request) -> web.Response:
@@ -644,5 +662,6 @@ def register_webui_routes(
     app.router.add_get("/app/ws", webui_chat_ws)
     app.router.add_post("/app/session/new", webui_session_new)
     app.router.add_post("/app/session/clear", webui_session_clear)
+    app.router.add_post("/app/session/delete", webui_session_delete)
     app.router.add_post("/app/session/fork", webui_session_fork)
     app.router.add_post("/app/schedule", webui_schedule)

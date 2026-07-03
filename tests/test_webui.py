@@ -813,3 +813,86 @@ async def test_webui_schedule_ignores_bad_input(tmp_path: Path, client_factory) 
         )
         assert resp.status == 302
     assert cron.jobs == []
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_session_delete_removes_and_stays_on_current(
+    tmp_path: Path, client_factory
+) -> None:
+    sm = SessionManager(tmp_path / "workspace")
+    for key in ("webui:default", "webui:other"):
+        s = sm.get_or_create(key)
+        s.add_message("user", "hi")
+        sm.save(s)
+
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent())
+    client = await client_factory(app)
+    resp = await client.post(
+        "/app/session/delete",
+        data={"session": "webui:other", "current": "webui:default"},
+        cookies=_auth_cookies(),
+        allow_redirects=False,
+    )
+    assert resp.status == 302
+    # Deleting a non-active conversation keeps you on the current one.
+    assert resp.headers["Location"] in (
+        "/app?session=webui%3Adefault",
+        "/app?session=webui:default",
+    )
+    reader = SessionManager(tmp_path / "workspace")
+    keys = {s["key"] for s in reader.list_sessions()}
+    assert "webui:other" not in keys
+    assert "webui:default" in keys
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_session_delete_current_falls_back_to_default(
+    tmp_path: Path, client_factory
+) -> None:
+    sm = SessionManager(tmp_path / "workspace")
+    s = sm.get_or_create("webui:foo")
+    s.add_message("user", "hi")
+    sm.save(s)
+
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent())
+    client = await client_factory(app)
+    resp = await client.post(
+        "/app/session/delete",
+        data={"session": "webui:foo", "current": "webui:foo"},
+        cookies=_auth_cookies(),
+        allow_redirects=False,
+    )
+    assert resp.status == 302
+    # Deleting the conversation you are viewing drops back to the default one.
+    assert resp.headers["Location"] in (
+        "/app?session=webui%3Adefault",
+        "/app?session=webui:default",
+    )
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_shell_renders_delete_and_processing_indicator(
+    tmp_path: Path, client_factory
+) -> None:
+    sm = SessionManager(tmp_path / "workspace")
+    seeded = sm.get_or_create("webui:default")
+    seeded.add_message("user", "hi")
+    sm.save(seeded)
+
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent())
+    client = await client_factory(app)
+    resp = await client.get("/app", cookies=_auth_cookies())
+    assert resp.status == 200
+    body = await resp.text()
+    # per-conversation delete control
+    assert 'action="/app/session/delete"' in body
+    assert "session-delete-btn" in body
+    assert "Delete conversation" in body
+    # processing / thinking indicator wiring
+    assert "showThinking" in body
+    assert 'class="typing"' in body
+    # tojson unicode-escapes the ellipsis, so match the ASCII prefix.
+    assert "Processing" in body

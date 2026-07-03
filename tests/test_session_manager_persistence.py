@@ -213,3 +213,23 @@ def test_list_sessions_recovers_corrupt_first_line(tmp_path: Path) -> None:
     assert sessions
     assert sessions[0]["key"] == "cli:broken"
     assert sessions[0]["created_at"] == created_at
+
+
+def test_delete_session_removes_file_and_cache(tmp_path: Path) -> None:
+    manager = SessionManager(tmp_path)
+    session = manager.get_or_create("webui:gone")
+    session.add_message("user", "hello")
+    manager.save(session)
+    path = manager._get_session_path(session.key)
+    assert path.exists()
+    assert any(s["key"] == "webui:gone" for s in manager.list_sessions())
+
+    assert manager.delete_session("webui:gone") is True
+    assert not path.exists()
+    assert "webui:gone" not in manager._cache
+    assert not any(s["key"] == "webui:gone" for s in manager.list_sessions())
+
+
+def test_delete_session_missing_is_noop(tmp_path: Path) -> None:
+    manager = SessionManager(tmp_path)
+    assert manager.delete_session("webui:never") is False

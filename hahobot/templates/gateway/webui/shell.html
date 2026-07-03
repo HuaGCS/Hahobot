@@ -23,12 +23,19 @@
         </form>
         <ul class="session-list">
           {% for s in sessions %}
-          <li>
+          <li class="session-row">
             <a class="session-item{% if s.key == active_session %} active{% endif %}"
                href="/app?session={{ s.key | urlencode }}">
               <span class="session-key">{{ s.key.split(':', 1)[1] if ':' in s.key else s.key }}</span>
               <span class="session-time">{{ s.updated_at[:19] if s.updated_at else '' }}</span>
             </a>
+            <form method="post" action="/app/session/delete" class="session-delete"
+                  onsubmit="return confirm('{{ delete_confirm }}');">
+              <input type="hidden" name="session" value="{{ s.key }}">
+              <input type="hidden" name="current" value="{{ active_session }}">
+              <button type="submit" class="session-delete-btn" title="{{ delete_label }}"
+                      aria-label="{{ delete_label }}">✕</button>
+            </form>
           </li>
           {% endfor %}
           {% if active_session not in (sessions | map(attribute='key') | list) %}
@@ -122,6 +129,7 @@
       const scrollLatestBtn = document.getElementById("scroll-latest");
       const sessionKey = chat.getAttribute("data-session");
       const CONNECTING = {{ connecting_label | tojson }};
+      const PROCESSING = {{ processing_label | tojson }};
       const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 
       function esc(s) {
@@ -147,6 +155,7 @@
 
       let ws = null;
       let assistantBubble = null;
+      let thinkingEl = null;
 
       function scrollToBottom() { scroll.scrollTop = scroll.scrollHeight; }
 
@@ -174,6 +183,26 @@
         scroll.appendChild(wrap);
         scrollToBottom();
         return bubble;
+      }
+
+      // Immediate "the agent is working" feedback: a typing bubble that shows the
+      // moment a message is sent and stays until the first token (or turn end),
+      // so a slow/pending turn never looks frozen.
+      function showThinking() {
+        clearThinking();
+        clearEmpty();
+        const wrap = document.createElement("div");
+        wrap.className = "msg assistant thinking-msg";
+        const bubble = document.createElement("div");
+        bubble.className = "bubble thinking";
+        bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+        wrap.appendChild(bubble);
+        scroll.appendChild(wrap);
+        scrollToBottom();
+        thinkingEl = wrap;
+      }
+      function clearThinking() {
+        if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
       }
 
       function renderMedia(bubble, media) {
@@ -209,15 +238,17 @@
           let data;
           try { data = JSON.parse(evt.data); } catch (e) { return; }
           if (data.event === "delta") {
+            clearThinking();
             if (!assistantBubble) assistantBubble = addMessage("assistant", "");
             assistantBubble.textContent += data.text || "";
             scrollToBottom();
           } else if (data.event === "progress") {
-            statusLine.textContent = data.text || "";
+            statusLine.textContent = data.text || PROCESSING;
           } else if (data.event === "checkpoint") {
             // Live mid-turn working-checkpoint refresh (no need to wait for stream_end).
             updateCheckpoint(data.checkpoint);
           } else if (data.event === "stream_end") {
+            clearThinking();
             if (!assistantBubble && data.text) assistantBubble = addMessage("assistant", data.text);
             else if (assistantBubble && data.text) assistantBubble.textContent = data.text;
             renderMedia(assistantBubble, data.media);
@@ -233,6 +264,7 @@
             // reminder push must not clear an existing one.
             if (data.checkpoint) updateCheckpoint(data.checkpoint);
           } else if (data.event === "error") {
+            clearThinking();
             statusLine.textContent = data.text || "error";
             assistantBubble = null;
             sendBtn.disabled = false;
@@ -246,6 +278,8 @@
         addMessage("user", text);
         assistantBubble = null;
         sendBtn.disabled = true;
+        showThinking();
+        statusLine.textContent = PROCESSING;
         ws.send(JSON.stringify({ event: "message", text: text, session: sessionKey }));
         input.value = "";
         input.style.height = "auto";
@@ -255,6 +289,8 @@
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
         assistantBubble = null;
         sendBtn.disabled = true;
+        showThinking();
+        statusLine.textContent = PROCESSING;
         ws.send(JSON.stringify({ event: "message", text: text, session: sessionKey }));
       }
 

@@ -473,6 +473,29 @@ class SessionManager:
         """Remove a session from the in-memory cache."""
         self._cache.pop(key, None)
 
+    def delete_session(self, key: str) -> bool:
+        """Delete a session's persisted file(s) and drop it from the cache.
+
+        Removes the primary storage file plus both legacy path variants (lossy
+        workspace stem and the legacy global dir) so a deleted session cannot
+        reappear via :meth:`list_sessions`. Returns True if any file was removed.
+        """
+        self._cache.pop(key, None)
+        removed = False
+        for path in (
+            self._get_session_path(key),
+            self._get_legacy_lossy_path(key),
+            self._get_legacy_session_path(key),
+        ):
+            try:
+                path.unlink()
+                removed = True
+            except FileNotFoundError:
+                continue
+            except OSError:
+                continue
+        return removed
+
     def list_sessions(self) -> list[dict[str, Any]]:
         """
         List all sessions.
