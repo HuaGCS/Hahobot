@@ -829,45 +829,97 @@ def _render_provider_group_summary(
     )
 
 
+def _render_provider_group_details(
+    request: web.Request,
+    *,
+    group_key: str,
+    title_key: str,
+    desc_key: str,
+    field_names: tuple[str, ...],
+    values: dict[str, Any],
+    configured: bool,
+) -> str:
+    """Render one provider credential group. Unconfigured groups render hidden and
+    are surfaced on demand by the add-by-type select."""
+    open_attr = " open" if configured else ""
+    hidden_attr = "" if configured else " hidden"
+    status_key = "admin_provider_group_configured" if configured else "admin_provider_group_empty"
+    status_class = "pill hot" if configured else "pill"
+    fields = "".join(
+        _render_config_field(request, _CONFIG_FIELD_MAP[field_name], values[field_name])
+        for field_name in field_names
+    )
+    summary = _render_provider_group_summary(
+        request,
+        group_key=group_key,
+        field_names=field_names,
+        values=values,
+    )
+    return (
+        f'<details class="provider-group" data-provider-group="{escape(group_key)}"'
+        f"{open_attr}{hidden_attr}>"
+        "<summary>"
+        '<div class="provider-group-top">'
+        f'<h3 class="provider-group-title">{escape(_t(request, title_key))}</h3>'
+        f'<span class="{status_class}">{escape(_t(request, status_key))}</span>'
+        "</div>"
+        f'<div class="provider-group-desc">{_th(request, desc_key)}</div>'
+        f"{summary}"
+        "</summary>"
+        '<div class="provider-group-body">'
+        f'<div class="provider-group-fields">{fields}</div>'
+        "</div>"
+        "</details>"
+    )
+
+
+def _render_provider_add_select(request: web.Request, unconfigured: list[tuple[str, str]]) -> str:
+    """The 'add a provider by type' picker for not-yet-configured providers."""
+    if not unconfigured:
+        return ""
+    options = [f'<option value="">{escape(_t(request, "admin_provider_add_placeholder"))}</option>']
+    for group_key, title_key in unconfigured:
+        options.append(
+            f'<option value="{escape(group_key)}">{escape(_t(request, title_key))}</option>'
+        )
+    return (
+        '<div class="provider-add">'
+        f'<label class="muted">{escape(_t(request, "admin_provider_add_label"))}</label>'
+        f"<select data-add-provider>{''.join(options)}</select>"
+        "</div>"
+    )
+
+
 def _render_provider_groups_section(
     request: web.Request,
     *,
     values: dict[str, Any],
 ) -> str:
-    groups = []
+    configured_groups: list[str] = []
+    hidden_groups: list[str] = []
+    unconfigured: list[tuple[str, str]] = []
     for group_key, title_key, desc_key, field_names in _PROVIDER_CONFIG_GROUPS:
         configured = _provider_group_is_configured(values, field_names)
-        open_attr = " open" if configured else ""
-        status_key = (
-            "admin_provider_group_configured" if configured else "admin_provider_group_empty"
-        )
-        status_class = "pill hot" if configured else "pill"
-        fields = "".join(
-            _render_config_field(request, _CONFIG_FIELD_MAP[field_name], values[field_name])
-            for field_name in field_names
-        )
-        summary = _render_provider_group_summary(
+        details = _render_provider_group_details(
             request,
             group_key=group_key,
+            title_key=title_key,
+            desc_key=desc_key,
             field_names=field_names,
             values=values,
+            configured=configured,
         )
-        groups.append(
-            f'<details class="provider-group" data-provider-group="{escape(group_key)}"{open_attr}>'
-            "<summary>"
-            '<div class="provider-group-top">'
-            f'<h3 class="provider-group-title">{escape(_t(request, title_key))}</h3>'
-            f'<span class="{status_class}">{escape(_t(request, status_key))}</span>'
-            "</div>"
-            f'<div class="provider-group-desc">{_th(request, desc_key)}</div>'
-            f"{summary}"
-            "</summary>"
-            '<div class="provider-group-body">'
-            f'<div class="provider-group-fields">{fields}</div>'
-            "</div>"
-            "</details>"
-        )
-    return f'<div class="provider-groups">{"".join(groups)}</div>'
+        if configured:
+            configured_groups.append(details)
+        else:
+            hidden_groups.append(details)
+            unconfigured.append((group_key, title_key))
+    add_select = _render_provider_add_select(request, unconfigured)
+    return (
+        '<div class="provider-groups">'
+        f"{''.join(configured_groups)}{''.join(hidden_groups)}{add_select}"
+        "</div>"
+    )
 
 
 def _render_channel_group_summary(

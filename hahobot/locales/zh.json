@@ -455,6 +455,8 @@
         "admin_provider_group_vllm_desc": "本地 vLLM 或其他自托管 OpenAI 兼容服务。",
         "admin_provider_group_configured": "已配置",
         "admin_provider_group_empty": "未配置",
+        "admin_provider_add_label": "添加 provider",
+        "admin_provider_add_placeholder": "选择类型…",
         "admin_provider_group_meta_api_key": "API Key",
         "admin_provider_group_meta_headers": "{count} 个请求头",
         "admin_provider_group_meta_headers_present": "请求头",

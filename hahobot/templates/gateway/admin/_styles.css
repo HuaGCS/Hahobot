@@ -207,6 +207,11 @@
       background: var(--panel-soft); color: var(--ink); text-decoration: none;
     }
     .jump-link:hover { text-decoration: none; border-color: var(--accent); background: var(--accent-soft); }
+    .jump-link.active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+    /* Tabbed sections: only the active config section shows (progressive
+       enhancement — without JS every section stays visible). Non-active sections
+       stay in the DOM so their inputs still submit with the single Save button. */
+    .section-layout.tabs-enabled .section-card:not(.is-active) { display: none; }
     .jump-link-top { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
     .jump-link-index, .section-index {
       display: inline-flex; align-items: center; justify-content: center;
@@ -380,6 +385,10 @@
 
     .provider-pool-editor { display: grid; gap: 12px; }
     .provider-groups { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .provider-add { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+      padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: 12px; background: var(--panel-soft); }
+    .provider-add select { flex: 0 1 240px; min-width: 0; }
+    .provider-group[hidden] { display: none; }
     .provider-group { border: 1px solid var(--line); border-radius: 12px; background: var(--panel-soft); overflow: hidden; }
     .provider-group[open] { border-color: var(--line-strong); }
     .provider-group summary { list-style: none; display: grid; gap: 10px; padding: 16px; cursor: pointer; }

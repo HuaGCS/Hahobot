@@ -455,6 +455,8 @@
         "admin_provider_group_vllm_desc": "Local vLLM or another self-hosted OpenAI-compatible server.",
         "admin_provider_group_configured": "Configured",
         "admin_provider_group_empty": "Empty",
+        "admin_provider_add_label": "Add a provider",
+        "admin_provider_add_placeholder": "Choose a type…",
         "admin_provider_group_meta_api_key": "API key",
         "admin_provider_group_meta_headers": "{count} headers",
         "admin_provider_group_meta_headers_present": "Headers",

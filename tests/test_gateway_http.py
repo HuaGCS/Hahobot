@@ -2156,3 +2156,28 @@ async def test_admin_config_model_picker_default_reflects_auto_resolution(tmp_pa
     assert '<option value="custom" selected>' in page.text
     # …but openrouter is still offered so its models can be fetched on demand.
     assert '<option value="openrouter">' in page.text
+
+
+@pytest.mark.asyncio
+async def test_admin_config_tabs_and_provider_add_by_type(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    config.providers.openrouter.api_key = "or-key"  # configured → visible/open
+    save_config(config, config_path)
+    app = create_http_app(config_path=config_path, workspace=tmp_path / "workspace")
+    cookie = await _admin_login_cookie(app)
+
+    page = await _call_route(app, "GET", "/admin/config", cookies={"hahobot_admin_session": cookie})
+    assert page.status == 200
+    text = page.text
+    # Tabbed layout: the tab script is inlined and flips sections to single-visible.
+    assert "tabs-enabled" in text
+    assert 'class="jump-link"' in text
+    # Provider "add by type": an add-select is present and unconfigured providers
+    # render hidden while the configured one stays open.
+    assert "data-add-provider" in text
+    assert 'class="provider-add"' in text
+    assert re.search(r'data-provider-group="openrouter"[^>]*\sopen', text)
+    assert re.search(r'data-provider-group="openai"[^>]*\shidden', text)
