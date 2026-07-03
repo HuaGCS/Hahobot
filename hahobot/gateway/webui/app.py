@@ -516,6 +516,18 @@ async def webui_chat_ws(request: web.Request) -> web.WebSocketResponse:
         else:
             await ws.send_json(frame)
 
+    # Track the last working-checkpoint we pushed so mid-turn refreshes are sent
+    # live (as the agent progresses) without re-emitting an unchanged panel.
+    cp_cursor: dict[str, str | None] = {"sig": None}
+
+    async def _emit_checkpoint(checkpoint: dict[str, Any] | None) -> None:
+        """Push a working-checkpoint frame only when it changed since the last one."""
+        sig = json.dumps(checkpoint, sort_keys=True, ensure_ascii=False) if checkpoint else None
+        if sig == cp_cursor["sig"]:
+            return
+        cp_cursor["sig"] = sig
+        await _emit({"event": "checkpoint", "checkpoint": checkpoint})
+
     async def _writer() -> None:
         if conn is None:
             return
@@ -558,6 +570,10 @@ async def webui_chat_ws(request: web.Request) -> web.WebSocketResponse:
             async def on_progress(hint: str, tool_hint: bool = False) -> None:
                 if hint:
                     await _emit({"event": "progress", "text": hint, "tool_hint": tool_hint})
+                # The in-flight working checkpoint is written to session metadata as
+                # the turn advances; surface it live so the panel reflects progress
+                # instead of only catching up at stream_end (or on a manual refresh).
+                await _emit_checkpoint(_working_checkpoint(request, session_key))
 
             try:
                 resp = await agent.process_direct(
@@ -576,12 +592,18 @@ async def webui_chat_ws(request: web.Request) -> web.WebSocketResponse:
             media = _media_urls(
                 getattr(resp, "media", None) if resp else None, _media_root(request)
             )
+            final_checkpoint = _working_checkpoint(request, session_key)
+            cp_cursor["sig"] = (
+                json.dumps(final_checkpoint, sort_keys=True, ensure_ascii=False)
+                if final_checkpoint
+                else None
+            )
             await _emit(
                 {
                     "event": "stream_end",
                     "text": resp.content if resp else "",
                     "media": media,
-                    "checkpoint": _working_checkpoint(request, session_key),
+                    "checkpoint": final_checkpoint,
                 }
             )
     finally:

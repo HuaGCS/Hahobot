@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from hahobot.agent.working_checkpoint import normalize_working_checkpoint
 from hahobot.bus.events import OutboundMessage
 from hahobot.bus.queue import MessageBus
 from hahobot.channels.base import BaseChannel
@@ -27,10 +28,19 @@ class WebUIChannel(BaseChannel):
     name = "webui"
     display_name = "WebUI"
 
-    def __init__(self, broadcaster: WebUIBroadcaster, bus: MessageBus, workspace: Path) -> None:
+    def __init__(
+        self,
+        broadcaster: WebUIBroadcaster,
+        bus: MessageBus,
+        workspace: Path,
+        session_manager: object | None = None,
+    ) -> None:
         super().__init__(config=None, bus=bus)
         self._broadcaster = broadcaster
         self._workspace = Path(workspace)
+        # Optional: lets proactive pushes carry the turn's working checkpoint so
+        # the panel updates live instead of only on the next page reload.
+        self._session_manager = session_manager
         self._stop = asyncio.Event()
 
     async def start(self) -> None:
@@ -49,5 +59,21 @@ class WebUIChannel(BaseChannel):
             url = _media_url_for(str(item), self._workspace / "out")
             if url:
                 media.append(url)
-        frame = {"event": "push", "text": msg.content or "", "media": media}
+        frame = {
+            "event": "push",
+            "text": msg.content or "",
+            "media": media,
+            "checkpoint": self._checkpoint_for(session_key),
+        }
         await self._broadcaster.broadcast(session_key, frame)
+
+    def _checkpoint_for(self, session_key: str) -> dict | None:
+        """Best-effort current working checkpoint for a proactive-push session."""
+        sm = self._session_manager
+        if sm is None:
+            return None
+        try:
+            session = sm.get_or_create(session_key)
+            return normalize_working_checkpoint(session.metadata.get("working_checkpoint"))
+        except Exception:  # noqa: BLE001 - push must never fail on checkpoint lookup
+            return None

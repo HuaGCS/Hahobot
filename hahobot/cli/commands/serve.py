@@ -282,7 +282,9 @@ def gateway(
         from hahobot.gateway.webui.channel import WebUIChannel
 
         webui_broadcaster = WebUIBroadcaster()
-        channels.channels["webui"] = WebUIChannel(webui_broadcaster, bus, config.workspace_path)
+        channels.channels["webui"] = WebUIChannel(
+            webui_broadcaster, bus, config.workspace_path, session_manager
+        )
 
     async def _reload_runtime_state() -> None:
         """Force-reload runtime-configurable state after admin config saves."""

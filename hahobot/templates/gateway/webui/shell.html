@@ -214,6 +214,9 @@
             scrollToBottom();
           } else if (data.event === "progress") {
             statusLine.textContent = data.text || "";
+          } else if (data.event === "checkpoint") {
+            // Live mid-turn working-checkpoint refresh (no need to wait for stream_end).
+            updateCheckpoint(data.checkpoint);
           } else if (data.event === "stream_end") {
             if (!assistantBubble && data.text) assistantBubble = addMessage("assistant", data.text);
             else if (assistantBubble && data.text) assistantBubble.textContent = data.text;
@@ -226,7 +229,9 @@
             // Proactive server-initiated message (cron / heartbeat / message tool).
             const bubble = data.text ? addMessage("assistant", data.text) : addMessage("assistant", "");
             renderMedia(bubble, data.media);
-            if (data.checkpoint !== undefined) updateCheckpoint(data.checkpoint);
+            // Only refresh the panel when the push carries a checkpoint; a bare
+            // reminder push must not clear an existing one.
+            if (data.checkpoint) updateCheckpoint(data.checkpoint);
           } else if (data.event === "error") {
             statusLine.textContent = data.text || "error";
             assistantBubble = null;

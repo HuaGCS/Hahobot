@@ -349,6 +349,31 @@ async def test_webui_ws_stream_end_includes_checkpoint(tmp_path: Path, client_fa
     assert end["checkpoint"]["next_step"] == "N"
 
 
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_ws_emits_live_checkpoint_during_turn(tmp_path: Path, client_factory) -> None:
+    # The panel must refresh mid-turn (on progress) rather than only at stream_end.
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent())
+    _set_checkpoint(tmp_path, "webui:default", {"goal": "G", "current_step": "working"})
+    client = await client_factory(app)
+    ws = await client.ws_connect("/app/ws", headers={"Cookie": _cookie_header()})
+    await ws.receive_json()  # ready
+    await ws.send_json({"event": "message", "text": "hi", "session": "webui:default"})
+    events = []
+    while True:
+        frame = await ws.receive_json()
+        events.append(frame)
+        if frame["event"] == "stream_end":
+            break
+    await ws.close()
+    kinds = [e["event"] for e in events]
+    # a live checkpoint frame arrived before the turn ended
+    assert "checkpoint" in kinds
+    assert kinds.index("checkpoint") < kinds.index("stream_end")
+    live = next(e for e in events if e["event"] == "checkpoint")
+    assert live["checkpoint"]["goal"] == "G"
+
+
 # --- Phase 4c: session forking --------------------------------------------
 
 
@@ -619,6 +644,31 @@ async def test_webui_channel_send_maps_frame(tmp_path: Path) -> None:
     assert frame["event"] == "push"
     assert frame["text"] == "reminder"
     assert frame["media"] == ["/app/media/pic.png"]
+    # No session manager wired → no checkpoint attached (must not raise).
+    assert frame["checkpoint"] is None
+
+
+@pytest.mark.asyncio
+async def test_webui_channel_push_carries_checkpoint(tmp_path: Path) -> None:
+    from hahobot.bus.events import OutboundMessage
+    from hahobot.gateway.webui.broadcast import WebUIBroadcaster, WebUIConnection
+    from hahobot.gateway.webui.channel import WebUIChannel
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True)
+    sm = SessionManager(workspace)
+    session = sm.get_or_create("webui:default")
+    session.metadata["working_checkpoint"] = {"goal": "cron goal", "current_step": "reminding"}
+    sm.save(session)
+
+    b = WebUIBroadcaster()
+    conn = WebUIConnection("webui:default")
+    b.register(conn)
+    ch = WebUIChannel(b, bus=None, workspace=workspace, session_manager=sm)
+    await ch.send(OutboundMessage(channel="webui", chat_id="default", content="ping"))
+    frame = conn.queue.get_nowait()
+    assert frame["event"] == "push"
+    assert frame["checkpoint"]["goal"] == "cron goal"
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
