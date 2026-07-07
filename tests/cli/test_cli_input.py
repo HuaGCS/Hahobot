@@ -484,7 +484,16 @@ def test_stream_renderer_stop_for_input_stops_spinner():
         spinner.stop.assert_called_once()
 
 
-def test_make_console_uses_force_terminal():
-    """Console should be created with force_terminal=True for proper ANSI handling."""
-    console = stream_mod._make_console()
-    assert console._force_terminal is True
+def test_make_console_forces_ansi_only_on_a_tty(monkeypatch):
+    """Force ANSI on a real TTY; stay auto-detect (no escapes) when piped/captured."""
+    import io
+
+    class _TTY(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(stream_mod.sys, "stdout", _TTY())
+    assert stream_mod._make_console()._force_terminal is True
+
+    monkeypatch.setattr(stream_mod.sys, "stdout", io.StringIO())  # isatty() -> False
+    assert stream_mod._make_console()._force_terminal is None

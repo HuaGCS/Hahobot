@@ -20,6 +20,9 @@ memory_index_app = typer.Typer(help="Manage archive search indexes")
 channels_app = typer.Typer(help="Manage channels")
 plugins_app = typer.Typer(help="Manage channel plugins")
 provider_app = typer.Typer(help="Manage providers")
+config_app = typer.Typer(
+    help="Read/write per-skill config (skills.entries) in <workspace>/skills.json"
+)
 
 app.add_typer(persona_app, name="persona")
 app.add_typer(companion_app, name="companion")
@@ -30,3 +33,4 @@ memory_app.add_typer(memory_index_app, name="index")
 app.add_typer(channels_app, name="channels")
 app.add_typer(plugins_app, name="plugins")
 app.add_typer(provider_app, name="provider")
+app.add_typer(config_app, name="config")

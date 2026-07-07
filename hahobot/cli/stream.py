@@ -18,7 +18,12 @@ from hahobot import __logo__
 
 
 def _make_console() -> Console:
-    return Console(file=sys.stdout, force_terminal=True)
+    # Only force ANSI (colors + cursor/erase codes for the live spinner) when
+    # stdout is a real TTY. When output is piped/redirected/captured, pass
+    # force_terminal=None so Rich auto-detects and emits no escape codes —
+    # otherwise the spinner's redraw frames leak as literal `\x1b[2K` junk.
+    force = True if sys.stdout.isatty() else None
+    return Console(file=sys.stdout, force_terminal=force)
 
 
 class ThinkingSpinner:

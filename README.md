@@ -186,6 +186,23 @@ The API binds to `127.0.0.1` by default and is unauthenticated for local use. Se
 or `::`) **requires** `api.authKey`; `hahobot serve` refuses to start otherwise so
 a network-reachable API is never left unauthenticated.
 
+Per-skill config (OpenClaw `skills.entries` shape, stored in `<workspace>/skills.json`):
+
+```bash
+hahobot config set skills.entries.today-task.config.authCode OoPs0gbbd5BH
+hahobot config get skills.entries.today-task.config
+hahobot config unset skills.entries.today-task.config.authCode
+```
+
+Only `skills.*` paths are accepted. Values are stored as strings unless `--json` is
+passed (so numeric-looking codes keep their type). A skill's secrets stay in this
+workspace file — they are never injected into the shell environment or into other
+skills' context; a skill reads its own `entries.<name>.config` at runtime via
+`read_file`. Do not commit `skills.json` if it holds secrets and the workspace is a git repo.
+
+`openclaw` is a CLI alias for `hahobot` (identical subcommands), so the OpenClaw-style
+`openclaw config set skills.entries.today-task.config.authCode <value>` works verbatim.
+
 Useful checks:
 
 ```bash

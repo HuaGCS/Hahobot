@@ -20,7 +20,7 @@ if sys.platform == "win32":
             pass
 
 # Import command modules for their side effect: @app.command() registration.
-from hahobot.cli.commands import agent_repl, core, groups, serve  # noqa: F401
+from hahobot.cli.commands import agent_repl, config_cmd, core, groups, serve  # noqa: F401
 from hahobot.cli.commands._app import app
 from hahobot.cli.commands.runtime import (
     _make_provider,

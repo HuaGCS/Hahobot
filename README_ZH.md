@@ -149,6 +149,24 @@ hahobot agent --multiline
 hahobot gateway
 ```
 
+### 4. 每技能配置
+
+按 OpenClaw 的 `skills.entries` 结构管理单个技能的配置，写入 `<workspace>/skills.json`：
+
+```bash
+hahobot config set skills.entries.today-task.config.authCode OoPs0gbbd5BH
+hahobot config get skills.entries.today-task.config
+hahobot config unset skills.entries.today-task.config.authCode
+```
+
+只接受 `skills.*` 路径。默认按字符串存储，加 `--json` 才会解析为 JSON（这样像 authCode
+这类"数字样"的值不会被改成数字、丢失类型）。技能的密钥只存在这个工作区文件里——**不会**
+注入到 shell 环境、也不会进入其他技能的上下文；技能在运行时用 `read_file` 读取自己的
+`entries.<name>.config`。如果工作区是 git 仓库且 `skills.json` 含密钥，请不要提交它。
+
+`openclaw` 是 `hahobot` 的 CLI 别名（子命令完全一致），所以 OpenClaw 风格的
+`openclaw config set skills.entries.today-task.config.authCode <值>` 可以原样使用。
+
 ## 可选能力
 
 ### Provider 池：故障切换 / 轮询
