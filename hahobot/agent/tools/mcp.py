@@ -1,6 +1,7 @@
 """MCP client: connects to MCP servers and wraps their tools as native hahobot tools."""
 
 import asyncio
+import hashlib
 import urllib.parse
 from contextlib import AsyncExitStack
 from typing import Any, TextIO
@@ -393,13 +394,36 @@ def _stderr_to_logger(name: str, stack: AsyncExitStack) -> TextIO | None:
 # ── Wrapper classes ────────────────────────────────────────────────────────────
 
 
+_MAX_TOOL_NAME_LENGTH = 64
+_TOOL_NAME_HASH_LENGTH = 8
+
+
+def _limit_tool_name(name: str, max_length: int = _MAX_TOOL_NAME_LENGTH) -> str:
+    """Cap a model-facing MCP tool name at the Anthropic 64-char tool-name limit.
+
+    Short names are returned unchanged. A longer ``mcp_<server>_<tool>`` name is
+    truncated and given a stable sha1 suffix so two distinct long names cannot
+    collide onto one tool name — an over-length name otherwise 400s the Anthropic
+    Messages API and bricks the session (the same session-bricking class as the
+    duplicate/invalid tool-id guards). The MCP server is always called with the
+    wrapper's ``_original_name``, so capping the local name never affects dispatch.
+    Ported from nanobot `3f9fb63d` (length core only; hahobot's reconnect/unregister
+    matches on the `_MCPServerConnection` coordinator, not a name prefix).
+    """
+    if len(name) <= max_length:
+        return name
+    digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:_TOOL_NAME_HASH_LENGTH]
+    prefix_length = max_length - _TOOL_NAME_HASH_LENGTH - 1
+    return f"{name[:prefix_length]}_{digest}"
+
+
 class MCPToolWrapper(_MCPWrapperBase):
     """Wraps a single MCP server tool as a hahobot Tool."""
 
     def __init__(self, session, server_name: str, tool_def, tool_timeout: int = 30):
         super().__init__(session)
         self._original_name = tool_def.name
-        self._name = f"mcp_{server_name}_{tool_def.name}"
+        self._name = _limit_tool_name(f"mcp_{server_name}_{tool_def.name}")
         self._description = tool_def.description or tool_def.name
         raw_schema = tool_def.inputSchema or {"type": "object", "properties": {}}
         self._parameters = _normalize_schema_for_openai(raw_schema)
@@ -728,14 +752,16 @@ async def connect_mcp_servers(
             allow_all_tools = "*" in enabled_tools
             matched_enabled_tools: set[str] = set()
             available_raw_names = [tool_def.name for tool_def in tools.tools]
-            available_wrapped_names = [f"mcp_{name}_{tool_def.name}" for tool_def in tools.tools]
+            available_wrapped_names = [
+                _limit_tool_name(f"mcp_{name}_{tool_def.name}") for tool_def in tools.tools
+            ]
             registered_count = 0
 
             # Collect wrappers for this server before registering, so the
             # coordinator can track them all for session-reconnect broadcasts.
             wrappers: list[_MCPWrapperBase] = []
             for tool_def in tools.tools:
-                wrapped_name = f"mcp_{name}_{tool_def.name}"
+                wrapped_name = _limit_tool_name(f"mcp_{name}_{tool_def.name}")
                 if (
                     not allow_all_tools
                     and tool_def.name not in enabled_tools

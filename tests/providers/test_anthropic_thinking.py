@@ -87,6 +87,15 @@ def test_fable_omits_temperature() -> None:
     assert "temperature" not in _build(_make_provider("claude-fable-5"), "high")
 
 
+def test_sonnet_5_omits_temperature() -> None:
+    # claude-sonnet-5 also deprecated `temperature`; cover none/adaptive/enabled paths.
+    assert "temperature" not in _build(_make_provider("anthropic/claude-sonnet-5"), None)
+    kw_adaptive = _build(_make_provider("claude-sonnet-5"), "adaptive")
+    assert "temperature" not in kw_adaptive
+    assert kw_adaptive["thinking"] == {"type": "adaptive"}
+    assert "temperature" not in _build(_make_provider("claude-sonnet-5"), "high", max_tokens=4096)
+
+
 def test_omit_temperature_matches_mixed_case() -> None:
     assert "temperature" not in _build(_make_provider("Claude-Opus-4-8"), None)
 

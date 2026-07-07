@@ -65,6 +65,76 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-07-07` pass): re-checked against upstream `main` through `d04ad1a5`
+  (`2026-07-06`); 75 commits since `c78421cf`, the bulk a new **session-bound local triggers**
+  feature (`2a0cd19a` → `54bcdb5a`, ~15 commits: session-idle deferral, run-audit records,
+  interrupted-delivery recovery, WebUI trigger panels), a **Mattermost channel** (`fff38f11` +
+  cluster), Windows exec/PowerShell hardening (`33b1c6f6` + docs cluster), a Serper.dev web-search
+  provider (`8a42a9c7` + `1cfa48ad`), and WebUI/gateway housekeeping. **Three contract-stable fixes
+  ported this pass:**
+  (1) **Anthropic `omit_temperature` widened to `sonnet-5`** (`00cc0da5`) — hahobot's
+  `anthropic_provider._build_kwargs` omit list was `("opus-4-7", "opus-4-8", "fable")`, missing
+  `sonnet-5` (a current top-tier default-eligible model). A configured `claude-sonnet-5` on any
+  thinking/adaptive/none path would 400 on `temperature` — the exact class AGENTS.md line 129 warns
+  the list must track. Added `sonnet-5`; tests in `tests/providers/test_anthropic_thinking.py`
+  (`test_sonnet_5_omits_temperature`, none/adaptive/enabled paths).
+  (2) **MCP-derived tool names capped at 64 chars** (`3f9fb63d`, length core) — hahobot built the
+  model-facing tool name as raw `f"mcp_{server}_{tool}"` with no length cap, so a long
+  server+tool name exceeds Anthropic's 64-char tool-name limit → 400 → session brick (same class as
+  the duplicate/invalid tool-id guards). Added `_limit_tool_name` (short names unchanged; longer ones
+  truncated + `sha1[:8]` suffix so distinct long names don't collide), applied at `MCPToolWrapper`
+  construction and both `enabledTools`-matching sites so config listing a wrapped name still matches.
+  The server is always called with `_original_name`, so the cap never affects dispatch. nanobot's
+  companion `800d51ec` (reconnect/unregister prefix-matching fix) is **not applicable** — hahobot's
+  reconnect/unregister matches on the `_MCPServerConnection` coordinator, not a name prefix, so a
+  truncated name does not break teardown. Tests in `tests/agent/test_mcp_tool_name_limit.py`.
+  (3) **Copilot token-refresh race guarded** (`28011413`) —
+  `github_copilot_provider._get_copilot_access_token` had a check-then-act race: two concurrent
+  `chat()` calls after token expiry both exchanged a new token and clobbered each other. Added
+  `self._copilot_token_lock` with double-checked locking (re-check inside the lock) so only one fetch
+  happens per expiry window. Tests in `tests/providers/test_copilot_token_refresh.py` (5 concurrent
+  callers → exactly one exchange).
+  Larger deltas reviewed and **not ported** this pass: the **local-triggers** cluster is a
+  nanobot-specific session-bound automation surface that overlaps hahobot's existing cron + proactive
+  WebUI delivery (`WebUIBroadcaster` / `_record_proactive_delivery`); feature-level, WebUI-coupled —
+  intentional divergence / watchlist. `fff38f11`+cluster (**Mattermost** channel) and `8a42a9c7` +
+  `1cfa48ad` (**Serper.dev** web search) are add-only-with-demand channel/provider breadth (same
+  stance as the transcription / search-provider watchlist). `10b52cfb` (map workspace-relative
+  `skills/<name>/...` reads onto `BUILTIN_SKILLS_DIR` when the workspace file is absent) is
+  **watchlisted, low-confidence**: hahobot's skill summary already exposes the *absolute* bundled path
+  for built-in skills and `ReadFileTool` allows it via `builtin_read_dirs=(BUILTIN_SKILLS_DIR,)`, so
+  the relative-read miss nanobot fixes is unlikely to trigger; revisit if a built-in `skills/<name>`
+  relative read is observed failing. `0d1221be` (wrap MCP result rendering in try/except) is **not
+  applicable** — hahobot's `MCPToolWrapper.execute` renders inline (`str(block)` fallback over
+  `result.content`) with none of nanobot's richer `_render_call_result` image-artifact failure
+  surface. `6d28db32` + `614ea86a` (reconnect MCP on transient stream failures) overlaps hahobot's
+  existing terminated-session auto-reconnect (`_refresh_session_after_termination` +
+  `_MCPServerConnection`); watchlist. `105230cc` (print response text when interactive streaming
+  fails) overlaps hahobot's own stream renderer; watchlist. `f0c989ba` (ground Dream memory-audit
+  records in the real git diff), `f38fd7d5` + `c9c69e43` (workspace Dream prompt override + cap),
+  `aecb5fbc` (avoid tool-compaction echo loops), `a119c35b` (serialize model presets as camelCase),
+  `5283ceae` (optional nanobot plugin controls), `067e0c4a` (WebUI first-run launcher), and the
+  Windows exec/PowerShell, mattermost-doc, feishu-divider, and gateway state-file/PID commits are
+  Dream-feature / config / WebUI / plugin-runtime / channel breadth — intentional divergence or
+  add-only-with-demand watchlist. `b19a7441` (nanobot's own default model → `claude-sonnet-4-6`) is
+  **not applicable** — hahobot owns its own default-model line.
+- `GenericAgent` (`2026-07-07` pass): re-checked against upstream `main` through `15f7eb1a`
+  (`2026-07`); 2 commits since `fc4235da`. `15f7eb1a` (persistent worldline checkpoint-tree rewind
+  `/rewind` + `/worldline` for `tui_v2`) is TUI-v2 session-tree machinery (intentional divergence —
+  overlaps hahobot's `sessions`/`--continue` surface but is a TUI feature), and `eff6802b` simplifies
+  GenericAgent's `mykey_template` provider-config template (GenericAgent-internal config layout). No
+  portable contract-stable runtime/memory idea this pass.
+- `claude-mem` (`2026-07-07` pass): re-checked against upstream `main` through `312d640`
+  (`2026-07-06`, v13.10.2); work since `cbdce2d6` is a release/branch-management restructuring
+  (`05d8cbc` + `9493c56` designate `main` stable + core-dev/community-edge release branches,
+  `4c4d1e5` version bump, `accd986` docs/translations refresh). All docs / release-process / version
+  housekeeping — intentional divergences for hahobot's file-first, zero-dependency memory model;
+  nothing to adopt.
+- `nocturne_memory` (`2026-07-07` pass): re-checked against upstream `main`; `15930e09`
+  (`2026-06-26`, the prior boundary) is still `HEAD` — no new commits since the last pass.
+- `jiuwenswarm` (`2026-07-07` pass): atomgit remains a client-rendered SPA with no public commit
+  API, so commit-level diffing is unavailable (as in prior passes). The Huawei Xiaoyi A2A WebSocket
+  channel (`channels.xiaoyi`) remains the ported surface; no new portable idea this pass.
 - `nanobot` (`2026-07-01` pass): re-checked against upstream `main` through `c78421cf`
   (`2026-07-01`); 34 commits since `8df10020`, the bulk WebUI churn (dollar skill shortcuts, provider
   model catalog kind, prompt-rail minimap — intentional divergence), a typed-outbound-events bus
