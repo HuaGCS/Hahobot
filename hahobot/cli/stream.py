@@ -71,15 +71,22 @@ class StreamRenderer:
       on_end -> Live stops (content stays on screen)
     """
 
-    def __init__(self, render_markdown: bool = True, show_spinner: bool = True):
+    def __init__(
+        self,
+        render_markdown: bool = True,
+        show_spinner: bool = True,
+        interactive: bool = False,
+    ):
         self._md = render_markdown
         self._show_spinner = show_spinner
+        self._interactive = interactive
         self._buf = ""
         self._live: Live | None = None
         self._t = 0.0
         self.streamed = False
         self._spinner: ThinkingSpinner | None = None
-        self._start_spinner()
+        if not self._interactive:
+            self._start_spinner()
 
     def _render(self):
         return Markdown(self._buf) if self._md and self._buf else Text(self._buf or "")
@@ -97,6 +104,8 @@ class StreamRenderer:
     async def on_delta(self, delta: str) -> None:
         self.streamed = True
         self._buf += delta
+        if self._interactive:
+            return
         if self._live is None:
             if not self._buf.strip():
                 return
@@ -113,6 +122,17 @@ class StreamRenderer:
             self._t = now
 
     async def on_end(self, *, resuming: bool = False) -> None:
+        if self._interactive:
+            if resuming:
+                self._buf = ""
+            elif self._buf:
+                from hahobot.cli.commands import interactive
+
+                await interactive._print_interactive_response(
+                    self._buf,
+                    render_markdown=self._md,
+                )
+            return
         if self._live:
             self._live.update(self._render())
             self._live.refresh()

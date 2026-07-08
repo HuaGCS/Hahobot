@@ -367,7 +367,7 @@ def agent(
 
                         turn_done.clear()
                         turn_response.clear()
-                        renderer = StreamRenderer(render_markdown=markdown)
+                        renderer = StreamRenderer(render_markdown=markdown, interactive=True)
 
                         await bus.publish_inbound(
                             InboundMessage(

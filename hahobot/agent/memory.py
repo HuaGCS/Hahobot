@@ -650,12 +650,16 @@ class MemoryStore:
                     return None
                 read_size = min(size, 4096)
                 f.seek(size - read_size)
-                data = f.read().decode("utf-8")
+                # Tail read: the 4096-byte window can start mid-character when the
+                # file holds multibyte UTF-8 (Chinese content, ensure_ascii=False).
+                # errors="ignore" drops the leading partial char — harmless because
+                # we only use lines[-1], the last *complete* JSON line.
+                data = f.read().decode("utf-8", errors="ignore")
                 lines = [line for line in data.split("\n") if line.strip()]
                 if not lines:
                     return None
                 return json.loads(lines[-1])
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
             return None
 
     def _write_entries(self, entries: list[dict[str, Any]]) -> None:
