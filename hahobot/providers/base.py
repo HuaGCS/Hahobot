@@ -113,6 +113,13 @@ class LLMProvider(ABC):
         "connection",
         "server error",
         "temporarily unavailable",
+        # Relay/aggregator (new-api, one-api) wrap a transient upstream
+        # connectivity failure as a generic 400 "invalid_request_error" whose
+        # body reads "Error from provider (X): Upstream request failed". That is
+        # a retryable upstream blip, not a client-side bad request, so match the
+        # phrase explicitly — the status code and error type give no signal.
+        "upstream request failed",
+        "upstream error",
     )
     _RETRYABLE_STATUS_CODES = frozenset({408, 409, 429})
     _TRANSIENT_ERROR_KINDS = frozenset({"timeout", "connection"})
