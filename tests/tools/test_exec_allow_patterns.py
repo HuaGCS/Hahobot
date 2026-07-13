@@ -7,6 +7,8 @@ allowlisted prefix cannot smuggle an appended command through.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from hahobot.agent.tools.shell import ExecTool
@@ -54,8 +56,15 @@ def test_allowlist_supports_regex_alternation():
 
 @pytest.mark.asyncio
 async def test_allowlist_enforced_through_execute():
+    mock_proc = AsyncMock()
+    mock_proc.communicate.return_value = (b"hello\n", b"")
+    mock_proc.returncode = 0
+
     tool = ExecTool(timeout=5, allow_patterns=[r"echo .*"])
-    ok = await tool.execute(command="echo hello")
+    with patch.object(ExecTool, "_spawn", return_value=mock_proc) as spawn:
+        ok = await tool.execute(command="echo hello")
+
     assert "hello" in ok
+    spawn.assert_called_once()
     blocked = await tool.execute(command="cat /etc/passwd")
     assert "allowlist" in blocked.lower()

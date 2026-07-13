@@ -65,6 +65,71 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-07-13` pass): re-checked against upstream `main` through `45d1caba`
+  (`2026-07-12`); 109 commits since `d04ad1a5`. The bulk is still nanobot-specific WebUI
+  refinement (file-edit diff previews, prompt rail layout, bootstrap token handling, remote
+  workspace scope reduction), agent runtime-context refactoring (`f75d3519` cluster), docs/search
+  guide churn, and API-auth semantics that hahobot had already ported in the previous pass. **Three
+  portable fixes were adopted:**
+  (1) **DNS pinning for direct `web_fetch` requests** (`73bf299a` → `c5e053f8`) — hahobot now has
+  `PinnedDNSAsyncTransport` / `pin_resolved_url_dns` in `hahobot/security/network.py`, and direct
+  `WebFetchTool` HTTP clients use it so the IPs validated by the SSRF guard are the IPs used by the
+  socket connect. Standard environment proxy settings are preserved through HTTPX mounts; explicit
+  `tools.web.proxy` mode intentionally preserves existing proxy behavior. In proxied paths, target
+  DNS belongs to the proxy side, so hahobot does not claim local DNS pinning there.
+  Hahobot did **not** apply nanobot's MCP HTTP pinning one-to-one because this repo's MCP rule is
+  different: operator-configured MCP hosts are trusted even when loopback/LAN, and the SSRF vector is
+  only cross-host redirects. The existing `_make_mcp_redirect_validator` remains that boundary.
+  Tests: `tests/security/test_security_network.py` and `tests/tools/test_web_fetch_security.py`.
+  (2) **Matrix `mxc://` markdown image sources preserved** (`4137be62`) — `MatrixChannel` now builds
+  its Mistune renderer with `HTMLRenderer(..., allow_harmful_protocols=("mxc://",))`; the existing
+  nh3 cleaner still strips non-`mxc://` image sources, so Matrix media renders without allowing
+  arbitrary remote image URLs. Covered by the existing Matrix optional-dependency test
+  `test_send_keeps_only_mxc_image_sources` when `[matrix]` deps are installed.
+  (3) **Exec kill path race hardening** (`c9e014fd` → `9a1d1e64`, portable core only) — hahobot's
+  simpler `ExecTool` has no nanobot `exec_session.py`, but `_kill_process` now skips `kill()` when
+  `returncode` is already set, suppresses `ProcessLookupError` races, and funnels cleanup through a
+  `_reap_pid` helper. Tests: `tests/tools/test_shell_reap.py`.
+  Reviewed and **not ported** this pass: nanobot's runtime-context provider / `my` skill
+  request-metadata cluster is an internal contract refactor that overlaps hahobot's existing
+  `*_runtime.py` collaborators and self-inspection surfaces; MCP owner-task cleanup (`f3d1b9ca` /
+  `edf78e70`) is a valid watchlist item but does not map cleanly onto hahobot's current
+  `_MCPServerConnection` + shared `AsyncExitStack` coordinator without a larger lifecycle rewrite;
+  file-edit line-hint enforcement (`052fdc13` / `7675364e`) is useful UX but coupled to nanobot's
+  enhanced edit-file surface, while hahobot's `edit_file` still uses exact/fuzzy text replacement
+  with best-match line diffs; WebUI, CLI multiline, Docker optional-deps, Mattermost/docs, Dream
+  no-op commit, and search guide changes are feature/UI/docs breadth or existing divergences. The
+  API auth cluster (`6c59332a` → `88377635`) matches hahobot's current contract: local bind may stay
+  unauthenticated, wildcard bind requires `api.authKey`.
+- `GenericAgent` (`2026-07-13` pass): re-checked against upstream `main` through `e6bbc916`
+  (`2026-07-12`); 12 commits since `15f7eb1a`. The useful ideas are mostly operational: stdin
+  detachment for TUI tool subprocesses (`8e30ae10`, already aligned with hahobot exec stdin
+  detachment), per-agent project-mode isolation (`ee5a474e`, hahobot already scopes state by
+  session/workspace/persona), and preserving file newline style in `file_patch` / `file_write`
+  (`e6bbc916`, hahobot's `edit_file` already preserves CRLF; `write_file` remains an explicit
+  overwrite tool). `deliverable_audit_sop` is GenericAgent prompt taxonomy, `max` OpenAI reasoning
+  effort is provider config breadth, and worldline / TUI history changes are intentional
+  divergences. No direct code port this pass.
+- `claude-mem` (`2026-07-13` pass): re-checked via temporary clone through `1a39fb80`
+  (`2026-07-12`, v13.10.4); commits since `312d640` are mostly release bumps plus plugin/runtime
+  hardening: non-blocking Claude memory hooks (`ce1f5253`), Codex plugin runtime marker placement
+  (`41b6a8a9`), SQLite/settings write hardening (`b20024b7`), Chroma writer cleanup locking
+  (`7d281423`), worker endpoint probing, and Windows spawn shims. These live in claude-mem's
+  Claude-Code plugin / hosted-worker / Chroma stack and are not directly portable to hahobot's
+  file-first memory model. The non-blocking-hook idea remains covered locally by
+  `ExternalHookBridge`'s explicit event selection, timeout, and fail-open defaults; no AGPL code
+  copied.
+- `nocturne_memory` (`2026-07-13` pass): re-checked upstream `HEAD`; still `15930e09`
+  (`2026-06-26`) with no new commits since the prior audit.
+- `jiuwenswarm` (`2026-07-13` pass): atomgit now works with git clone for this audit; default
+  branch is `develop@9edd6ec` (`2026-07-13`; `main` is `ce25a7b6`). Recent changes include
+  ask-user option previews (`9edd6ec`), Weixin numeric config validation (`ff2f5fa`), proactive cron
+  delete guards (`095a784f`), embedding-index hot-reload rebuilds (`22eaab42`), and experience-skill
+  de-duplication (`01554109`). Hahobot already has exact-id cron removal with protected system jobs,
+  workspace-scoped cron storage, derived memory indexes as rebuildable caches, and skill
+  `supersedes` / lint surfaces, so these are watchlist/architecture ideas rather than direct ports.
+  The Weixin numeric-validation idea is worth revisiting if admin visual config starts accepting
+  loosely typed channel fields outside Pydantic/admin conversion.
 - `nanobot` (`2026-07-07` pass): re-checked against upstream `main` through `d04ad1a5`
   (`2026-07-06`); 75 commits since `c78421cf`, the bulk a new **session-bound local triggers**
   feature (`2a0cd19a` → `54bcdb5a`, ~15 commits: session-idle deferral, run-audit records,

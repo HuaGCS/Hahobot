@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import socket
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -27,10 +27,17 @@ def _fake_resolve_public(hostname, port, family=0, type_=0):
         return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
 
 
+def _patch_resolve(fn):
+    async def _resolve(hostname: str):
+        return fn(hostname, None)
+
+    return patch("hahobot.security.network._resolve_hostname", AsyncMock(side_effect=_resolve))
+
+
 @pytest.mark.asyncio
 async def test_web_fetch_blocks_private_ip():
     tool = WebFetchTool()
-    with patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_private):
+    with _patch_resolve(_fake_resolve_private):
         result = await tool.execute(url="http://169.254.169.254/computeMetadata/v1/")
     data = json.loads(result)
     assert "error" in data
@@ -44,7 +51,7 @@ async def test_web_fetch_blocks_localhost():
     def _resolve_localhost(hostname, port, family=0, type_=0):
         return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 0))]
 
-    with patch("hahobot.security.network.socket.getaddrinfo", _resolve_localhost):
+    with _patch_resolve(_resolve_localhost):
         result = await tool.execute(url="http://localhost/admin")
     data = json.loads(result)
     assert "error" in data
@@ -85,7 +92,7 @@ async def test_web_fetch_result_contains_untrusted_flag():
             return FakeResponse()
 
     with (
-        patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_public),
+        _patch_resolve(_fake_resolve_public),
         patch("hahobot.agent.tools.web.httpx.AsyncClient", FakeClient),
     ):
         result = await tool.execute(url="https://example.com/page")
@@ -124,7 +131,7 @@ async def test_web_fetch_blocks_private_redirect_before_returning_image(monkeypa
 
     monkeypatch.setattr("hahobot.agent.tools.web.httpx.AsyncClient", FakeClient)
 
-    with patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_public):
+    with _patch_resolve(_fake_resolve_public):
         result = await tool.execute(url="https://example.com/image.png")
 
     data = json.loads(result)

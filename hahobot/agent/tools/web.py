@@ -62,6 +62,32 @@ async def _validate_url_safe(url: str) -> tuple[bool, str]:
     return await validate_url_target(url)
 
 
+def _fetch_client_kwargs(proxy: str | None, timeout: float) -> dict[str, Any]:
+    """Return HTTPX kwargs for direct/proxied fetches.
+
+    Direct fetches use DNS pinning so the address validated by the SSRF guard is
+    the address used by the socket connect. Explicit proxy mode preserves the
+    existing operator-configured proxy behavior.
+    """
+    kwargs: dict[str, Any] = {"timeout": timeout}
+    if proxy:
+        kwargs["proxy"] = proxy
+    else:
+        from hahobot.security.network import PinnedDNSAsyncTransport, httpx_env_proxy_mounts
+
+        kwargs["transport"] = PinnedDNSAsyncTransport()
+        mounts = httpx_env_proxy_mounts()
+        if mounts:
+            kwargs["mounts"] = mounts
+    return kwargs
+
+
+def _unsafe_url_request_error(exc: BaseException) -> str | None:
+    from hahobot.security.network import UnsafeURLRequestError
+
+    return str(exc) if isinstance(exc, UnsafeURLRequestError) else None
+
+
 async def _get_with_safe_redirects(
     client: httpx.AsyncClient,
     url: str,
@@ -80,7 +106,13 @@ async def _get_with_safe_redirects(
         if not is_valid:
             return None, f"Redirect blocked: {error_msg}"
 
-        response = await client.get(current_url, headers=headers, follow_redirects=False)
+        try:
+            response = await client.get(current_url, headers=headers, follow_redirects=False)
+        except httpx.RequestError as exc:
+            unsafe_error = _unsafe_url_request_error(exc)
+            if unsafe_error is not None:
+                return None, f"URL validation failed: {unsafe_error}"
+            raise
         if not response.is_redirect:
             return response, None
 
@@ -369,7 +401,7 @@ class WebFetchTool(Tool):
 
         # Detect and fetch images directly to avoid Jina's textual image captioning
         try:
-            async with httpx.AsyncClient(proxy=self.proxy, timeout=15.0) as client:
+            async with httpx.AsyncClient(**_fetch_client_kwargs(self.proxy, 15.0)) as client:
                 r, redirect_error = await _get_with_safe_redirects(
                     client, url, headers={"User-Agent": USER_AGENT}
                 )
@@ -384,6 +416,12 @@ class WebFetchTool(Tool):
                             raw, ctype, url, f"(Image fetched from: {url})"
                         )
         except Exception as e:
+            unsafe_error = _unsafe_url_request_error(e)
+            if unsafe_error is not None:
+                return json.dumps(
+                    {"error": f"URL validation failed: {unsafe_error}", "url": url},
+                    ensure_ascii=False,
+                )
             logger.debug("Pre-fetch image detection failed for {}: {}", url, e)
 
         result = await self._fetch_jina(url, max_chars)
@@ -441,7 +479,7 @@ class WebFetchTool(Tool):
 
         try:
             logger.debug("WebFetch: {}", "proxy enabled" if self.proxy else "direct connection")
-            async with httpx.AsyncClient(timeout=30.0, proxy=self.proxy) as client:
+            async with httpx.AsyncClient(**_fetch_client_kwargs(self.proxy, 30.0)) as client:
                 # Validate each redirect hop's resolved IP before issuing the
                 # next request, so SSRF can't sneak through a permissive chain.
                 r, redirect_error = await _get_with_safe_redirects(

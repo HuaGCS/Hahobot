@@ -18,6 +18,20 @@ from hahobot.config.paths import get_media_dir
 _IS_WINDOWS = sys.platform == "win32"
 
 
+def _reap_pid(pid: int) -> None:
+    """Best-effort reap of an owned subprocess on Unix."""
+    if _IS_WINDOWS:
+        return
+    waitpid = getattr(os, "waitpid", None)
+    wnohang = getattr(os, "WNOHANG", None)
+    if waitpid is None or wnohang is None:
+        return
+    try:
+        waitpid(pid, wnohang)
+    except (ProcessLookupError, ChildProcessError) as e:
+        logger.debug("Process already reaped or not found: {}", e)
+
+
 @tool_parameters(
     tool_parameters_schema(
         command=StringSchema("The shell command to execute"),
@@ -204,17 +218,20 @@ class ExecTool(Tool):
     @staticmethod
     async def _kill_process(process: asyncio.subprocess.Process) -> None:
         """Kill a subprocess and reap it to prevent zombies."""
-        process.kill()
+        if process.returncode is not None:
+            _reap_pid(process.pid)
+            return
         try:
-            await asyncio.wait_for(process.wait(), timeout=5.0)
-        except TimeoutError:
-            pass
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except TimeoutError:
+                pass
         finally:
-            if not _IS_WINDOWS:
-                try:
-                    os.waitpid(process.pid, os.WNOHANG)
-                except (ProcessLookupError, ChildProcessError) as e:
-                    logger.debug("Process already reaped or not found: {}", e)
+            _reap_pid(process.pid)
 
     def _build_env(self) -> dict[str, str]:
         """Build a minimal environment for subprocess execution.

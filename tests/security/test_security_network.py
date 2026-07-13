@@ -5,11 +5,14 @@ from __future__ import annotations
 import socket
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from hahobot.security.network import (
+    PinnedDNSAsyncTransport,
     configure_ssrf_whitelist,
     contains_internal_url,
+    httpx_env_proxy_mounts,
     validate_url_target,
 )
 
@@ -189,3 +192,54 @@ async def test_whitelist_invalid_cidr_ignored():
             assert ok
     finally:
         configure_ssrf_whitelist([])
+
+
+@pytest.mark.asyncio
+async def test_pinned_dns_transport_uses_validated_addresses_during_request():
+    """A direct HTTP fetch must not re-resolve the host to an internal address."""
+    request_host = "example.com"
+
+    async def validated_resolve(hostname: str) -> list[tuple]:
+        assert hostname == request_host
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
+
+    def rebound_getaddrinfo(hostname, port, family=0, type_=0, proto=0, flags=0):
+        if hostname == request_host:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("169.254.169.254", port or 0))]
+        raise socket.gaierror(f"cannot resolve {hostname}")
+
+    class RecordingTransport(httpx.AsyncBaseTransport):
+        def __init__(self) -> None:
+            self.seen: list[str] = []
+
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            infos = socket.getaddrinfo(request.url.host, request.url.port)
+            self.seen = [info[4][0] for info in infos]
+            return httpx.Response(200, request=request, content=b"ok")
+
+    inner = RecordingTransport()
+    transport = PinnedDNSAsyncTransport(inner=inner)
+
+    with (
+        patch(
+            "hahobot.security.network._resolve_hostname", AsyncMock(side_effect=validated_resolve)
+        ),
+        patch("hahobot.security.network.socket.getaddrinfo", rebound_getaddrinfo),
+    ):
+        response = await transport.handle_async_request(
+            httpx.Request("GET", "https://example.com/index.html")
+        )
+
+    assert response.status_code == 200
+    assert inner.seen == ["93.184.216.34"]
+
+
+def test_httpx_env_proxy_mounts_preserve_standard_proxy_env(monkeypatch: pytest.MonkeyPatch):
+    """Pinned direct transports should still let HTTPX honor operator proxy env."""
+    for key in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("https_proxy", "http://127.0.0.1:8080")
+
+    mounts = httpx_env_proxy_mounts()
+
+    assert "https://" in mounts

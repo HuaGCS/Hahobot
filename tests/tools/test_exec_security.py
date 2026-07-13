@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import socket
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -22,10 +22,17 @@ def _fake_resolve_public(hostname, port, family=0, type_=0):
     return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
 
 
+def _patch_resolve(fn):
+    async def _resolve(hostname: str):
+        return fn(hostname, None)
+
+    return patch("hahobot.security.network._resolve_hostname", AsyncMock(side_effect=_resolve))
+
+
 @pytest.mark.asyncio
 async def test_exec_blocks_curl_metadata():
     tool = ExecTool()
-    with patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_private):
+    with _patch_resolve(_fake_resolve_private):
         result = await tool.execute(
             command='curl -s -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/'
         )
@@ -36,15 +43,21 @@ async def test_exec_blocks_curl_metadata():
 @pytest.mark.asyncio
 async def test_exec_blocks_wget_localhost():
     tool = ExecTool()
-    with patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_localhost):
+    with _patch_resolve(_fake_resolve_localhost):
         result = await tool.execute(command="wget http://localhost:8080/secret -O /tmp/out")
     assert "Error" in result
 
 
 @pytest.mark.asyncio
 async def test_exec_allows_normal_commands():
+    mock_proc = AsyncMock()
+    mock_proc.communicate.return_value = (b"hello\n", b"")
+    mock_proc.returncode = 0
+
     tool = ExecTool(timeout=5)
-    result = await tool.execute(command="echo hello")
+    with patch.object(ExecTool, "_spawn", return_value=mock_proc):
+        result = await tool.execute(command="echo hello")
+
     assert "hello" in result
     assert "Error" not in result.split("\n")[0]
 
@@ -53,7 +66,7 @@ async def test_exec_allows_normal_commands():
 async def test_exec_allows_curl_to_public_url():
     """Commands with public URLs should not be blocked by the internal URL check."""
     tool = ExecTool()
-    with patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_public):
+    with _patch_resolve(_fake_resolve_public):
         guard_result = tool._guard_command("curl https://example.com/api", "/tmp")
     assert guard_result is None
 
@@ -62,7 +75,7 @@ async def test_exec_allows_curl_to_public_url():
 async def test_exec_blocks_chained_internal_url():
     """Internal URLs buried in chained commands should still be caught."""
     tool = ExecTool()
-    with patch("hahobot.security.network.socket.getaddrinfo", _fake_resolve_private):
+    with _patch_resolve(_fake_resolve_private):
         result = await tool.execute(
             command="echo start && curl http://169.254.169.254/latest/meta-data/ && echo done"
         )
