@@ -1,5 +1,6 @@
 """Tests for Feishu streaming (send_delta) via CardKit streaming API."""
 
+import json
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -177,6 +178,21 @@ class TestSendDelta:
         ch._client.cardkit.v1.card_element.content.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_retry_after_update_failure_does_not_duplicate_delta(self):
+        ch = _make_channel()
+        ch._create_streaming_card_sync = MagicMock(return_value="card_1")
+        ch._stream_update_text_sync = MagicMock(side_effect=[False, True])
+        metadata = {"_stream_delta": True, "_delivery_id": "delivery-1"}
+
+        with pytest.raises(RuntimeError, match="streaming-card update failed"):
+            await ch.send_delta("oc_chat1", "Hello", metadata)
+
+        await ch.send_delta("oc_chat1", "Hello", metadata)
+
+        assert ch._stream_bufs["oc_chat1"].text == "Hello"
+        assert ch._stream_update_text_sync.call_count == 2
+
+    @pytest.mark.asyncio
     async def test_stream_end_sends_final_update(self):
         ch = _make_channel()
         ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(
@@ -197,6 +213,31 @@ class TestSendDelta:
         assert settings_call.body.sequence == 5  # after final content seq 4
 
     @pytest.mark.asyncio
+    async def test_stream_end_retry_skips_completed_final_update(self):
+        ch = _make_channel()
+        ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(
+            text="Final content",
+            card_id="card_1",
+            sequence=3,
+        )
+        ch._stream_update_text_sync = MagicMock(return_value=True)
+        ch._close_streaming_mode_sync = MagicMock(side_effect=[False, True])
+        metadata = {"_stream_end": True, "_delivery_id": "end-1"}
+
+        with pytest.raises(RuntimeError, match="streaming-card close failed"):
+            await ch.send_delta("oc_chat1", "", metadata)
+
+        buf = ch._stream_bufs["oc_chat1"]
+        assert buf.final_update_done is True
+        assert ch._stream_update_text_sync.call_count == 1
+
+        await ch.send_delta("oc_chat1", "", metadata)
+
+        assert "oc_chat1" not in ch._stream_bufs
+        assert ch._stream_update_text_sync.call_count == 1
+        assert ch._close_streaming_mode_sync.call_count == 2
+
+    @pytest.mark.asyncio
     async def test_stream_end_fallback_when_no_card_id(self):
         """If card creation failed, stream_end falls back to a plain card message."""
         ch = _make_channel()
@@ -215,6 +256,33 @@ class TestSendDelta:
         ch._client.im.v1.message.create.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_stream_end_fallback_retry_resumes_unsent_static_cards(self):
+        ch = _make_channel()
+        chunks = [
+            [{"tag": "markdown", "content": "one"}],
+            [{"tag": "markdown", "content": "two"}],
+            [{"tag": "markdown", "content": "three"}],
+        ]
+        ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(text="Fallback content")
+        ch._build_card_elements = MagicMock(return_value=[])
+        ch._split_elements_by_table_limit = MagicMock(return_value=chunks)
+        ch._send_message_sync = MagicMock(side_effect=["om_1", None, "om_2", "om_3"])
+        metadata = {"_stream_end": True, "_delivery_id": "end-1"}
+
+        with pytest.raises(RuntimeError, match="fallback streaming card"):
+            await ch.send_delta("oc_chat1", "", metadata)
+
+        assert ch._stream_bufs["oc_chat1"].fallback_sent_count == 1
+
+        await ch.send_delta("oc_chat1", "", metadata)
+
+        sent_elements = [
+            json.loads(call.args[3])["elements"] for call in ch._send_message_sync.call_args_list
+        ]
+        assert sent_elements == [chunks[0], chunks[1], chunks[1], chunks[2]]
+        assert "oc_chat1" not in ch._stream_bufs
+
+    @pytest.mark.asyncio
     async def test_stream_end_without_buf_is_noop(self):
         ch = _make_channel()
         await ch.send_delta("oc_chat1", "", metadata={"_stream_end": True})
@@ -229,10 +297,11 @@ class TestSendDelta:
         ch._client.cardkit.v1.card.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_no_client_returns_early(self):
+    async def test_no_client_raises(self):
         ch = _make_channel()
         ch._client = None
-        await ch.send_delta("oc_chat1", "text")
+        with pytest.raises(RuntimeError, match="client is not initialized"):
+            await ch.send_delta("oc_chat1", "text")
         assert "oc_chat1" not in ch._stream_bufs
 
     @pytest.mark.asyncio

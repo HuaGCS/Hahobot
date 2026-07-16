@@ -182,6 +182,28 @@ class LLMProvider(ABC):
         self.api_key = api_key
         self.api_base = api_base
         self.generation: GenerationSettings = GenerationSettings()
+        self._usage_observers: list[Callable[[dict[str, int]], None]] = []
+
+    def add_usage_observer(self, observer: Callable[[dict[str, int]], None]) -> None:
+        """Register a best-effort observer for every completed retry-layer request."""
+        if observer not in self._usage_observers:
+            self._usage_observers.append(observer)
+
+    def remove_usage_observer(self, observer: Callable[[dict[str, int]], None]) -> None:
+        """Remove a previously registered usage observer."""
+        try:
+            self._usage_observers.remove(observer)
+        except ValueError:
+            pass
+
+    def _notify_usage_observers(self, usage: dict[str, int] | None) -> None:
+        """Report one provider attempt without letting diagnostics break inference."""
+        payload = dict(usage or {})
+        for observer in tuple(self._usage_observers):
+            try:
+                observer(payload)
+            except Exception as exc:
+                logger.debug("Provider usage observer failed: {}", exc)
 
     @staticmethod
     def _stream_idle_timeout_s(default: float = 90.0, maximum: float = 3600.0) -> float:
@@ -839,6 +861,7 @@ class LLMProvider(ABC):
         while True:
             attempt += 1
             response = await call(**kw)
+            self._notify_usage_observers(response.usage)
             if response.finish_reason != "error":
                 if self._is_blank_retryable_response(response) and attempt <= len(delays):
                     last_response = response
@@ -873,7 +896,9 @@ class LLMProvider(ABC):
                     )
                     retry_kw = dict(kw)
                     retry_kw["messages"] = stripped
-                    return await call(**retry_kw)
+                    retry_response = await call(**retry_kw)
+                    self._notify_usage_observers(retry_response.usage)
+                    return retry_response
                 return response
 
             if persistent and identical_error_count >= self._PERSISTENT_IDENTICAL_ERROR_LIMIT:
@@ -906,7 +931,11 @@ class LLMProvider(ABC):
                 on_retry_wait=on_retry_wait,
             )
 
-        return last_response if last_response is not None else await call(**kw)
+        if last_response is not None:
+            return last_response
+        response = await call(**kw)
+        self._notify_usage_observers(response.usage)
+        return response
 
     @abstractmethod
     def get_default_model(self) -> str:

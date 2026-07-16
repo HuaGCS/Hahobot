@@ -17,6 +17,7 @@ if not DINGTALK_AVAILABLE:
     pytest.skip("DingTalk dependencies not installed (dingtalk-stream)", allow_module_level=True)
 
 import hahobot.channels.dingtalk as dingtalk_module
+from hahobot.bus.events import OutboundMessage
 from hahobot.bus.queue import MessageBus
 from hahobot.channels.dingtalk import DingTalkChannel, NanobotDingTalkHandler
 from hahobot.config.schema import DingTalkConfig
@@ -51,6 +52,73 @@ class _FakeHttp:
     async def get(self, url: str, **kwargs):
         self.calls.append({"method": "GET", "url": url})
         return self._next_response()
+
+
+@pytest.mark.asyncio
+async def test_send_raises_when_access_token_is_unavailable(monkeypatch) -> None:
+    channel = DingTalkChannel(
+        DingTalkConfig(client_id="app", client_secret="secret", allow_from=["*"]),
+        MessageBus(),
+    )
+
+    async def no_token():
+        return None
+
+    monkeypatch.setattr(channel, "_get_access_token", no_token)
+
+    with pytest.raises(RuntimeError, match="access token unavailable"):
+        await channel.send(OutboundMessage(channel="dingtalk", chat_id="user123", content="hello"))
+
+
+@pytest.mark.asyncio
+async def test_send_raises_when_text_is_not_delivered(monkeypatch) -> None:
+    channel = DingTalkChannel(
+        DingTalkConfig(client_id="app", client_secret="secret", allow_from=["*"]),
+        MessageBus(),
+    )
+
+    async def token():
+        return "token"
+
+    async def failed_send(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(channel, "_get_access_token", token)
+    monkeypatch.setattr(channel, "_send_markdown_text", failed_send)
+
+    with pytest.raises(RuntimeError, match="text message was not delivered"):
+        await channel.send(OutboundMessage(channel="dingtalk", chat_id="user123", content="hello"))
+
+
+@pytest.mark.asyncio
+async def test_send_raises_when_media_and_visible_fallback_both_fail(monkeypatch) -> None:
+    channel = DingTalkChannel(
+        DingTalkConfig(client_id="app", client_secret="secret", allow_from=["*"]),
+        MessageBus(),
+    )
+
+    async def token():
+        return "token"
+
+    async def failed_media(*_args, **_kwargs):
+        return False
+
+    async def failed_fallback(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(channel, "_get_access_token", token)
+    monkeypatch.setattr(channel, "_send_media_ref", failed_media)
+    monkeypatch.setattr(channel, "_send_markdown_text", failed_fallback)
+
+    with pytest.raises(RuntimeError, match="attachment failure fallback"):
+        await channel.send(
+            OutboundMessage(
+                channel="dingtalk",
+                chat_id="user123",
+                content="",
+                media=["missing.png"],
+            )
+        )
 
 
 @pytest.mark.asyncio

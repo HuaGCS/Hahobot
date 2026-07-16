@@ -295,23 +295,26 @@ async def test_process_message_does_not_fallback_when_top_level_media_exists_but
 
 
 @pytest.mark.asyncio
-async def test_send_without_context_token_does_not_send_text() -> None:
+async def test_send_without_context_token_raises_retryable_error() -> None:
     channel, _bus = _make_channel()
     channel._client = object()
     channel._token = "token"
     channel._send_text = AsyncMock()
 
-    await channel.send(
-        type(
-            "Msg", (), {"chat_id": "unknown-user", "content": "pong", "media": [], "metadata": {}}
-        )()
-    )
+    with pytest.raises(RuntimeError, match="context_token unavailable"):
+        await channel.send(
+            type(
+                "Msg",
+                (),
+                {"chat_id": "unknown-user", "content": "pong", "media": [], "metadata": {}},
+            )()
+        )
 
     channel._send_text.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_send_does_not_send_when_session_is_paused() -> None:
+async def test_send_raises_when_session_is_paused() -> None:
     channel, _bus = _make_channel()
     channel._client = object()
     channel._token = "token"
@@ -319,11 +322,41 @@ async def test_send_does_not_send_when_session_is_paused() -> None:
     channel._pause_session(60)
     channel._send_text = AsyncMock()
 
-    await channel.send(
-        type("Msg", (), {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}})()
-    )
+    with pytest.raises(RuntimeError, match="session paused"):
+        await channel.send(
+            type(
+                "Msg",
+                (),
+                {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}},
+            )()
+        )
 
     channel._send_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_raises_when_client_is_not_initialized() -> None:
+    channel, _bus = _make_channel()
+
+    with pytest.raises(RuntimeError, match="not initialized or not authenticated"):
+        await channel.send(
+            type(
+                "Msg",
+                (),
+                {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}},
+            )()
+        )
+
+
+@pytest.mark.asyncio
+async def test_send_text_raises_on_nonzero_errcode() -> None:
+    channel, _bus = _make_channel()
+    channel._api_post = AsyncMock(
+        return_value={"ret": 0, "errcode": 40013, "errmsg": "invalid recipient"}
+    )
+
+    with pytest.raises(RuntimeError, match="errcode 40013: invalid recipient"):
+        await channel._send_text("wx-user", "hello", "ctx-1")
 
 
 @pytest.mark.asyncio

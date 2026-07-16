@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -171,8 +172,13 @@ class MCPRuntime:
         if self.stack:
             try:
                 await self.stack.aclose()
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling() > 0:
+                    raise
+                logger.debug("MCP cleanup leaked CancelledError; ignoring during shutdown")
             except (RuntimeError, BaseExceptionGroup):
-                pass
+                logger.debug("MCP cleanup error ignored during shutdown")
             self.stack = None
         self.connected = False
         self.connecting = False
@@ -193,12 +199,32 @@ class MCPRuntime:
             self.connected = True
             self.connection_epoch += 1
         except BaseException as exc:
-            logger.error("Failed to connect MCP servers (will retry next message): {}", exc)
+            task = asyncio.current_task()
+            external_cancel = (
+                isinstance(exc, asyncio.CancelledError)
+                and task is not None
+                and task.cancelling() > 0
+            )
+            if external_cancel:
+                logger.debug("MCP connection cancelled; cleaning up partial connections")
+            else:
+                logger.error("Failed to connect MCP servers (will retry next message): {}", exc)
             if self.stack:
                 try:
                     await self.stack.aclose()
-                except Exception:
-                    pass
+                except asyncio.CancelledError:
+                    cleanup_task = asyncio.current_task()
+                    if (
+                        not external_cancel
+                        and cleanup_task is not None
+                        and cleanup_task.cancelling() > 0
+                    ):
+                        raise
+                    logger.debug("MCP connection cleanup leaked CancelledError; ignoring")
+                except (RuntimeError, BaseExceptionGroup):
+                    logger.debug("MCP connection cleanup error ignored")
                 self.stack = None
+            if external_cancel:
+                raise
         finally:
             self.connecting = False

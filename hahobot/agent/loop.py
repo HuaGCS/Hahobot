@@ -281,6 +281,8 @@ class AgentLoop:
         self.restrict_to_workspace = restrict_to_workspace
         self._start_time = time.time()
         self._last_usage: dict[str, int] = {}
+        self._usage_totals: dict[str, int] = {}
+        self._usage_turn_count = 0
         self._extra_hooks: list[AgentHook] = list(hooks or [])
         self._clawhub_lock = asyncio.Lock()
         self._clawhub_npm_cache_dir = self._CLAWHUB_NPM_CACHE_DIR / str(os.getpid())

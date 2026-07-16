@@ -42,6 +42,10 @@ class _FeishuStreamBuf:
     card_id: str | None = None
     sequence: int = 0
     last_edit: float = 0.0
+    last_delivery_id: str | None = None
+    final_update_done: bool = False
+    final_close_done: bool = False
+    fallback_sent_count: int = 0
 
 
 def _extract_share_card_content(content_json: dict, msg_type: str) -> str:
@@ -1225,7 +1229,7 @@ class FeishuChannel(BaseChannel):
     ) -> None:
         """Progressive streaming via CardKit: create card on first delta, stream-update on subsequent."""
         if not self._client:
-            return
+            raise RuntimeError("Feishu client is not initialized")
         meta = metadata or {}
         rid_type = "chat_id" if chat_id.startswith("oc_") else "open_id"
 
@@ -1234,35 +1238,50 @@ class FeishuChannel(BaseChannel):
             if (message_id := meta.get("message_id")) and (reaction_id := meta.get("reaction_id")):
                 await self._remove_reaction(message_id, reaction_id)
 
-            buf = self._stream_bufs.pop(chat_id, None)
-            if not buf or not buf.text:
+            buf = self._stream_bufs.get(chat_id)
+            if not buf:
+                return
+            if not buf.text:
+                self._stream_bufs.pop(chat_id, None)
                 return
             if buf.card_id:
-                buf.sequence += 1
-                await self._run_blocking(
-                    self._stream_update_text_sync,
-                    buf.card_id,
-                    buf.text,
-                    buf.sequence,
-                )
+                if not buf.final_update_done:
+                    buf.sequence += 1
+                    updated = await self._run_blocking(
+                        self._stream_update_text_sync,
+                        buf.card_id,
+                        buf.text,
+                        buf.sequence,
+                    )
+                    if not updated:
+                        raise RuntimeError("Feishu final streaming-card update failed")
+                    buf.final_update_done = True
                 # Required so the chat list preview exits the streaming placeholder (Feishu streaming card docs).
-                buf.sequence += 1
-                await self._run_blocking(
-                    self._close_streaming_mode_sync,
-                    buf.card_id,
-                    buf.sequence,
-                )
+                if not buf.final_close_done:
+                    buf.sequence += 1
+                    closed = await self._run_blocking(
+                        self._close_streaming_mode_sync,
+                        buf.card_id,
+                        buf.sequence,
+                    )
+                    if not closed:
+                        raise RuntimeError("Feishu streaming-card close failed")
+                    buf.final_close_done = True
             else:
-                for chunk in self._split_elements_by_table_limit(
-                    self._build_card_elements(buf.text)
-                ):
+                chunks = self._split_elements_by_table_limit(self._build_card_elements(buf.text))
+                while buf.fallback_sent_count < len(chunks):
+                    chunk = chunks[buf.fallback_sent_count]
                     card = json.dumps(
                         {"config": {"wide_screen_mode": True}, "elements": chunk},
                         ensure_ascii=False,
                     )
-                    await self._run_blocking(
+                    message_id = await self._run_blocking(
                         self._send_message_sync, rid_type, chat_id, "interactive", card
                     )
+                    if not message_id:
+                        raise RuntimeError("Feishu fallback streaming card was not delivered")
+                    buf.fallback_sent_count += 1
+            self._stream_bufs.pop(chat_id, None)
             return
 
         # --- accumulate delta ---
@@ -1270,30 +1289,39 @@ class FeishuChannel(BaseChannel):
         if buf is None:
             buf = _FeishuStreamBuf()
             self._stream_bufs[chat_id] = buf
-        buf.text += delta
+        delivery_id = meta.get("_delivery_id")
+        if delivery_id is None or delivery_id != buf.last_delivery_id:
+            buf.text += delta
+            buf.last_delivery_id = delivery_id
         if not buf.text.strip():
             return
 
         now = time.monotonic()
         if buf.card_id is None:
             card_id = await self._run_blocking(self._create_streaming_card_sync, rid_type, chat_id)
-            if card_id:
-                buf.card_id = card_id
-                buf.sequence = 1
-                await self._run_blocking(self._stream_update_text_sync, card_id, buf.text, 1)
-                buf.last_edit = now
+            if not card_id:
+                raise RuntimeError("Feishu streaming card was not created")
+            buf.card_id = card_id
+            buf.sequence = 1
+            updated = await self._run_blocking(
+                self._stream_update_text_sync, card_id, buf.text, buf.sequence
+            )
+            if not updated:
+                raise RuntimeError("Feishu streaming-card update failed")
+            buf.last_edit = now
         elif (now - buf.last_edit) >= self._STREAM_EDIT_INTERVAL:
             buf.sequence += 1
-            await self._run_blocking(
+            updated = await self._run_blocking(
                 self._stream_update_text_sync, buf.card_id, buf.text, buf.sequence
             )
+            if not updated:
+                raise RuntimeError("Feishu streaming-card update failed")
             buf.last_edit = now
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Feishu, including media (images/files) if present."""
         if not self._client:
-            logger.warning("Feishu client not initialized")
-            return
+            raise RuntimeError("Feishu client is not initialized")
 
         try:
             receive_id_type = "chat_id" if msg.chat_id.startswith("oc_") else "open_id"
@@ -1319,13 +1347,21 @@ class FeishuChannel(BaseChannel):
             first_send = True
             reply_every_part = bool(msg.metadata.get("thread_id"))
 
-            def _do_send(m_type: str, content: str) -> None:
+            def _do_send(m_type: str, content: str) -> str:
                 nonlocal first_send
                 if reply_message_id and (first_send or reply_every_part):
                     first_send = False
                     if self._reply_message_sync(reply_message_id, m_type, content):
-                        return
-                self._send_message_sync(receive_id_type, msg.chat_id, m_type, content)
+                        return reply_message_id
+                message_id = self._send_message_sync(
+                    receive_id_type,
+                    msg.chat_id,
+                    m_type,
+                    content,
+                )
+                if not message_id:
+                    raise RuntimeError("Feishu message was not delivered")
+                return message_id
 
             for file_path in msg.media:
                 if not os.path.isfile(file_path):

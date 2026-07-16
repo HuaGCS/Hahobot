@@ -17,6 +17,30 @@ class _FakeTextContent:
         self.text = text
 
 
+class _TaskAffineContext:
+    """Async context that records and enforces same-task teardown."""
+
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.exited = asyncio.Event()
+        self.enter_task: asyncio.Task | None = None
+        self.exit_task: asyncio.Task | None = None
+        self.exit_count = 0
+
+    async def __aenter__(self) -> _TaskAffineContext:
+        self.enter_task = asyncio.current_task()
+        self.entered.set()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        self.exit_task = asyncio.current_task()
+        self.exit_count += 1
+        self.exited.set()
+        if self.exit_task is not self.enter_task:
+            raise RuntimeError("context exited from a different task")
+        return False
+
+
 @pytest.fixture
 def fake_mcp_runtime() -> dict[str, object | None]:
     return {"session": None}
@@ -385,3 +409,182 @@ async def test_connect_mcp_servers_skips_slow_server_without_blocking(
         await stack.aclose()
 
     assert registry.tool_names == ["mcp_fast_demo"]
+
+
+@pytest.mark.asyncio
+async def test_connection_owner_enters_and_exits_context_in_same_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hahobot.agent.tools.mcp as mcp_module
+
+    context = _TaskAffineContext()
+
+    async def fake_open_session(name: str, cfg: object, stack: AsyncExitStack) -> object:
+        await stack.enter_async_context(context)
+        return _make_fake_session(["demo"])
+
+    monkeypatch.setattr(mcp_module, "_open_session", fake_open_session)
+    registry = ToolRegistry()
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    await connect_mcp_servers(
+        {"test": MCPServerConfig(command="fake")},
+        registry,
+        stack,
+    )
+
+    wrapper = registry.get("mcp_test_demo")
+    assert isinstance(wrapper, MCPToolWrapper)
+    owner = wrapper._coordinator._owner
+    assert context.enter_task is not asyncio.current_task()
+
+    await owner.close()
+    await owner.close()
+    await stack.aclose()
+
+    assert context.exit_task is context.enter_task
+    assert context.exit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reconnect_rotates_task_owned_connection_generations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hahobot.agent.tools.mcp as mcp_module
+
+    contexts: list[_TaskAffineContext] = []
+    sessions: list[object] = []
+
+    async def fake_open_session(name: str, cfg: object, stack: AsyncExitStack) -> object:
+        context = _TaskAffineContext()
+        contexts.append(context)
+        await stack.enter_async_context(context)
+        session = _make_fake_session(["demo"])
+        sessions.append(session)
+        return session
+
+    monkeypatch.setattr(mcp_module, "_open_session", fake_open_session)
+    registry = ToolRegistry()
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    await connect_mcp_servers(
+        {"test": MCPServerConfig(command="fake")},
+        registry,
+        stack,
+    )
+
+    wrapper = registry.get("mcp_test_demo")
+    assert isinstance(wrapper, MCPToolWrapper)
+    assert wrapper._coordinator is not None
+    assert await wrapper._coordinator.reconnect(wrapper)
+
+    assert len(contexts) == 2
+    assert wrapper._session is sessions[1]
+    assert contexts[0].exit_task is contexts[0].enter_task
+    assert not contexts[1].exited.is_set()
+
+    await stack.aclose()
+
+    assert contexts[1].exit_task is contexts[1].enter_task
+    assert [context.exit_count for context in contexts] == [1, 1]
+
+
+@pytest.mark.asyncio
+async def test_connection_timeout_closes_context_from_owner_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hahobot.agent.tools.mcp as mcp_module
+
+    context = _TaskAffineContext()
+
+    async def fake_open_session(name: str, cfg: object, stack: AsyncExitStack) -> object:
+        await stack.enter_async_context(context)
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(mcp_module, "_open_session", fake_open_session)
+    cfg = SimpleNamespace(connect_timeout=0.01, enabled_tools=["*"], tool_timeout=30)
+    registry = ToolRegistry()
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    try:
+        await connect_mcp_servers({"slow": cfg}, registry, stack)
+    finally:
+        await stack.aclose()
+
+    assert registry.tool_names == []
+    assert context.exited.is_set()
+    assert context.exit_task is context.enter_task
+    assert context.exit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_registration_failure_closes_owner_without_leaking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hahobot.agent.tools.mcp as mcp_module
+
+    context = _TaskAffineContext()
+
+    async def fake_open_session(name: str, cfg: object, stack: AsyncExitStack) -> object:
+        await stack.enter_async_context(context)
+        return _make_fake_session(["demo"])
+
+    class _FailingRegistry(ToolRegistry):
+        def register(self, tool) -> None:
+            super().register(tool)
+            raise RuntimeError("registration failed")
+
+    monkeypatch.setattr(mcp_module, "_open_session", fake_open_session)
+    registry = _FailingRegistry()
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    try:
+        await connect_mcp_servers(
+            {"test": MCPServerConfig(command="fake")},
+            registry,
+            stack,
+        )
+        assert context.exited.is_set()
+        assert registry.tool_names == []
+    finally:
+        await stack.aclose()
+
+    assert context.exit_task is context.enter_task
+    assert context.exit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_connect_stops_independent_owner_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hahobot.agent.tools.mcp as mcp_module
+
+    context = _TaskAffineContext()
+
+    async def fake_open_session(name: str, cfg: object, stack: AsyncExitStack) -> object:
+        await stack.enter_async_context(context)
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(mcp_module, "_open_session", fake_open_session)
+    registry = ToolRegistry()
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    task = asyncio.create_task(
+        connect_mcp_servers(
+            {"test": MCPServerConfig(command="fake", connect_timeout=30)},
+            registry,
+            stack,
+        )
+    )
+    await asyncio.wait_for(context.entered.wait(), timeout=1)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.wait_for(context.exited.wait(), timeout=1)
+    await stack.aclose()
+
+    assert context.exit_task is context.enter_task
+    assert context.exit_count == 1

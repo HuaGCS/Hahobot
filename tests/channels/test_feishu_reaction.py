@@ -265,6 +265,8 @@ class TestStreamEndReactionCleanup:
     async def test_no_removal_when_not_stream_end(self):
         ch = _make_channel()
         ch._remove_reaction = AsyncMock()
+        ch._create_streaming_card_sync = MagicMock(return_value="card_1")
+        ch._stream_update_text_sync = MagicMock(return_value=True)
 
         await ch.send_delta(
             "oc_chat1",

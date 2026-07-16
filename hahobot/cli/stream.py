@@ -15,6 +15,7 @@ from rich.markdown import Markdown
 from rich.text import Text
 
 from hahobot import __logo__
+from hahobot.utils.helpers import estimate_text_tokens
 
 
 def _make_console() -> Console:
@@ -81,8 +82,12 @@ class StreamRenderer:
         self._show_spinner = show_spinner
         self._interactive = interactive
         self._buf = ""
+        self._all_text = ""
         self._live: Live | None = None
         self._t = 0.0
+        self._segment_started_at: float | None = None
+        self._stream_elapsed = 0.0
+        self._rate_printed = False
         self.streamed = False
         self._spinner: ThinkingSpinner | None = None
         if not self._interactive:
@@ -102,8 +107,12 @@ class StreamRenderer:
             self._spinner = None
 
     async def on_delta(self, delta: str) -> None:
+        now = time.monotonic()
+        if self._segment_started_at is None:
+            self._segment_started_at = now
         self.streamed = True
         self._buf += delta
+        self._all_text += delta
         if self._interactive:
             return
         if self._live is None:
@@ -115,13 +124,13 @@ class StreamRenderer:
             c.print(f"[cyan]{__logo__} hahobot[/cyan]")
             self._live = Live(self._render(), console=c, auto_refresh=False)
             self._live.start()
-        now = time.monotonic()
         if "\n" in delta or (now - self._t) > 0.05:
             self._live.update(self._render())
             self._live.refresh()
             self._t = now
 
     async def on_end(self, *, resuming: bool = False) -> None:
+        self._finish_segment()
         if self._interactive:
             if resuming:
                 self._buf = ""
@@ -132,6 +141,8 @@ class StreamRenderer:
                     self._buf,
                     render_markdown=self._md,
                 )
+                if rate_text := self._take_rate_text():
+                    await interactive._print_interactive_line(rate_text)
             return
         if self._live:
             self._live.update(self._render())
@@ -143,7 +154,35 @@ class StreamRenderer:
             self._buf = ""
             self._start_spinner()
         else:
-            _make_console().print()
+            c = _make_console()
+            if rate_text := self._take_rate_text():
+                c.print(f"[dim]{rate_text}[/dim]")
+            c.print()
+
+    def _finish_segment(self) -> None:
+        """Accumulate active streamed-generation time for this turn."""
+        if self._segment_started_at is None:
+            return
+        self._stream_elapsed += max(0.0, time.monotonic() - self._segment_started_at)
+        self._segment_started_at = None
+
+    def _take_rate_text(self) -> str | None:
+        """Return the one-shot visible-output throughput footer."""
+        if self._rate_printed:
+            return None
+        token_count, stream_elapsed = self.rate_metrics()
+        if token_count <= 0 or stream_elapsed <= 0:
+            return None
+        self._rate_printed = True
+        rate = token_count / stream_elapsed
+        return f"⚡ ≈{rate:.1f} tok/s · ≈{token_count} tok · {stream_elapsed:.1f}s"
+
+    def rate_metrics(self) -> tuple[int, float]:
+        """Return estimated streamed text tokens and active generation seconds."""
+        elapsed = self._stream_elapsed
+        if self._segment_started_at is not None:
+            elapsed += max(0.0, time.monotonic() - self._segment_started_at)
+        return estimate_text_tokens(self._all_text), elapsed
 
     def stop_for_input(self) -> None:
         """Stop spinner before user input to avoid prompt_toolkit conflicts."""

@@ -2,6 +2,8 @@ import asyncio
 
 import pytest
 
+from hahobot.agent.runner import AgentRunner, AgentRunSpec
+from hahobot.agent.tools.registry import ToolRegistry
 from hahobot.providers.base import GenerationSettings, LLMProvider, LLMResponse
 from hahobot.providers.pool_provider import ProviderPoolEntry, ProviderPoolProvider
 
@@ -43,8 +45,18 @@ class ScriptedProvider(LLMProvider):
 
 @pytest.mark.asyncio
 async def test_pool_failover_uses_next_provider_after_error() -> None:
-    first = ScriptedProvider([LLMResponse(content="401 unauthorized", finish_reason="error")])
-    second = ScriptedProvider([LLMResponse(content="ok from second")])
+    first = ScriptedProvider(
+        [
+            LLMResponse(
+                content="401 unauthorized",
+                finish_reason="error",
+                usage={"prompt_tokens": 5, "completion_tokens": 1},
+            )
+        ]
+    )
+    second = ScriptedProvider(
+        [LLMResponse(content="ok from second", usage={"prompt_tokens": 7, "completion_tokens": 2})]
+    )
     pool = ProviderPoolProvider(
         [
             ProviderPoolEntry(name="openrouter", provider=first),
@@ -53,6 +65,8 @@ async def test_pool_failover_uses_next_provider_after_error() -> None:
         strategy="failover",
         default_model="shared-model",
     )
+    observed: list[dict[str, int]] = []
+    pool.add_usage_observer(observed.append)
 
     response = await pool.chat_with_retry(messages=[{"role": "user", "content": "hello"}])
 
@@ -63,6 +77,57 @@ async def test_pool_failover_uses_next_provider_after_error() -> None:
     assert second.models == ["shared-model"]
     assert pool.api_key == second.api_key
     assert pool.api_base == second.api_base
+    assert observed == [
+        {"prompt_tokens": 5, "completion_tokens": 1},
+        {"prompt_tokens": 7, "completion_tokens": 2},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_runner_can_pass_retry_contract_through_provider_pool() -> None:
+    concrete = ScriptedProvider([LLMResponse(content="pool reply")])
+    pool = ProviderPoolProvider(
+        [ProviderPoolEntry(name="primary", provider=concrete)],
+        default_model="shared-model",
+    )
+
+    result = await AgentRunner(pool).run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=ToolRegistry(),
+            model="shared-model",
+            max_iterations=1,
+            provider_retry_mode="persistent",
+        )
+    )
+
+    assert result.final_content == "pool reply"
+    assert concrete.calls == 1
+
+
+def test_pool_usage_observer_add_rolls_back_partial_registration() -> None:
+    first = ScriptedProvider([])
+
+    class _RejectingProvider(ScriptedProvider):
+        def add_usage_observer(self, observer) -> None:
+            raise RuntimeError("observer rejected")
+
+    rejecting = _RejectingProvider([])
+    pool = ProviderPoolProvider(
+        [
+            ProviderPoolEntry(name="first", provider=first),
+            ProviderPoolEntry(name="rejecting", provider=rejecting),
+        ]
+    )
+
+    def observer(_usage) -> None:
+        return None
+
+    with pytest.raises(RuntimeError, match="observer rejected"):
+        pool.add_usage_observer(observer)
+
+    assert observer not in pool._usage_observers
+    assert observer not in first._usage_observers
 
 
 @pytest.mark.asyncio
@@ -125,9 +190,14 @@ async def test_pool_stream_failover_discards_failed_partial_deltas() -> None:
     )
     deltas: list[str] = []
 
+    async def _on_retry_wait(_message: str) -> None:
+        return None
+
     response = await pool.chat_stream_with_retry(
         messages=[{"role": "user", "content": "hello"}],
         on_content_delta=lambda delta: _collect_delta(deltas, delta),
+        retry_mode="persistent",
+        on_retry_wait=_on_retry_wait,
     )
 
     assert response.content == "good stream"

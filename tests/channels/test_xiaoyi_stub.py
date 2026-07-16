@@ -299,11 +299,12 @@ async def test_send_extracts_task_id_from_session_map_when_no_metadata() -> None
 
 
 @pytest.mark.asyncio
-async def test_send_drops_silently_when_no_connection() -> None:
+async def test_send_raises_when_no_connection() -> None:
     channel = XiaoyiChannel(
         XiaoyiConfig(enabled=True, ak="k", sk="s", agent_id="agent-1"), MessageBus()
     )
-    await channel.send(OutboundMessage(channel="xiaoyi", chat_id="sess-1", content="x"))
+    with pytest.raises(RuntimeError, match="no active connection"):
+        await channel.send(OutboundMessage(channel="xiaoyi", chat_id="sess-1", content="x"))
 
 
 @pytest.mark.asyncio
@@ -324,6 +325,59 @@ async def test_send_to_two_active_connections_fans_out() -> None:
     await channel.send(outbound)
     assert len(ws1.sent) == 1
     assert len(ws2.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_send_succeeds_when_at_least_one_connection_delivers() -> None:
+    channel = XiaoyiChannel(
+        XiaoyiConfig(enabled=True, ak="k", sk="s", agent_id="agent-1"), MessageBus()
+    )
+
+    class _FailingWS:
+        async def send(self, payload: str) -> None:
+            raise OSError("link down")
+
+    good_ws = _CapturingWS()
+    channel._ws_connections = {"ws_url1": _FailingWS(), "ws_url2": good_ws}
+
+    await channel.send(OutboundMessage(channel="xiaoyi", chat_id="sess-1", content="x"))
+
+    assert len(good_ws.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_send_raises_when_all_connections_fail() -> None:
+    channel = XiaoyiChannel(
+        XiaoyiConfig(enabled=True, ak="k", sk="s", agent_id="agent-1"), MessageBus()
+    )
+
+    class _FailingWS:
+        async def send(self, payload: str) -> None:
+            raise OSError("link down")
+
+    channel._ws_connections = {"ws_url1": _FailingWS(), "ws_url2": _FailingWS()}
+
+    with pytest.raises(RuntimeError, match="delivery failed on all connections"):
+        await channel.send(OutboundMessage(channel="xiaoyi", chat_id="sess-1", content="x"))
+
+
+@pytest.mark.asyncio
+async def test_send_treats_connection_disappearing_during_dispatch_as_failure(monkeypatch) -> None:
+    channel = XiaoyiChannel(
+        XiaoyiConfig(enabled=True, ak="k", sk="s", agent_id="agent-1"), MessageBus()
+    )
+    channel._ws_connections["ws_url1"] = _CapturingWS()
+
+    original = channel._send_text_response
+
+    async def _remove_then_send(*args: Any, **kwargs: Any) -> None:
+        channel._ws_connections.pop("ws_url1", None)
+        await original(*args, **kwargs)
+
+    monkeypatch.setattr(channel, "_send_text_response", _remove_then_send)
+
+    with pytest.raises(RuntimeError, match="delivery failed on all connections"):
+        await channel.send(OutboundMessage(channel="xiaoyi", chat_id="sess-1", content="x"))
 
 
 # ---------------------------------------------------------------------------

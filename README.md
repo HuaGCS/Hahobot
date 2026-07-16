@@ -110,6 +110,9 @@ pip install -e .
 - Node.js >= 18 if you use the local WhatsApp bridge.
 - `npm` available in `PATH` for `hahobot channels login whatsapp`.
 
+Windows installs automatically include the IANA timezone database through the conditional `tzdata`
+dependency, so cron, heartbeat, and configured `ZoneInfo` timezones do not depend on OS-bundled data.
+
 ## Quick Start
 
 ### 1. Create config and workspace
@@ -149,6 +152,10 @@ Minimal config example:
 }
 ```
 
+Provider requests keep a finite wall-clock timeout through `HAHOBOT_LLM_TIMEOUT_S` (`0` disables
+it). Streaming requests use the wider `max(300, 2 * timeout)` budget in addition to provider idle
+timeouts, allowing healthy long reasoning to finish while still bounding trickle streams.
+
 ### 3. Start chatting
 
 Interactive CLI:
@@ -159,6 +166,16 @@ hahobot agent --continue
 hahobot agent --pick-session
 hahobot agent --multiline
 ```
+
+Streamed CLI replies finish with a compact throughput footer such as
+`⚡ ≈24.6 tok/s · ≈120 tok · 4.9s`. It estimates visible output tokens with the shared tokenizer and
+measures active streaming time across tool-call segments; provider usage remains the billing source.
+When an interactive `hahobot agent` process exits, it also prints an invocation-only summary with
+completed main-agent turns, model-call count, provider-reported input/output/total and cached tokens,
+weighted average streaming throughput, and wall-clock duration. Usage observation covers completed
+retry-layer requests made through the shared runtime provider, including subagents, memory work,
+`/compact`, and `/review`. Resumed history is not added; cancelled requests without returned usage
+cannot be counted.
 
 One-shot prompt:
 
@@ -406,6 +423,12 @@ pressure; it does not invent a second memory pipeline.
 - `/update bridge`: rebuild only the local WhatsApp bridge from the current repo and restart
 
 The default `/update` flow still refuses dirty working trees and branches without upstream tracking.
+After `/restart` or a successful `/update`, the new process waits for the originating channel to
+reconnect before sending the completion notice, and retries transient delivery failures during the
+startup window instead of silently dropping the confirmation.
+The built-in WebSocket server currently uses process-local connection ids, so a client that reconnects
+after process replacement cannot yet inherit the old completion-notice target; that retry expires at
+the startup deadline instead of being reported as a successful delivery.
 
 ### Persona-local extras
 
@@ -531,6 +554,10 @@ Recent upstream nanobot syncs already included here:
 
 - Telegram progressive reply editing now uses `channels.telegram.streamEditInterval` to throttle
   `edit_message_text` frequency instead of a hardcoded interval.
+- Long Telegram streams are split while generation is still in progress: rendered HTML chunks stay
+  within Telegram's 4096-character limit, malformed-HTML rejections fall back to plain text, and the
+  remaining live buffer keeps raw Markdown so formatting survives later deltas. A transient send
+  failure resumes from the first unsent overflow chunk instead of repeating chunks already accepted.
 - Telegram can render `OutboundMessage.buttons` as native inline keyboards when
   `channels.telegram.inlineKeyboards` is enabled; otherwise button labels are preserved as inline
   text fallback.
@@ -757,6 +784,12 @@ connect. Raise it for heavy stdio servers that are slow to boot (e.g. a Node-bas
 `chrome-devtools` server), or lower it to fail fast. `toolTimeout` (default `30`) separately bounds
 each tool call.
 
+Each connection generation is kept inside a dedicated owner task. That task opens and closes the
+MCP transport/session stack itself, which avoids AnyIO cancel-scope corruption when shutdown or
+reconnect happens from another task. Reconnect swaps in a fresh owner before the old generation is
+closed; timeout, cancellation, or partial registration failures are cleaned up without leaking the
+stdio subprocess or HTTP session.
+
 For HTTP-based MCP transports (`sse` / `streamableHttp`), the server URL you configure is trusted —
 local servers such as `http://127.0.0.1:3211/mcp` keep working as expected. As defense-in-depth,
 if a configured (public) server then *redirects* a request to a different internal/private address,
@@ -829,6 +862,8 @@ Legacy upstream runtime behaviors also kept in sync here include:
 - idle auto compact is available through `agents.defaults.idleCompactAfterMinutes`
 - `agents.defaults.disabledSkills` filters both main-agent and subagent skill summaries
 - MCP per-server tool filtering is available through `tools.mcpServers.<name>.enabledTools`
+- MCP transports use same-task owner lifecycles for safe shutdown and reconnect
+- streaming LLM calls use a wider finite wall-clock timeout than ordinary calls
 - the shell tool supports `tools.exec.allowedEnvKeys` for explicit env passthrough
 - the built-in WebSocket server channel is available through `channels.websocket`
 - direct OpenAI reasoning requests keep the upstream Responses-API-first fallback strategy

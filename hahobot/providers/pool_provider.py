@@ -44,6 +44,34 @@ class ProviderPoolProvider(LLMProvider):
         self.default_model = self._default_model
         self.generation = entries[0].provider.generation
 
+    def add_usage_observer(self, observer: Callable[[dict[str, int]], None]) -> None:
+        """Observe each concrete pool attempt, including failed failover targets."""
+        super().add_usage_observer(observer)
+        added: list[LLMProvider] = []
+        try:
+            for entry in self.entries:
+                entry.provider.add_usage_observer(observer)
+                added.append(entry.provider)
+        except Exception:
+            for provider in reversed(added):
+                try:
+                    provider.remove_usage_observer(observer)
+                except Exception:
+                    pass
+            super().remove_usage_observer(observer)
+            raise
+
+    def remove_usage_observer(self, observer: Callable[[dict[str, int]], None]) -> None:
+        """Remove an observer from this pool and every concrete target."""
+        super().remove_usage_observer(observer)
+        for entry in self.entries:
+            try:
+                entry.provider.remove_usage_observer(observer)
+            except Exception as exc:
+                logger.debug(
+                    "Could not remove usage observer from pool entry {}: {}", entry.name, exc
+                )
+
     @property
     def generation(self) -> GenerationSettings:
         return self._generation
@@ -217,6 +245,8 @@ class ProviderPoolProvider(LLMProvider):
         temperature: object = LLMProvider._SENTINEL,
         reasoning_effort: object = LLMProvider._SENTINEL,
         tool_choice: str | dict[str, Any] | None = None,
+        retry_mode: str = "standard",
+        on_retry_wait: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         if max_tokens is self._SENTINEL:
             max_tokens = self.generation.max_tokens
@@ -234,6 +264,8 @@ class ProviderPoolProvider(LLMProvider):
             temperature=temperature,
             reasoning_effort=reasoning_effort,
             tool_choice=tool_choice,
+            retry_mode=retry_mode,
+            on_retry_wait=on_retry_wait,
         )
 
     async def chat_stream_with_retry(
@@ -246,6 +278,8 @@ class ProviderPoolProvider(LLMProvider):
         reasoning_effort: object = LLMProvider._SENTINEL,
         tool_choice: str | dict[str, Any] | None = None,
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
+        retry_mode: str = "standard",
+        on_retry_wait: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         if max_tokens is self._SENTINEL:
             max_tokens = self.generation.max_tokens
@@ -264,6 +298,8 @@ class ProviderPoolProvider(LLMProvider):
             reasoning_effort=reasoning_effort,
             tool_choice=tool_choice,
             on_content_delta=on_content_delta,
+            retry_mode=retry_mode,
+            on_retry_wait=on_retry_wait,
         )
 
     def get_default_model(self) -> str:

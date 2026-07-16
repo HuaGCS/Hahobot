@@ -34,6 +34,7 @@ from hahobot.cli.commands.interactive import (
     _update_interactive_completion_session,
     console,
 )
+from hahobot.cli.session_stats import CliSessionStats
 from hahobot.cli.stream import StreamRenderer, ThinkingSpinner
 from hahobot.config.paths import is_default_workspace
 from hahobot.utils.restart import (
@@ -209,22 +210,40 @@ def agent(
         console.print()
 
         cli_channel, cli_chat_id = _cli_route_for_session(session_id)
+        session_stats = CliSessionStats()
+        summary_printed = False
+        usage_observer = session_stats.record_usage
+        usage_observer_attached = False
+        add_usage_observer = getattr(provider, "add_usage_observer", None)
+        exit_state: dict[str, str | None] = {"message": None}
+
+        def _print_session_summary() -> None:
+            nonlocal summary_printed
+            if summary_printed:
+                return
+            summary_printed = True
+            _restore_terminal()
+            console.print()
+            console.print("[bold cyan]Session summary[/bold cyan]")
+            turn_count = getattr(agent_loop, "_usage_turn_count", 0)
+            use_observed_usage = usage_observer_attached and (
+                session_stats.model_calls > 0 or turn_count == 0
+            )
+            for line in session_stats.summary_lines(
+                usage=None if use_observed_usage else getattr(agent_loop, "_usage_totals", {}),
+                turn_count=turn_count,
+            ):
+                console.print(f"  [dim]{line}[/dim]")
+
+        def _begin_exit(message: str) -> None:
+            exit_state["message"] = message
+            _restore_terminal()
+            console.print("\n[dim]Exiting, finalizing background work...[/dim]")
 
         def _handle_signal(signum, frame):
             sig_name = signal.Signals(signum).name
-            _restore_terminal()
-            console.print(f"\nReceived {sig_name}, goodbye!")
+            _begin_exit(f"Received {sig_name}, goodbye!")
             sys.exit(0)
-
-        signal.signal(signal.SIGINT, _handle_signal)
-        signal.signal(signal.SIGTERM, _handle_signal)
-        # SIGHUP is not available on Windows
-        if hasattr(signal, "SIGHUP"):
-            signal.signal(signal.SIGHUP, _handle_signal)
-        # Ignore SIGPIPE to prevent silent process termination when writing to closed pipes
-        # SIGPIPE is not available on Windows
-        if hasattr(signal, "SIGPIPE"):
-            signal.signal(signal.SIGPIPE, signal.SIG_IGN)
 
         async def run_interactive():
             bus_task = asyncio.create_task(agent_loop.run())
@@ -254,6 +273,10 @@ def agent(
                                 )
                             continue
                         if msg.metadata.get("_streamed"):
+                            if msg.content and not (renderer and renderer.streamed):
+                                meta = dict(msg.metadata or {})
+                                meta.pop("_streamed", None)
+                                turn_response.append((msg.content, meta))
                             turn_done.set()
                             continue
 
@@ -301,8 +324,7 @@ def agent(
                             continue
 
                         if _is_exit_command(command):
-                            _restore_terminal()
-                            console.print("\nGoodbye!")
+                            _begin_exit("Goodbye!")
                             break
 
                         if command.startswith("/session"):
@@ -382,6 +404,9 @@ def agent(
 
                         await turn_done.wait()
 
+                        if renderer:
+                            session_stats.record_stream(*renderer.rate_metrics())
+
                         if turn_response:
                             content, meta = turn_response[0]
                             if content and not meta.get("_streamed"):
@@ -395,12 +420,10 @@ def agent(
                         elif renderer and not renderer.streamed:
                             await renderer.close()
                     except KeyboardInterrupt:
-                        _restore_terminal()
-                        console.print("\nGoodbye!")
+                        _begin_exit("Goodbye!")
                         break
                     except EOFError:
-                        _restore_terminal()
-                        console.print("\nGoodbye!")
+                        _begin_exit("Goodbye!")
                         break
             finally:
                 _clear_interactive_completion_context()
@@ -409,4 +432,34 @@ def agent(
                 await asyncio.gather(bus_task, outbound_task, return_exceptions=True)
                 await agent_loop.close_mcp()
 
-        asyncio.run(run_interactive())
+        try:
+            if callable(add_usage_observer):
+                try:
+                    add_usage_observer(usage_observer)
+                    usage_observer_attached = True
+                except Exception as exc:
+                    logger.debug("Could not attach CLI usage observer: {}", exc)
+            signal.signal(signal.SIGINT, _handle_signal)
+            signal.signal(signal.SIGTERM, _handle_signal)
+            # SIGHUP is not available on Windows
+            if hasattr(signal, "SIGHUP"):
+                signal.signal(signal.SIGHUP, _handle_signal)
+            # Ignore SIGPIPE to prevent silent process termination when writing to closed pipes
+            # SIGPIPE is not available on Windows
+            if hasattr(signal, "SIGPIPE"):
+                signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+            asyncio.run(run_interactive())
+        finally:
+            if usage_observer_attached:
+                remove_usage_observer = getattr(provider, "remove_usage_observer", None)
+                if callable(remove_usage_observer):
+                    try:
+                        remove_usage_observer(usage_observer)
+                    except Exception as exc:
+                        logger.debug("Could not remove CLI usage observer: {}", exc)
+            try:
+                _print_session_summary()
+            except Exception as exc:
+                logger.debug("Could not print CLI session summary: {}", exc)
+            if exit_state["message"]:
+                console.print(f"\n{exit_state['message']}")

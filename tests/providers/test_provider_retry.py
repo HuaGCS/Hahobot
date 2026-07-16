@@ -98,6 +98,37 @@ async def test_chat_with_retry_retries_transient_error_then_succeeds(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_usage_observer_sees_every_retry_attempt(monkeypatch) -> None:
+    provider = ScriptedProvider(
+        [
+            LLMResponse(
+                content="429 rate limit",
+                finish_reason="error",
+                usage={"prompt_tokens": 8, "completion_tokens": 1},
+            ),
+            LLMResponse(
+                content="ok",
+                usage={"prompt_tokens": 9, "completion_tokens": 2, "total_tokens": 12},
+            ),
+        ]
+    )
+    observed: list[dict[str, int]] = []
+    provider.add_usage_observer(observed.append)
+
+    async def _fake_sleep(_delay: int) -> None:
+        return None
+
+    monkeypatch.setattr("hahobot.providers.base.asyncio.sleep", _fake_sleep)
+
+    await provider.chat_with_retry(messages=[{"role": "user", "content": "hello"}])
+
+    assert observed == [
+        {"prompt_tokens": 8, "completion_tokens": 1},
+        {"prompt_tokens": 9, "completion_tokens": 2, "total_tokens": 12},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_chat_with_retry_retries_relay_upstream_failure(monkeypatch) -> None:
     # new-api/one-api wrap a transient upstream blip as a generic 400
     # invalid_request_error; the body phrase is the only retry signal.

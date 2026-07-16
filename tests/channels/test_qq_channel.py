@@ -17,7 +17,6 @@ if not QQ_AVAILABLE:
 
 from hahobot.bus.events import OutboundMessage
 from hahobot.bus.queue import MessageBus
-from hahobot.channels.base import NonRetriableSendError
 from hahobot.channels.qq import QQChannel, _make_bot_class
 from hahobot.config.schema import QQConfig
 
@@ -160,7 +159,7 @@ async def test_send_c2c_message_uses_plain_text_c2c_api_with_msg_seq() -> None:
 async def test_send_raises_when_client_not_initialized() -> None:
     channel = QQChannel(QQConfig(app_id="app", secret="secret", allow_from=["*"]), MessageBus())
 
-    with pytest.raises(NonRetriableSendError, match="QQ client not initialized"):
+    with pytest.raises(RuntimeError, match="QQ client not initialized"):
         await channel.send(
             OutboundMessage(
                 channel="qq",

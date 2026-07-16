@@ -149,6 +149,7 @@ class _StreamBuf:
     text: str = ""
     event_id: str | None = None
     last_edit: float = 0.0
+    last_delivery_id: str | None = None
 
 
 def _render_markdown_html(text: str) -> str | None:
@@ -448,10 +449,10 @@ class MatrixChannel(BaseChannel):
 
     async def _send_room_content(
         self, room_id: str, content: dict[str, Any]
-    ) -> None | RoomSendResponse | RoomSendError:
+    ) -> RoomSendResponse | RoomSendError:
         """Send m.room.message with E2EE options."""
         if not self.client:
-            return None
+            raise RuntimeError("Matrix client is not initialized")
         kwargs: dict[str, Any] = {
             "room_id": room_id,
             "message_type": "m.room.message",
@@ -461,6 +462,18 @@ class MatrixChannel(BaseChannel):
         if self.config.e2ee_enabled:
             kwargs["ignore_unverified_devices"] = True
         return await self.client.room_send(**kwargs)
+
+    @staticmethod
+    def _raise_for_room_send_error(
+        response: RoomSendResponse | RoomSendError | None,
+        *,
+        operation: str,
+    ) -> None:
+        """Turn SDK error/empty responses into retryable delivery failures."""
+        if isinstance(response, RoomSendError):
+            raise RuntimeError(f"Matrix {operation} was not delivered: {response}")
+        if response is None:
+            raise RuntimeError(f"Matrix {operation} returned no delivery response")
 
     async def _resolve_server_upload_limit_bytes(self) -> int | None:
         """Query homeserver upload limit once per channel lifecycle."""
@@ -546,7 +559,8 @@ class MatrixChannel(BaseChannel):
         if relates_to:
             content["m.relates_to"] = relates_to
         try:
-            await self._send_room_content(room_id, content)
+            response = await self._send_room_content(room_id, content)
+            self._raise_for_room_send_error(response, operation="attachment")
         except Exception:
             return fail
         return None
@@ -554,7 +568,7 @@ class MatrixChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         """Send outbound content; clear typing for non-progress messages."""
         if not self.client:
-            return
+            raise RuntimeError("Matrix client is not initialized")
         text = msg.content or ""
         candidates = self._collect_outbound_media_candidates(msg.media)
         relates_to = self._build_thread_relates_to(msg.metadata)
@@ -581,7 +595,8 @@ class MatrixChannel(BaseChannel):
                 content = _build_matrix_text_content(text)
                 if relates_to:
                     content["m.relates_to"] = relates_to
-                await self._send_room_content(msg.chat_id, content)
+                response = await self._send_room_content(msg.chat_id, content)
+                self._raise_for_room_send_error(response, operation="message")
         finally:
             if not is_progress:
                 await self._stop_typing_keepalive(msg.chat_id, clear_typing=True)
@@ -589,12 +604,17 @@ class MatrixChannel(BaseChannel):
     async def send_delta(
         self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
     ) -> None:
+        if not self.client:
+            raise RuntimeError("Matrix client is not initialized")
         meta = metadata or {}
         relates_to = self._build_thread_relates_to(metadata)
 
         if meta.get("_stream_end"):
-            buf = self._stream_bufs.pop(chat_id, None)
-            if not buf or not buf.event_id or not buf.text:
+            buf = self._stream_bufs.get(chat_id)
+            if not buf:
+                return
+            if not buf.text:
+                self._stream_bufs.pop(chat_id, None)
                 return
 
             await self._stop_typing_keepalive(chat_id, clear_typing=True)
@@ -604,14 +624,19 @@ class MatrixChannel(BaseChannel):
                 buf.event_id,
                 thread_relates_to=relates_to,
             )
-            await self._send_room_content(chat_id, content)
+            response = await self._send_room_content(chat_id, content)
+            self._raise_for_room_send_error(response, operation="final stream message")
+            self._stream_bufs.pop(chat_id, None)
             return
 
         buf = self._stream_bufs.get(chat_id)
         if buf is None:
             buf = _StreamBuf()
             self._stream_bufs[chat_id] = buf
-        buf.text += delta
+        delivery_id = meta.get("_delivery_id")
+        if delivery_id is None or delivery_id != buf.last_delivery_id:
+            buf.text += delta
+            buf.last_delivery_id = delivery_id
 
         if not buf.text.strip():
             return
@@ -626,12 +651,14 @@ class MatrixChannel(BaseChannel):
                     thread_relates_to=relates_to,
                 )
                 response = await self._send_room_content(chat_id, content)
+                self._raise_for_room_send_error(response, operation="stream message")
                 buf.last_edit = now
                 if not buf.event_id and isinstance(response, RoomSendResponse):
                     # we are editing the same message all the time, so only the first time the event id needs to be set
                     buf.event_id = response.event_id
             except Exception:
                 await self._stop_typing_keepalive(chat_id, clear_typing=True)
+                raise
 
     def _register_event_callbacks(self) -> None:
         self.client.add_event_callback(self._on_message, RoomMessageText)

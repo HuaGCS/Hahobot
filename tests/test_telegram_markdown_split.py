@@ -1,6 +1,11 @@
-"""Tests for _split_telegram_markdown fence-aware splitting."""
+"""Tests for Telegram Markdown/HTML-aware splitting."""
 
-from hahobot.channels.telegram import _split_telegram_markdown
+from hahobot.channels.telegram import (
+    TELEGRAM_HTML_MAX_LEN,
+    _markdown_to_telegram_html,
+    _split_telegram_markdown,
+    _split_telegram_markdown_html_chunks,
+)
 
 
 def test_short_content_single_chunk():
@@ -90,3 +95,14 @@ def test_code_block_closing_budget():
     for chunk in result:
         assert chunk.count("```") % 2 == 0
         assert len(chunk) <= max_len
+
+
+def test_rendered_html_chunks_stay_within_telegram_limit():
+    text = "**bold** " * 501
+    assert len(_markdown_to_telegram_html(text)) > TELEGRAM_HTML_MAX_LEN
+
+    chunks = _split_telegram_markdown_html_chunks(text, TELEGRAM_HTML_MAX_LEN)
+
+    assert len(chunks) > 1
+    assert all(len(html) <= TELEGRAM_HTML_MAX_LEN for _, html in chunks)
+    assert all("<b>" not in markdown for markdown, _ in chunks)

@@ -1405,6 +1405,28 @@ async def test_send_room_content_returns_room_send_response():
 
 
 @pytest.mark.asyncio
+async def test_send_raises_when_room_send_returns_error(monkeypatch) -> None:
+    class _FakeRoomSendError:
+        def __str__(self) -> str:
+            return "temporary homeserver failure"
+
+    client = _FakeAsyncClient("", "", "", None)
+    client.room_send_response = _FakeRoomSendError()
+    channel = MatrixChannel(_make_config(), MessageBus())
+    channel.client = client
+    monkeypatch.setattr(matrix_module, "RoomSendError", _FakeRoomSendError)
+
+    with pytest.raises(RuntimeError, match="temporary homeserver failure"):
+        await channel.send(
+            OutboundMessage(
+                channel="matrix",
+                chat_id="!room:matrix.org",
+                content="hello",
+            )
+        )
+
+
+@pytest.mark.asyncio
 async def test_send_delta_creates_stream_buffer_and_sends_initial_message() -> None:
     channel = MatrixChannel(_make_config(), MessageBus())
     client = _FakeAsyncClient("", "", "", None)
@@ -1419,6 +1441,18 @@ async def test_send_delta_creates_stream_buffer_and_sends_initial_message() -> N
     assert buf.event_id == "$8E2XVyINbEhcuAxvxd1d9JhQosNPzkVoU8TrbCAvyHo"
     assert len(client.room_send_calls) == 1
     assert client.room_send_calls[0]["content"]["body"] == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_send_delta_raises_when_client_is_not_initialized() -> None:
+    channel = MatrixChannel(_make_config(), MessageBus())
+
+    with pytest.raises(RuntimeError, match="client is not initialized"):
+        await channel.send_delta(
+            "!room:matrix.org",
+            "Hello",
+            {"_stream_delta": True, "_delivery_id": "delivery-1"},
+        )
 
 
 @pytest.mark.asyncio
@@ -1495,6 +1529,44 @@ async def test_send_delta_stream_end_replaces_existing_message() -> None:
         "rel_type": "m.replace",
         "event_id": "event-1",
     }
+
+
+@pytest.mark.asyncio
+async def test_send_delta_stream_end_sends_initial_message_without_event_id() -> None:
+    channel = MatrixChannel(_make_config(), MessageBus())
+    client = _FakeAsyncClient("", "", "", None)
+    channel.client = client
+    channel._stream_bufs["!room:matrix.org"] = matrix_module._StreamBuf(text="Final text")
+
+    await channel.send_delta("!room:matrix.org", "", {"_stream_end": True})
+
+    assert "!room:matrix.org" not in channel._stream_bufs
+    assert len(client.room_send_calls) == 1
+    assert client.room_send_calls[0]["content"]["body"] == "Final text"
+    assert "m.relates_to" not in client.room_send_calls[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_send_delta_stream_end_failure_keeps_buffer_for_retry() -> None:
+    channel = MatrixChannel(_make_config(), MessageBus())
+    client = _FakeAsyncClient("", "", "", None)
+    channel.client = client
+    channel._stream_bufs["!room:matrix.org"] = matrix_module._StreamBuf(
+        text="Final text",
+        event_id="event-1",
+    )
+    client.raise_on_send = True
+
+    with pytest.raises(RuntimeError, match="send failed"):
+        await channel.send_delta("!room:matrix.org", "", {"_stream_end": True})
+
+    assert "!room:matrix.org" in channel._stream_bufs
+
+    client.raise_on_send = False
+    await channel.send_delta("!room:matrix.org", "", {"_stream_end": True})
+
+    assert "!room:matrix.org" not in channel._stream_bufs
+    assert len(client.room_send_calls) == 2
 
 
 @pytest.mark.asyncio
@@ -1584,13 +1656,25 @@ async def test_send_delta_on_error_stops_typing(monkeypatch) -> None:
     now = 100.0
     monkeypatch.setattr(channel, "monotonic_time", lambda: now)
 
-    await channel.send_delta("!room:matrix.org", "Hello", {"room_id": "!room:matrix.org"})
+    metadata = {
+        "room_id": "!room:matrix.org",
+        "_stream_delta": True,
+        "_delivery_id": "delivery-1",
+    }
+    with pytest.raises(RuntimeError, match="send failed"):
+        await channel.send_delta("!room:matrix.org", "Hello", metadata)
 
     assert "!room:matrix.org" in channel._stream_bufs
     assert channel._stream_bufs["!room:matrix.org"].text == "Hello"
     assert len(client.room_send_calls) == 1
 
     assert len(client.typing_calls) == 1
+
+    client.raise_on_send = False
+    await channel.send_delta("!room:matrix.org", "Hello", metadata)
+
+    assert channel._stream_bufs["!room:matrix.org"].text == "Hello"
+    assert len(client.room_send_calls) == 2
 
 
 @pytest.mark.asyncio

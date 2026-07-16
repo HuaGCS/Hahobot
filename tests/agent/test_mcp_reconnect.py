@@ -41,6 +41,14 @@ class _FakeFailingCoordinator:
         return False
 
 
+class _FakeConnectionOwner:
+    def __init__(self) -> None:
+        self.close_count = 0
+
+    async def close(self) -> None:
+        self.close_count += 1
+
+
 class _FakeToolResult:
     def __init__(self, text: str) -> None:
         from mcp.types import TextContent
@@ -214,7 +222,7 @@ class TestExecuteReconnect:
 class TestCoordinatorGenerationGuard:
     """_MCPServerConnection generation-based concurrency safety."""
 
-    async def test_rebuild_once_for_two_stale_wrappers(self) -> None:
+    async def test_rebuild_once_for_two_stale_wrappers(self, monkeypatch) -> None:
         """Two wrappers with stale generations trigger exactly one rebuild."""
         from contextlib import AsyncExitStack
 
@@ -232,26 +240,38 @@ class TestCoordinatorGenerationGuard:
             enabled_tools = ["*"]
 
         rebuild_count = 0
+        initial_owner = _FakeConnectionOwner()
+        replacement_owner = _FakeConnectionOwner()
+        replacement_session = _FakeWorkingSession()
 
-        async def fake_open_session(name, cfg, stack) -> Any:
+        async def fake_open_connection_owner(name, cfg, *, discover_tools) -> Any:
             nonlocal rebuild_count
             rebuild_count += 1
-            return _FakeWorkingSession()
+            assert discover_tools is False
+            return replacement_owner, replacement_session, None
 
         w1 = MCPToolWrapper(session_1, "srv", _make_tool_def("tool_a"))
         w2 = MCPToolWrapper(session_1, "srv", _make_tool_def("tool_b"))
 
-        coordinator = _MCPServerConnection("srv", _FakeCfg(), stack, session_1, [w1, w2])
-        # Monkey-patch _open_session so the real transport code never runs
+        coordinator = _MCPServerConnection(
+            "srv",
+            _FakeCfg(),
+            stack,
+            initial_owner,
+            session_1,
+            [w1, w2],
+        )
         import hahobot.agent.tools.mcp as mcp_mod
 
-        original_open = mcp_mod._open_session
-        mcp_mod._open_session = fake_open_session
+        monkeypatch.setattr(mcp_mod, "_open_connection_owner", fake_open_connection_owner)
         try:
             # First caller — should rebuild
             ok1 = await coordinator.reconnect(w1)
             assert ok1, "first reconnect should succeed"
             assert rebuild_count == 1, "first reconnect triggers one rebuild"
+            assert initial_owner.close_count == 1
+            assert w1._session is replacement_session
+            assert w2._session is replacement_session
             # The broadcast updates only _session, not _generation
             assert w1._generation == 0
 
@@ -262,4 +282,6 @@ class TestCoordinatorGenerationGuard:
             # On adoption the wrapper receives the coordinator's current generation
             assert w2._generation == 1
         finally:
-            mcp_mod._open_session = original_open
+            await stack.aclose()
+
+        assert replacement_owner.close_count == 1

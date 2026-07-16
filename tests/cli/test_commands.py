@@ -874,6 +874,106 @@ def test_agent_workspace_override_wins_over_config_workspace(mock_agent_runtime,
     assert mock_agent_runtime["agent_loop_cls"].call_args.kwargs["workspace"] == workspace_path
 
 
+def test_agent_interactive_prints_final_streamed_message_without_deltas(monkeypatch, tmp_path):
+    """Interactive CLI must not hide a final reply when no stream delta was emitted."""
+    config_file = tmp_path / "config.json"
+    config_file.write_text("{}", encoding="utf-8")
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "workspace")
+    printed: list[tuple[str, dict | None]] = []
+    inputs = iter(["hello", "exit"])
+
+    class _FakeProvider:
+        def __init__(self) -> None:
+            self.observers = []
+
+        def add_usage_observer(self, observer) -> None:
+            self.observers.append(observer)
+
+        def remove_usage_observer(self, observer) -> None:
+            self.observers.remove(observer)
+
+        def emit_usage(self, usage: dict[str, int]) -> None:
+            for observer in tuple(self.observers):
+                observer(usage)
+
+    fake_provider = _FakeProvider()
+
+    class _FakeAgentLoop:
+        def __init__(self, *args, **kwargs) -> None:
+            self.bus = kwargs["bus"]
+            self.provider = kwargs["provider"]
+            self.channels_config = None
+            self._running = True
+            self._usage_totals = {}
+            self._usage_turn_count = 0
+
+        async def run(self) -> None:
+            while self._running:
+                try:
+                    msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=0.05)
+                except TimeoutError:
+                    continue
+                self._usage_totals = {
+                    "prompt_tokens": 1200,
+                    "completion_tokens": 300,
+                    "total_tokens": 1500,
+                    "cached_tokens": 400,
+                }
+                self._usage_turn_count = 1
+                self.provider.emit_usage(self._usage_totals)
+                await self.bus.publish_outbound(
+                    OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content="fallback reply",
+                        metadata={"_streamed": True},
+                    )
+                )
+
+        def stop(self) -> None:
+            self._running = False
+
+        async def close_mcp(self) -> None:
+            return None
+
+    async def _fake_read_input(*, multiline: bool = False) -> str:
+        assert multiline is False
+        return next(inputs)
+
+    monkeypatch.setattr("hahobot.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("hahobot.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("hahobot.config.loader.resolve_config_env_vars", lambda loaded: loaded)
+    monkeypatch.setattr("hahobot.cli.commands.runtime.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr(
+        "hahobot.cli.commands.runtime._make_provider", lambda _config: fake_provider
+    )
+    monkeypatch.setattr("hahobot.cron.service.CronService", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("hahobot.agent.loop.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("hahobot.cli.commands.agent_repl.signal.signal", lambda *_args: None)
+    monkeypatch.setattr("hahobot.cli.commands.agent_repl._init_prompt_session", lambda: None)
+    monkeypatch.setattr(
+        "hahobot.cli.commands.agent_repl._read_interactive_input_async",
+        _fake_read_input,
+    )
+    monkeypatch.setattr("hahobot.cli.commands.agent_repl._restore_terminal", lambda: None)
+    monkeypatch.setattr(
+        "hahobot.cli.commands.interactive._print_agent_response",
+        lambda content, **kwargs: printed.append((content, kwargs.get("metadata"))),
+    )
+
+    result = runner.invoke(app, ["agent", "-c", str(config_file)])
+
+    assert result.exit_code == 0, result.stdout
+    assert printed == [("fallback reply", {})]
+    assert result.stdout.count("Session summary") == 1
+    assert "Completed agent turns: 1 · Model calls: 1" in result.stdout
+    assert "Tokens: 1,200 in / 300 out / 1,500 total (400 cached)" in result.stdout
+    assert "Stream: no completed streamed output" in result.stdout
+    assert "Exiting, finalizing background work" in result.stdout
+    assert fake_provider.observers == []
+
+
 def test_agent_hints_about_deprecated_memory_window(mock_agent_runtime, tmp_path):
     config_file = tmp_path / "config.json"
     config_file.write_text(json.dumps({"agents": {"defaults": {"memoryWindow": 42}}}))

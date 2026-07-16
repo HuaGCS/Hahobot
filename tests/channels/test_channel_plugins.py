@@ -13,6 +13,7 @@ from hahobot.bus.queue import MessageBus
 from hahobot.channels.base import BaseChannel, NonRetriableSendError
 from hahobot.channels.manager import ChannelManager
 from hahobot.config.schema import ChannelsConfig
+from hahobot.utils.restart import RestartNotice
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1035,3 +1036,110 @@ async def test_start_all_creates_dispatch_task():
 
     # Dispatch task should have been created
     assert mgr._dispatch_task is not None
+
+
+@pytest.mark.asyncio
+async def test_notify_restart_done_waits_until_channel_starts():
+    """Restart notice should not be sent before the target channel reconnects."""
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    mgr.bus = MessageBus()
+    channel = _StartableChannel(fake_config, mgr.bus)
+    mgr.channels = {"feishu": channel}
+    mgr._dispatch_task = None
+    mgr._send_with_retry = AsyncMock()
+
+    notice = RestartNotice(channel="feishu", chat_id="oc_123", started_at_raw="100.0")
+    with patch("hahobot.channels.manager.consume_restart_notice_from_env", return_value=notice):
+        task = mgr._notify_restart_done_if_needed()
+
+    await asyncio.sleep(0)
+    mgr._send_with_retry.assert_not_awaited()
+
+    channel._running = True
+    assert task is not None
+    await asyncio.wait_for(task, timeout=1.0)
+
+    mgr._send_with_retry.assert_awaited_once()
+    sent_channel, sent_msg = mgr._send_with_retry.await_args.args
+    assert sent_channel is channel
+    assert sent_msg.channel == "feishu"
+    assert sent_msg.chat_id == "oc_123"
+    assert sent_msg.content.startswith("Restart completed")
+    assert mgr._send_with_retry.await_args.kwargs["deadline"] > 0
+
+
+@pytest.mark.asyncio
+async def test_restart_notice_retries_until_running_channel_accepts_delivery():
+    """A running flag must not make an early transport failure final."""
+
+    class _EventuallyDeliverableChannel(_StartableChannel):
+        def __init__(self, config, bus):
+            super().__init__(config, bus)
+            self.attempts = 0
+            self.sent: OutboundMessage | None = None
+
+        async def send(self, msg: OutboundMessage) -> None:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("transport not ready")
+            self.sent = msg
+
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(send_max_retries=1),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    mgr.bus = MessageBus()
+    channel = _EventuallyDeliverableChannel(fake_config, mgr.bus)
+    channel._running = True
+    mgr.channels = {"discord": channel}
+
+    notice = RestartNotice(channel="discord", chat_id="123", started_at_raw="")
+    with patch("hahobot.channels.manager._SEND_RETRY_DELAYS", (0,)):
+        await mgr._send_restart_notice_when_started(notice, timeout_s=0.1, poll_s=0.01)
+
+    assert channel.attempts == 2
+    assert channel.sent is not None
+    assert channel.sent.content == "Restart completed."
+
+
+@pytest.mark.asyncio
+async def test_stream_retry_reuses_delivery_id():
+    """Stateful channels need one stable id across manager retries."""
+
+    class _RetryingStreamChannel(_StartableChannel):
+        def __init__(self, config, bus):
+            super().__init__(config, bus)
+            self.delivery_ids: list[str | None] = []
+
+        async def send_delta(self, chat_id, delta, metadata=None):
+            self.delivery_ids.append((metadata or {}).get("_delivery_id"))
+            if len(self.delivery_ids) == 1:
+                raise RuntimeError("temporary stream failure")
+
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(send_max_retries=2),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    channel = _RetryingStreamChannel(fake_config, MessageBus())
+    msg = OutboundMessage(
+        channel="test",
+        chat_id="chat",
+        content="delta",
+        metadata={"_stream_delta": True},
+    )
+
+    with patch("hahobot.channels.manager._SEND_RETRY_DELAYS", (0,)):
+        await mgr._send_with_retry(channel, msg)
+
+    assert len(channel.delivery_ids) == 2
+    assert channel.delivery_ids[0]
+    assert channel.delivery_ids[0] == channel.delivery_ids[1]

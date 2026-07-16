@@ -15,6 +15,7 @@ from hahobot.channels.discord import (  # noqa: E402
     DiscordBotClient,
     DiscordChannel,
     DiscordConfig,
+    _StreamBuf,
 )
 from hahobot.command.builtin import build_help_text  # noqa: E402
 
@@ -410,18 +411,19 @@ async def test_on_message_marks_failed_attachment_download(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_send_warns_when_client_not_ready() -> None:
-    # Sending without a running/ready client should be a safe no-op.
+async def test_send_raises_when_client_not_ready() -> None:
+    # The manager must be able to retry while Discord is still reconnecting.
     channel = DiscordChannel(DiscordConfig(enabled=True, allow_from=["*"]), MessageBus())
 
-    await channel.send(OutboundMessage(channel="discord", chat_id="123", content="hello"))
+    with pytest.raises(RuntimeError, match="client is not ready"):
+        await channel.send(OutboundMessage(channel="discord", chat_id="123", content="hello"))
 
     assert channel._typing_tasks == {}
 
 
 @pytest.mark.asyncio
-async def test_send_skips_when_channel_not_cached() -> None:
-    # Outbound sends should be skipped when the destination channel is not resolvable.
+async def test_send_raises_when_channel_not_cached() -> None:
+    # Transient channel-resolution failures must reach the manager retry loop.
     owner = DiscordChannel(DiscordConfig(enabled=True, allow_from=["*"]), MessageBus())
     client = DiscordBotClient(owner, intents=discord.Intents.none())
     fetch_calls: list[int] = []
@@ -432,7 +434,10 @@ async def test_send_skips_when_channel_not_cached() -> None:
 
     client.fetch_channel = fetch_channel  # type: ignore[method-assign]
 
-    await client.send_outbound(OutboundMessage(channel="discord", chat_id="123", content="hello"))
+    with pytest.raises(RuntimeError, match="not found"):
+        await client.send_outbound(
+            OutboundMessage(channel="discord", chat_id="123", content="hello")
+        )
 
     assert client.get_channel(123) is None
     assert fetch_calls == [123]
@@ -461,6 +466,37 @@ def test_supports_streaming_enabled_by_default() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_delta_raises_when_client_not_ready() -> None:
+    channel = DiscordChannel(DiscordConfig(enabled=True, allow_from=["*"]), MessageBus())
+
+    with pytest.raises(RuntimeError, match="client is not ready"):
+        await channel.send_delta(
+            "123",
+            "hello",
+            {"_stream_delta": True, "_delivery_id": "delivery-1"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_send_delta_retry_does_not_append_same_delivery_twice() -> None:
+    owner = DiscordChannel(DiscordConfig(enabled=True, allow_from=["*"]), MessageBus())
+    client = _FakeDiscordClient(owner, intents=None)
+    owner._client = client
+    owner._running = True
+    metadata = {"_stream_delta": True, "_stream_id": "s1", "_delivery_id": "delivery-1"}
+
+    with pytest.raises(RuntimeError, match="target 123 unavailable"):
+        await owner.send_delta("123", "hello", metadata)
+
+    target = _FakeChannel(channel_id=123)
+    client.channels[123] = target
+    await owner.send_delta("123", "hello", metadata)
+
+    assert owner._stream_bufs["123"].text == "hello"
+    assert target.sent_payloads == [{"content": "hello"}]
+
+
+@pytest.mark.asyncio
 async def test_send_delta_streams_by_editing_message(monkeypatch) -> None:
     owner = DiscordChannel(DiscordConfig(enabled=True, allow_from=["*"]), MessageBus())
     client = _FakeDiscordClient(owner, intents=None)
@@ -478,6 +514,49 @@ async def test_send_delta_streams_by_editing_message(monkeypatch) -> None:
 
     assert target.sent_payloads[0] == {"content": "hel"}
     assert target.sent_messages[0].edits == [{"content": "hello"}, {"content": "hello"}]
+    assert owner._stream_bufs == {}
+
+
+@pytest.mark.asyncio
+async def test_stream_end_retry_resumes_followups_without_duplicates() -> None:
+    owner = DiscordChannel(DiscordConfig(enabled=True, allow_from=["*"]), MessageBus())
+    client = _FakeDiscordClient(owner, intents=None)
+    owner._client = client
+    owner._running = True
+    target = _FakeChannel(channel_id=123)
+    client.channels[123] = target
+    text = "a" * (MAX_MESSAGE_LEN * 2 + 100)
+    chunks = DiscordBotClient._build_chunks(text, [], False)
+    assert len(chunks) == 3
+    primary = _FakeSentMessage(target, "partial")
+    owner._stream_bufs["123"] = _StreamBuf(text=text, message=primary, stream_id="s1")
+
+    original_send = target.send
+    followup_attempts = 0
+
+    async def flaky_send(**kwargs):
+        nonlocal followup_attempts
+        followup_attempts += 1
+        if followup_attempts == 2:
+            raise RuntimeError("temporary Discord failure")
+        return await original_send(**kwargs)
+
+    target.send = flaky_send  # type: ignore[method-assign]
+    metadata = {"_stream_end": True, "_stream_id": "s1", "_delivery_id": "end-1"}
+
+    with pytest.raises(RuntimeError, match="temporary Discord failure"):
+        await owner.send_delta("123", "", metadata)
+
+    buf = owner._stream_bufs["123"]
+    assert buf.final_primary_done is True
+    assert buf.final_followup_index == 1
+    assert primary.edits == [{"content": chunks[0]}]
+    assert target.sent_payloads == [{"content": chunks[1]}]
+
+    await owner.send_delta("123", "", metadata)
+
+    assert primary.edits == [{"content": chunks[0]}]
+    assert target.sent_payloads == [{"content": chunks[1]}, {"content": chunks[2]}]
     assert owner._stream_bufs == {}
 
 

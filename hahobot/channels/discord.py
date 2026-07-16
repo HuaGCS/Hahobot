@@ -44,6 +44,9 @@ class _StreamBuf:
     message: Any | None = None
     last_edit: float = 0.0
     stream_id: str | None = None
+    last_delivery_id: str | None = None
+    final_primary_done: bool = False
+    final_followup_index: int = 0
 
 
 if DISCORD_AVAILABLE:
@@ -163,7 +166,9 @@ if DISCORD_AVAILABLE:
                     channel = await self.fetch_channel(channel_id)
                 except Exception as e:
                     logger.warning("Discord channel {} unavailable: {}", msg.chat_id, e)
-                    return
+                    raise RuntimeError(f"Discord channel {msg.chat_id} not found") from e
+            if channel is None:
+                raise RuntimeError(f"Discord channel {msg.chat_id} not found")
 
             reference, mention_settings = self._build_reply_context(channel, msg.reply_to)
             sent_media = False
@@ -348,8 +353,7 @@ class DiscordChannel(BaseChannel):
         """Send a message through Discord using discord.py."""
         client = self._client
         if client is None or not client.is_ready():
-            logger.warning("Discord client not ready; dropping outbound message")
-            return
+            raise RuntimeError("Discord client is not ready")
 
         is_progress = bool((msg.metadata or {}).get("_progress"))
 
@@ -357,6 +361,7 @@ class DiscordChannel(BaseChannel):
             await client.send_outbound(msg)
         except Exception as e:
             logger.error("Error sending Discord message: {}", e)
+            raise
         finally:
             if not is_progress:
                 await self._stop_typing(msg.chat_id)
@@ -368,18 +373,19 @@ class DiscordChannel(BaseChannel):
         """Progressive Discord delivery: send once, then edit until the stream ends."""
         client = self._client
         if client is None or not client.is_ready():
-            logger.warning("Discord client not ready; dropping stream delta")
-            return
+            raise RuntimeError("Discord client is not ready")
 
         meta = metadata or {}
         stream_id = meta.get("_stream_id")
 
         if meta.get("_stream_end"):
             buf = self._stream_bufs.get(chat_id)
-            if not buf or buf.message is None or not buf.text:
+            if not buf or not buf.text:
                 return
             if stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id:
                 return
+            if buf.message is None:
+                raise RuntimeError("Discord stream has no primary message")
             await self._finalize_stream(chat_id, buf)
             return
 
@@ -392,14 +398,16 @@ class DiscordChannel(BaseChannel):
         elif buf.stream_id is None:
             buf.stream_id = stream_id
 
-        buf.text += delta
+        delivery_id = meta.get("_delivery_id")
+        if delivery_id is None or delivery_id != buf.last_delivery_id:
+            buf.text += delta
+            buf.last_delivery_id = delivery_id
         if not buf.text.strip():
             return
 
         target = await self._resolve_channel(chat_id)
         if target is None:
-            logger.warning("Discord stream target {} unavailable", chat_id)
-            return
+            raise RuntimeError(f"Discord stream target {chat_id} unavailable")
 
         now = time.monotonic()
         if buf.message is None:
@@ -496,20 +504,23 @@ class DiscordChannel(BaseChannel):
             self._stream_bufs.pop(chat_id, None)
             return
 
-        try:
-            await buf.message.edit(content=chunks[0])
-        except Exception as e:
-            logger.warning("Discord final stream edit failed: {}", e)
-            raise
+        if not buf.final_primary_done:
+            try:
+                await buf.message.edit(content=chunks[0])
+            except Exception as e:
+                logger.warning("Discord final stream edit failed: {}", e)
+                raise
+            buf.final_primary_done = True
 
-        target = getattr(buf.message, "channel", None) or await self._resolve_channel(chat_id)
-        if target is None:
-            logger.warning("Discord stream follow-up target {} unavailable", chat_id)
-            self._stream_bufs.pop(chat_id, None)
-            return
+        if buf.final_followup_index < len(chunks) - 1:
+            target = getattr(buf.message, "channel", None) or await self._resolve_channel(chat_id)
+            if target is None:
+                raise RuntimeError(f"Discord stream follow-up target {chat_id} unavailable")
 
-        for extra_chunk in chunks[1:]:
-            await target.send(content=extra_chunk)
+            while buf.final_followup_index < len(chunks) - 1:
+                chunk_index = buf.final_followup_index + 1
+                await target.send(content=chunks[chunk_index])
+                buf.final_followup_index += 1
 
         self._stream_bufs.pop(chat_id, None)
         await self._stop_typing(chat_id)

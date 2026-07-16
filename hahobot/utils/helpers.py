@@ -42,6 +42,17 @@ def _load_token_encoding():
 _TIKTOKEN_ENC = _load_token_encoding()
 
 
+def estimate_text_tokens(text: str) -> int:
+    """Estimate token count with the shared ``cl100k_base`` encoder.
+
+    This is suitable for UI diagnostics such as streamed output throughput;
+    provider-reported usage remains the authoritative billing/accounting value.
+    """
+    if not text:
+        return 0
+    return len(_TIKTOKEN_ENC.encode(text))
+
+
 def strip_think(text: str) -> str:
     """Remove <think>…</think> blocks and any unclosed trailing <think> tag."""
     text = re.sub(r"<think>[\s\S]*?</think>", "", text)

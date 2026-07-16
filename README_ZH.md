@@ -70,6 +70,9 @@ pip install -e .
 uv tool install /path/to/Hahobot
 ```
 
+Windows 安装会通过条件依赖 `tzdata` 补齐 IANA 时区数据库，因此 cron、heartbeat 和配置的
+`ZoneInfo` 时区不再依赖系统是否自带时区数据。
+
 ### 更新
 
 这个重命名后的本地仓库暂时没有公开的 `hahobot-ai` 包发布；更新方式以同步源码后重新安装为准：
@@ -143,6 +146,15 @@ hahobot agent --pick-session
 hahobot agent --multiline
 ```
 
+CLI 流式回复结束后会显示紧凑的生成速率，例如
+`⚡ ≈24.6 tok/s · ≈120 tok · 4.9s`。该数值使用共享 tokenizer 估算可见输出 token，并累计
+工具调用分段之间真正处于流式生成的时间；计费与配额仍以 provider 返回的 usage 为准。
+交互式 `hahobot agent` 退出时还会展示本次进程的汇总：已完成对话轮数、provider 上报的
+模型调用次数、输入/输出/总 token 与缓存 token、按全部流式生成时间加权的平均速率，以及
+本次运行时长。usage 会覆盖共享 provider 上已完成的重试层请求，包括主 agent、subagent、
+记忆整理、`/compact` 和 `/review`；即使通过 `--continue` 恢复旧会话，也不会把旧历史计入。
+被取消且没有返回 usage 的请求无法计数，也不会被误报为已完成消耗。
+
 网关模式：
 
 ```bash
@@ -211,6 +223,9 @@ hahobot config unset skills.entries.today-task.config.authCode
 如果 provider 日志里出现 `Error calling LLM`，hahobot 现在会尽量保留底层传输错误原因，
 例如 DNS 失败、TLS 校验失败、`Connection refused` 等。纯粹的连接错误通常更像
 `apiBase` / 代理 / 网关不可达，而不是远端接口单纯“不支持这个模型或路由”。
+模型请求默认仍受 `HAHOBOT_LLM_TIMEOUT_S` 的有限总时长保护（设为 `0` 可关闭）；流式请求
+会使用 `max(300, 2 × timeout)` 的更宽总时长，并继续叠加 provider 的空闲超时，避免正常长推理
+被普通请求边界提前终止，同时防止持续吐出极小 delta 的异常流永久占用 session。
 
 对于直连 OpenAI 的请求，当前实现也已经同步了上游新逻辑：
 
@@ -506,6 +521,7 @@ OpenAI 兼容 TTS 示例：
 - `streaming` 默认就是 `true`，表示最终回复会优先走“先发一条、后续逐步编辑”的流式体验
 - `streamEditInterval` 控制 Telegram `edit_message_text` 的最小节流间隔，适合按自己的频率/限流情况调整
 - `inlineKeyboards` 开启后会把出站消息里的 `buttons` 渲染成 Telegram 原生内联按钮；关闭时会把按钮标签拼回正文，避免选项丢失
+- 超长流式回复会在生成过程中主动分片：渲染后的 HTML 每段都限制在 Telegram 的 4096 字符边界内；HTML 被拒绝时自动退回纯文本；仍在继续生成的尾段保留原始 Markdown，后续 delta 不会丢格式；瞬时发送失败会从首个未发送分片续传，不重复已经成功的分片
 
 运行：
 
@@ -1058,6 +1074,11 @@ hahobot 支持 [MCP](https://modelcontextprotocol.io/)。
 `mcp_filesystem_write_file`。省略该字段或设为 `["*"]` 表示注册全部工具，设为 `[]`
 表示该服务一个工具也不注册。
 
+MCP 服务仍会并发连接，并受各自 `connectTimeout` 限制。每一代连接现在由独立 owner task
+持有并在同一个 asyncio task 内打开/关闭 transport、session 与本地 `AsyncExitStack`，避免
+AnyIO cancel scope 在跨 task 关闭时造成 CPU 占用或资源泄漏。重连会先切换到新 owner，再让旧
+连接自行清理；超时、取消或部分工具注册失败也会回滚并关闭对应连接。
+
 ### 通过 MCP 接入 Memorix
 
 [Memorix](https://github.com/AVIDS2/memorix) 更适合作为工作区 / 代码库记忆层，而不是用户长期画像记忆。
@@ -1531,6 +1552,10 @@ emoji 和其他 Unicode 文本。
 - `/update bridge`：只刷新本地 WhatsApp bridge 并重启
 
 默认 `/update` 仍然会在工作树不干净或当前分支没有 upstream 时直接拒绝执行。
+执行 `/restart` 或 `/update` 成功重启后，新进程会先等待原渠道恢复连接，再发送“重启完成”通知；
+启动窗口内的瞬时发送失败会继续重试，不会再因为渠道刚启动但 transport 尚未就绪而静默丢失确认消息。
+内置 WebSocket server 当前仍使用进程内连接 ID；客户端在进程替换后重连会获得新 ID，因此旧的完成通知
+暂时无法自动迁移到新连接，只会诚实地重试到启动 deadline，而不会误报为已送达。
 
 ### Persona 资产
 

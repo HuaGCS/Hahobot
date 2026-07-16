@@ -177,6 +177,14 @@ class RunRuntimeManager:
     def _record_usage_and_logs(self, result) -> None:
         """Persist last usage counters and emit stable stop-reason logs."""
         self.loop._last_usage = result.usage
+        self.loop._usage_turn_count += 1
+        normalized_usage = dict(result.usage)
+        if not normalized_usage.get("total_tokens"):
+            normalized_usage["total_tokens"] = normalized_usage.get(
+                "prompt_tokens", 0
+            ) + normalized_usage.get("completion_tokens", 0)
+        for key, value in normalized_usage.items():
+            self.loop._usage_totals[key] = self.loop._usage_totals.get(key, 0) + value
         if result.stop_reason == "max_iterations":
             logger.warning("Max iterations ({}) reached", self.loop.max_iterations)
         elif result.stop_reason == "error":

@@ -335,8 +335,7 @@ class WecomChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through WeCom."""
         if not self._client:
-            logger.warning("WeCom client not initialized")
-            return
+            raise RuntimeError("WeCom client is not initialized")
 
         try:
             content = (msg.content or "").strip()
@@ -346,8 +345,7 @@ class WecomChannel(BaseChannel):
             # Get the stored frame for this chat
             frame = self._chat_frames.get(msg.chat_id)
             if not frame:
-                logger.warning("No frame found for chat {}, cannot reply", msg.chat_id)
-                return
+                raise RuntimeError(f"WeCom chat frame is unavailable for {msg.chat_id}")
 
             # Use streaming reply for better UX
             stream_id = self._generate_req_id("stream")

@@ -378,12 +378,13 @@ class WebSocketChannel(BaseChannel):
     async def _safe_send(self, chat_id: str, raw: str, *, label: str = "") -> None:
         connection = self._connections.get(chat_id)
         if connection is None:
-            return
+            raise RuntimeError(f"websocket{label}no active connection for chat_id={chat_id}")
         try:
             await connection.send(raw)
         except ConnectionClosed:
             self._connections.pop(chat_id, None)
             logger.warning("websocket{}connection gone for chat_id={}", label, chat_id)
+            raise
         except Exception as e:
             logger.error("websocket{}send failed: {}", label, e)
             raise
@@ -392,7 +393,7 @@ class WebSocketChannel(BaseChannel):
         connection = self._connections.get(msg.chat_id)
         if connection is None:
             logger.warning("websocket: no active connection for chat_id={}", msg.chat_id)
-            return
+            raise RuntimeError(f"websocket: no active connection for chat_id={msg.chat_id}")
         payload: dict[str, Any] = {
             "event": "message",
             "text": msg.content,
@@ -411,7 +412,7 @@ class WebSocketChannel(BaseChannel):
         metadata: dict[str, Any] | None = None,
     ) -> None:
         if self._connections.get(chat_id) is None:
-            return
+            raise RuntimeError(f"websocket stream: no active connection for chat_id={chat_id}")
         meta = metadata or {}
         if meta.get("_stream_end"):
             body: dict[str, Any] = {"event": "stream_end"}

@@ -186,6 +186,92 @@ class _MCPWrapperBase(Tool):
 # ── Per-server connection coordinator ──────────────────────────────────────────
 
 
+class _MCPConnectionOwner:
+    """Keep one MCP connection generation inside its owning asyncio task.
+
+    MCP transports use AnyIO cancel scopes internally. Those scopes must be
+    exited by the same task that entered them, so the owner task stays alive
+    for the full lifetime of its local ``AsyncExitStack``. Other tasks only
+    request closure and await the owner; they never close the transport stack.
+    """
+
+    def __init__(self, name: str, cfg: Any, *, discover_tools: bool) -> None:
+        loop = asyncio.get_running_loop()
+        self.name = name
+        self.cfg = cfg
+        self._discover_tools = discover_tools
+        self._ready: asyncio.Future[tuple[Any, Any | None]] = loop.create_future()
+        self._close_requested = asyncio.Event()
+        self._task = asyncio.create_task(self._run(), name=f"mcp:{name}:owner")
+
+    async def _run(self) -> None:
+        try:
+            async with AsyncExitStack() as local:
+                # asyncio.timeout keeps _open_session in this owner task.
+                # asyncio.wait_for would wrap the coroutine in another task and
+                # recreate the cross-task AnyIO cancel-scope bug on timeout.
+                async with asyncio.timeout(self.cfg.connect_timeout):
+                    session = await _open_session(self.name, self.cfg, local)
+                    tools = await session.list_tools() if self._discover_tools else None
+
+                if not self._ready.done():
+                    self._ready.set_result((session, tools))
+                await self._close_requested.wait()
+        except BaseException as exc:
+            if not self._ready.done():
+                if isinstance(exc, asyncio.CancelledError):
+                    self._ready.cancel()
+                else:
+                    self._ready.set_exception(exc)
+            elif not isinstance(exc, asyncio.CancelledError):
+                logger.warning(
+                    "MCP server '{}': connection owner exited with {}: {}",
+                    self.name,
+                    type(exc).__name__,
+                    exc,
+                )
+
+    async def wait_ready(self) -> tuple[Any, Any | None]:
+        """Wait until the owner has opened the session (without owning it)."""
+        return await asyncio.shield(self._ready)
+
+    async def close(self) -> None:
+        """Request same-task cleanup and wait for it; safe to call repeatedly."""
+        self._close_requested.set()
+        if not self._ready.done():
+            # A generation still blocked in startup must be interrupted so its
+            # owner can unwind the local stack immediately in the same task.
+            self._task.cancel()
+        if self._task is asyncio.current_task():
+            return
+        try:
+            await asyncio.shield(self._task)
+        except asyncio.CancelledError:
+            # Propagate cancellation of the caller, but tolerate a cancelled
+            # owner task after startup was explicitly aborted.
+            caller = asyncio.current_task()
+            if (caller is not None and caller.cancelling() > 0) or not self._task.cancelled():
+                raise
+
+
+async def _open_connection_owner(
+    name: str,
+    cfg: Any,
+    *,
+    discover_tools: bool,
+) -> tuple[_MCPConnectionOwner, Any, Any | None]:
+    """Start one task-owned connection generation and wait for readiness."""
+    owner = _MCPConnectionOwner(name, cfg, discover_tools=discover_tools)
+    try:
+        session, tools = await owner.wait_ready()
+    except BaseException:
+        # The caller can be cancelled independently of the owner task. Always
+        # stop the owner here so failed/cancelled startup cannot leak resources.
+        await owner.close()
+        raise
+    return owner, session, tools
+
+
 class _MCPServerConnection:
     """Manages one MCP server connection with generation-based concurrency safety.
 
@@ -199,6 +285,7 @@ class _MCPServerConnection:
         name: str,
         cfg: Any,
         stack: AsyncExitStack,
+        owner: _MCPConnectionOwner,
         session: Any,
         wrappers: list[_MCPWrapperBase],
     ):
@@ -207,6 +294,7 @@ class _MCPServerConnection:
         self.stack = stack
         self._lock = asyncio.Lock()
         self._generation = 0
+        self._owner = owner
         self._session = session
         self._wrappers = wrappers
 
@@ -225,12 +313,35 @@ class _MCPServerConnection:
 
             # We are the first caller for this termination – rebuild.
             try:
-                new_session = await _open_session(self.name, self.cfg, self.stack)
+                new_owner, new_session, _tools = await _open_connection_owner(
+                    self.name,
+                    self.cfg,
+                    discover_tools=False,
+                )
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling() > 0:
+                    raise
+                logger.warning(
+                    "MCP server '{}': reconnect was cancelled by SDK, keeping old session",
+                    self.name,
+                )
+                return False
             except Exception:
                 logger.warning("MCP server '{}': reconnect failed, keeping old session", self.name)
                 return False
 
+            try:
+                # Shared cleanup owns only task-safe owner.close callbacks.
+                self.stack.push_async_callback(new_owner.close)
+            except Exception:
+                await new_owner.close()
+                logger.warning("MCP server '{}': reconnect cleanup registration failed", self.name)
+                return False
+
+            old_owner = self._owner
             self._generation += 1
+            self._owner = new_owner
             self._session = new_session
             for w in self._wrappers:
                 w._session = new_session
@@ -244,6 +355,9 @@ class _MCPServerConnection:
                 self.name,
                 self._generation,
             )
+            # Wrappers now target the replacement, so the prior generation can
+            # close its transport stack from the task that opened it.
+            await old_owner.close()
             return True
 
 
@@ -669,24 +783,18 @@ class MCPPromptWrapper(_MCPWrapperBase):
 # ── Connection entry point ─────────────────────────────────────────────────────
 
 
-async def _connect_one_mcp(name: str, cfg: Any) -> tuple[str, Any, AsyncExitStack, Any, Any] | None:
-    """Connect one MCP server on a fresh local stack with a per-server timeout.
-
-    Returns ``(name, cfg, local, session, tools_result)`` on success,
-    ``None`` on failure after best-effort cleanup of the local stack.
-    """
-    local = AsyncExitStack()
-    await local.__aenter__()
+async def _connect_one_mcp(
+    name: str,
+    cfg: Any,
+) -> tuple[str, Any, _MCPConnectionOwner, Any, Any] | None:
+    """Connect one MCP server through a task-owned connection generation."""
     try:
-        session = await asyncio.wait_for(
-            _open_session(name, cfg, local),
-            timeout=cfg.connect_timeout,
+        owner, session, tools_result = await _open_connection_owner(
+            name,
+            cfg,
+            discover_tools=True,
         )
-        tools_result = await asyncio.wait_for(
-            session.list_tools(),
-            timeout=cfg.connect_timeout,
-        )
-        return name, cfg, local, session, tools_result
+        return name, cfg, owner, session, tools_result
     except TimeoutError:
         logger.error(
             "MCP server '{}': connect timed out after {}s; skipping",
@@ -708,12 +816,6 @@ async def _connect_one_mcp(name: str, cfg: Any) -> tuple[str, Any, AsyncExitStac
             raise
         else:
             logger.error("MCP server '{}': failed to connect: {}", name, exc)
-    # Error path: best-effort close the local stack so we do not leak
-    # transport / session resources for a failed server.
-    try:
-        await local.aclose()
-    except Exception:
-        pass
     return None
 
 
@@ -722,9 +824,10 @@ async def connect_mcp_servers(
 ) -> None:
     """Connect to configured MCP servers concurrently with per-server timeouts.
 
-    Phase 1: connect every server concurrently.  Each server gets its own
-    ``AsyncExitStack`` and ``asyncio.wait_for`` with ``cfg.connect_timeout``,
-    so a single hung server cannot block other servers or delay shutdown.
+    Phase 1: connect every server concurrently. Each server gets a long-lived
+    owner task whose local ``AsyncExitStack`` is bounded by
+    ``asyncio.timeout(cfg.connect_timeout)``, so a hung server cannot block
+    others and every MCP/AnyIO context exits from the task that entered it.
 
     Phase 2: register successfully connected servers sequentially, preserving
     the original ``mcp_servers`` insertion order for deterministic logs.
@@ -742,11 +845,8 @@ async def connect_mcp_servers(
             # Connect phase already logged the reason; just skip.
             continue
 
-        _server_name, _cfg, local, session, tools = result
-        # Transfer cleanup ownership to the shared stack so the caller's
-        # existing stack.aclose() tears everything down.
-        stack.push_async_callback(local.aclose)
-
+        _server_name, _cfg, owner, session, tools = result
+        registered: list[tuple[_MCPWrapperBase, Tool | None]] = []
         try:
             enabled_tools = set(cfg.enabled_tools)
             allow_all_tools = "*" in enabled_tools
@@ -775,9 +875,6 @@ async def connect_mcp_servers(
                     continue
                 wrapper = MCPToolWrapper(session, name, tool_def, tool_timeout=cfg.tool_timeout)
                 wrappers.append(wrapper)
-                registry.register(wrapper)
-                logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
-                registered_count += 1
                 if enabled_tools:
                     if tool_def.name in enabled_tools:
                         matched_enabled_tools.add(tool_def.name)
@@ -796,12 +893,36 @@ async def connect_mcp_servers(
                         ", ".join(available_wrapped_names) or "(none)",
                     )
 
-            logger.info("MCP server '{}': connected, {} tools registered", name, registered_count)
+            coordinator = _MCPServerConnection(name, cfg, stack, owner, session, wrappers)
+            for wrapper in wrappers:
+                wrapper._set_coordinator(coordinator)
 
-            # Wire the reconnect coordinator for this server (uses the shared stack).
-            if wrappers:
-                coordinator = _MCPServerConnection(name, cfg, stack, session, wrappers)
-                for w in wrappers:
-                    w._set_coordinator(coordinator)
+            # The shared stack owns only the task-safe close request. The
+            # owner's local stack continues to own every MCP SDK context.
+            stack.push_async_callback(owner.close)
+
+            for wrapper in wrappers:
+                previous = registry.get(wrapper.name)
+                registered.append((wrapper, previous))
+                registry.register(wrapper)
+                logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
+                registered_count += 1
+
+            logger.info("MCP server '{}': connected, {} tools registered", name, registered_count)
         except Exception:
             logger.exception("MCP server '{}': registration failed", name)
+            for wrapper, previous in reversed(registered):
+                try:
+                    if registry.get(wrapper.name) is not wrapper:
+                        continue
+                    if previous is None:
+                        registry.unregister(wrapper.name)
+                    else:
+                        registry.register(previous)
+                except Exception:
+                    logger.warning(
+                        "MCP server '{}': failed to roll back tool '{}' registration",
+                        name,
+                        wrapper.name,
+                    )
+            await owner.close()

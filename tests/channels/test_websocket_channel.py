@@ -197,7 +197,37 @@ async def test_send_removes_connection_on_connection_closed() -> None:
     mock_ws.send.side_effect = ConnectionClosed(Close(1006, ""), Close(1006, ""), True)
     channel._connections["chat-1"] = mock_ws
 
-    await channel.send(OutboundMessage(channel="websocket", chat_id="chat-1", content="hello"))
+    with pytest.raises(ConnectionClosed):
+        await channel.send(OutboundMessage(channel="websocket", chat_id="chat-1", content="hello"))
+
+    assert "chat-1" not in channel._connections
+
+
+@pytest.mark.asyncio
+async def test_send_raises_when_target_connection_is_missing() -> None:
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, MagicMock())
+
+    with pytest.raises(RuntimeError, match="no active connection"):
+        await channel.send(OutboundMessage(channel="websocket", chat_id="missing", content="hello"))
+
+
+@pytest.mark.asyncio
+async def test_send_delta_raises_when_target_connection_is_missing() -> None:
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, MagicMock())
+
+    with pytest.raises(RuntimeError, match="no active connection"):
+        await channel.send_delta("missing", "part", {"_stream_delta": True})
+
+
+@pytest.mark.asyncio
+async def test_send_delta_removes_connection_and_raises_on_connection_closed() -> None:
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, MagicMock())
+    mock_ws = AsyncMock()
+    mock_ws.send.side_effect = ConnectionClosed(Close(1006, ""), Close(1006, ""), True)
+    channel._connections["chat-1"] = mock_ws
+
+    with pytest.raises(ConnectionClosed):
+        await channel.send_delta("chat-1", "part", {"_stream_delta": True})
 
     assert "chat-1" not in channel._connections
 

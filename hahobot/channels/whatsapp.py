@@ -159,7 +159,7 @@ class WhatsAppChannel(BaseChannel):
         """Send a message through WhatsApp."""
         if not self._ws or not self._connected:
             logger.warning("WhatsApp bridge not connected")
-            return
+            raise RuntimeError("WhatsApp bridge not connected")
 
         chat_id = msg.chat_id
 

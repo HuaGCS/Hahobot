@@ -48,6 +48,7 @@ from hahobot.config.schema import TelegramConfig, TelegramInstanceConfig
 from hahobot.security.network import validate_url_target
 
 TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
+TELEGRAM_HTML_MAX_LEN = 4096  # Telegram's rendered HTML payload limit
 TELEGRAM_REPLY_CONTEXT_MAX_LEN = (
     TELEGRAM_MAX_MESSAGE_LEN  # Max length for reply context in user message
 )
@@ -263,6 +264,34 @@ def _markdown_to_telegram_html(text: str) -> str:
     return text
 
 
+def _split_telegram_markdown_html_chunks(
+    content: str,
+    max_html_len: int,
+) -> list[tuple[str, str]]:
+    """Return raw Markdown and rendered HTML chunks within Telegram's limit."""
+    chunks: list[tuple[str, str]] = []
+    pending = _split_telegram_markdown(content, TELEGRAM_MAX_MESSAGE_LEN)
+    while pending:
+        chunk = pending.pop(0)
+        html = _markdown_to_telegram_html(chunk)
+        if len(html) <= max_html_len:
+            chunks.append((chunk, html))
+            continue
+
+        # HTML tags and escaped entities can make rendered text longer than
+        # its raw Markdown. Re-split the Markdown instead of slicing HTML and
+        # risking an invalid tag/entity boundary.
+        next_limit = max(1, int(len(chunk) * max_html_len / len(html)) - 8)
+        next_limit = min(next_limit, len(chunk) - 1)
+        if next_limit <= 0:
+            raise ValueError("A rendered Telegram HTML token exceeds the message limit")
+        parts = _split_telegram_markdown(chunk, next_limit)
+        if len(parts) == 1 and parts[0] == chunk:
+            raise ValueError("Unable to split Telegram Markdown within the HTML limit")
+        pending = parts + pending
+    return chunks
+
+
 _SEND_MAX_RETRIES = 3
 _SEND_RETRY_BASE_DELAY = 0.5  # seconds, doubled each retry
 
@@ -275,6 +304,11 @@ class _StreamBuf:
     message_id: int | None = None
     last_edit: float = 0.0
     stream_id: str | None = None
+    last_delivery_id: str | None = None
+    overflow_chunks: list[tuple[str, str]] | None = None
+    overflow_next_index: int = 0
+    overflow_primary_applied: bool = False
+    overflow_last_message_id: int | None = None
 
 
 class TelegramChannel(BaseChannel):
@@ -477,8 +511,7 @@ class TelegramChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Telegram."""
         if not self._app:
-            logger.warning("Telegram bot not running")
-            return
+            raise RuntimeError("Telegram bot is not running")
 
         # Only stop typing indicator and remove reaction for final responses
         if not msg.metadata.get("_progress", False):
@@ -656,7 +689,7 @@ class TelegramChannel(BaseChannel):
     ) -> None:
         """Progressive message editing: send on first delta, edit on subsequent ones."""
         if not self._app:
-            return
+            raise RuntimeError("Telegram bot is not running")
         meta = metadata or {}
         int_chat_id = int(chat_id)
         stream_id = meta.get("_stream_id")
@@ -673,40 +706,41 @@ class TelegramChannel(BaseChannel):
                     await self._remove_reaction(chat_id, int(reply_to_message_id))
                 except ValueError:
                     pass
-            chunks = _split_telegram_markdown(buf.text, TELEGRAM_MAX_MESSAGE_LEN)
-            primary_text = chunks[0] if chunks else buf.text
+            thread_kwargs = {}
+            if message_thread_id := meta.get("message_thread_id"):
+                thread_kwargs["message_thread_id"] = message_thread_id
+            if await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs):
+                self._stream_bufs.pop(chat_id, None)
+                return
+
+            primary_markdown = buf.text
+            primary_html = _markdown_to_telegram_html(buf.text)
             try:
-                html = _markdown_to_telegram_html(primary_text)
                 await self._call_with_retry(
                     self._app.bot.edit_message_text,
                     chat_id=int_chat_id,
                     message_id=buf.message_id,
-                    text=html,
+                    text=primary_html,
                     parse_mode="HTML",
                 )
             except Exception as e:
                 if self._is_not_modified_error(e):
                     logger.debug("Final stream edit already applied for {}", chat_id)
-                    self._stream_bufs.pop(chat_id, None)
-                    return
-                logger.debug("Final stream edit failed (HTML), trying plain: {}", e)
-                try:
-                    await self._call_with_retry(
-                        self._app.bot.edit_message_text,
-                        chat_id=int_chat_id,
-                        message_id=buf.message_id,
-                        text=primary_text,
-                    )
-                except Exception as e2:
-                    if self._is_not_modified_error(e2):
-                        logger.debug("Final stream plain edit already applied for {}", chat_id)
-                    else:
-                        logger.warning("Final stream edit failed: {}", e2)
-                        raise  # Let ChannelManager handle retry
-            # If final content exceeds Telegram limit, keep the first chunk in
-            # the edited stream message and send the rest as follow-up messages.
-            for extra_chunk in chunks[1:]:
-                await self._send_text(int_chat_id, extra_chunk)
+                else:
+                    logger.debug("Final stream edit failed (HTML), trying plain: {}", e)
+                    try:
+                        await self._call_with_retry(
+                            self._app.bot.edit_message_text,
+                            chat_id=int_chat_id,
+                            message_id=buf.message_id,
+                            text=primary_markdown,
+                        )
+                    except Exception as e2:
+                        if self._is_not_modified_error(e2):
+                            logger.debug("Final stream plain edit already applied for {}", chat_id)
+                        else:
+                            logger.warning("Final stream edit failed: {}", e2)
+                            raise  # Let ChannelManager handle retry
             self._stream_bufs.pop(chat_id, None)
             return
 
@@ -718,21 +752,33 @@ class TelegramChannel(BaseChannel):
             self._stream_bufs[chat_id] = buf
         elif buf.stream_id is None:
             buf.stream_id = stream_id
-        buf.text += delta
+
+        # Finish any previously interrupted overflow flush before accepting a
+        # newer delta. Otherwise completing the old flush would overwrite the
+        # newly appended tail when it re-anchors the stream message.
+        thread_kwargs = {}
+        if message_thread_id := meta.get("message_thread_id"):
+            thread_kwargs["message_thread_id"] = message_thread_id
+        if buf.overflow_chunks is not None:
+            await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs)
+
+        delivery_id = meta.get("_delivery_id")
+        if delivery_id is None or buf.last_delivery_id != delivery_id:
+            buf.text += delta
+            buf.last_delivery_id = delivery_id
 
         if not buf.text.strip():
             return
 
         now = time.monotonic()
-        thread_kwargs = {}
-        if message_thread_id := meta.get("message_thread_id"):
-            thread_kwargs["message_thread_id"] = message_thread_id
         if buf.message_id is None:
+            initial_chunks = _split_telegram_markdown(buf.text, TELEGRAM_MAX_MESSAGE_LEN)
+            initial_text = initial_chunks[0] if initial_chunks else buf.text
             try:
                 sent = await self._call_with_retry(
                     self._app.bot.send_message,
                     chat_id=int_chat_id,
-                    text=buf.text,
+                    text=initial_text,
                     **thread_kwargs,
                 )
                 buf.message_id = sent.message_id
@@ -741,6 +787,10 @@ class TelegramChannel(BaseChannel):
                 logger.warning("Stream initial send failed: {}", e)
                 raise  # Let ChannelManager handle retry
         elif (now - buf.last_edit) >= self.config.stream_edit_interval:
+            if len(buf.text) > TELEGRAM_MAX_MESSAGE_LEN:
+                await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs)
+                buf.last_edit = now
+                return
             try:
                 await self._call_with_retry(
                     self._app.bot.edit_message_text,
@@ -755,6 +805,105 @@ class TelegramChannel(BaseChannel):
                     return
                 logger.warning("Stream edit failed: {}", e)
                 raise  # Let ChannelManager handle retry
+
+    async def _send_stream_chunk(
+        self,
+        chat_id: int,
+        markdown: str,
+        html: str,
+        thread_kwargs: dict[str, Any],
+    ) -> Any:
+        """Send one pre-rendered stream chunk with a plain-text fallback."""
+        try:
+            return await self._call_with_retry(
+                self._app.bot.send_message,
+                chat_id=chat_id,
+                text=html,
+                parse_mode="HTML",
+                **thread_kwargs,
+            )
+        except BadRequest as exc:
+            logger.warning(
+                "Telegram stream HTML send failed, falling back to plain text: {}",
+                exc,
+            )
+            return await self._call_with_retry(
+                self._app.bot.send_message,
+                chat_id=chat_id,
+                text=markdown,
+                **thread_kwargs,
+            )
+
+    async def _flush_stream_overflow(
+        self,
+        chat_id: int,
+        buf: _StreamBuf,
+        thread_kwargs: dict[str, Any],
+    ) -> bool:
+        """Flush completed chunks and keep the raw Markdown tail streamable.
+
+        Progress is stored on the buffer so a manager retry resumes at the
+        first unsent follow-up instead of duplicating chunks that Telegram
+        already accepted.
+        """
+        chunks = buf.overflow_chunks
+        if chunks is None:
+            chunks = _split_telegram_markdown_html_chunks(buf.text, TELEGRAM_HTML_MAX_LEN)
+            if len(chunks) <= 1:
+                return False
+            buf.overflow_chunks = chunks
+            buf.overflow_next_index = 1
+            buf.overflow_primary_applied = False
+            buf.overflow_last_message_id = None
+
+        first_markdown, first_html = chunks[0]
+        if not buf.overflow_primary_applied:
+            try:
+                await self._call_with_retry(
+                    self._app.bot.edit_message_text,
+                    chat_id=chat_id,
+                    message_id=buf.message_id,
+                    text=first_html,
+                    parse_mode="HTML",
+                )
+            except BadRequest as exc:
+                if not self._is_not_modified_error(exc):
+                    logger.warning(
+                        "Telegram stream overflow HTML edit failed, falling back to plain text: {}",
+                        exc,
+                    )
+                    try:
+                        await self._call_with_retry(
+                            self._app.bot.edit_message_text,
+                            chat_id=chat_id,
+                            message_id=buf.message_id,
+                            text=first_markdown,
+                        )
+                    except Exception as plain_error:
+                        if not self._is_not_modified_error(plain_error):
+                            logger.warning(
+                                "Telegram stream overflow plain edit failed: {}",
+                                plain_error,
+                            )
+                            raise
+            except Exception as exc:
+                logger.warning("Telegram stream overflow edit failed: {}", exc)
+                raise
+            buf.overflow_primary_applied = True
+
+        while buf.overflow_next_index < len(chunks):
+            markdown, html = chunks[buf.overflow_next_index]
+            sent = await self._send_stream_chunk(chat_id, markdown, html, thread_kwargs)
+            buf.overflow_last_message_id = sent.message_id
+            buf.overflow_next_index += 1
+
+        buf.message_id = buf.overflow_last_message_id
+        buf.text = chunks[-1][0]
+        buf.overflow_chunks = None
+        buf.overflow_next_index = 0
+        buf.overflow_primary_applied = False
+        buf.overflow_last_message_id = None
+        return True
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""

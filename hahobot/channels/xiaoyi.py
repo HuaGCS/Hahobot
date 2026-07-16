@@ -135,18 +135,27 @@ class XiaoyiChannel(BaseChannel):
         """Forward an outbound bot reply as an A2A ``artifact-update`` (final)."""
         if not self._ws_connections:
             logger.warning("Xiaoyi send dropped: no active connection")
-            return
+            raise RuntimeError("Xiaoyi has no active connection")
         session_id, task_id = self._extract_platform_receive_info(msg)
         text = self._extract_outbound_text(msg)
+        successful_sends = 0
+        failures: list[str] = []
         for url_key, ws in list(self._ws_connections.items()):
             if ws is None:
+                failures.append(f"{url_key}: connection unavailable")
                 continue
             try:
                 await self._send_text_response(session_id, task_id, text, url_key, is_final=True)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Xiaoyi send failed ({}): {}", url_key, exc)
+                failures.append(f"{url_key}: {exc}")
+            else:
+                successful_sends += 1
         if session_id:
             await self._stop_session_heartbeat(session_id)
+        if successful_sends == 0:
+            detail = "; ".join(failures) or "no usable connection"
+            raise RuntimeError(f"Xiaoyi delivery failed on all connections: {detail}")
 
     # ------------------------------------------------------------------
     # Connect / reconnect loop
@@ -384,7 +393,7 @@ class XiaoyiChannel(BaseChannel):
     ) -> None:
         ws = self._ws_connections.get(url_key)
         if ws is None:
-            return
+            raise RuntimeError(f"Xiaoyi connection disappeared before send ({url_key})")
         envelope = {
             "msgType": "agent_response",
             "agentId": self.config.agent_id,

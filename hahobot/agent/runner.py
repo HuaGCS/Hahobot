@@ -409,7 +409,8 @@ class AgentRunner:
             messages,
             tools=spec.tools.get_definitions(),
         )
-        if hook.wants_streaming():
+        wants_streaming = hook.wants_streaming()
+        if wants_streaming:
 
             async def _stream(delta: str) -> None:
                 await hook.on_stream(context, delta)
@@ -420,7 +421,10 @@ class AgentRunner:
             )
         else:
             coro = self.provider.chat_with_retry(**kwargs)
-        return await self._await_provider_response(coro, self._llm_timeout_s(spec))
+        return await self._await_provider_response(
+            coro,
+            self._request_timeout_s(spec, streaming=wants_streaming),
+        )
 
     async def _request_finalization_retry(
         self,
@@ -448,6 +452,20 @@ class AgentRunner:
                 timeout_s = 300.0
         if timeout_s <= 0:
             return None
+        return timeout_s
+
+    @classmethod
+    def _request_timeout_s(cls, spec: AgentRunSpec, *, streaming: bool) -> float | None:
+        """Return the wall-clock timeout for one provider request.
+
+        Streaming clients already enforce an idle timeout, but a stream that emits
+        tiny deltas forever still needs an overall bound. Give healthy long-running
+        reasoning streams a wider wall-clock budget than non-streaming calls while
+        preserving ``HAHOBOT_LLM_TIMEOUT_S=0`` as the global opt-out.
+        """
+        timeout_s = cls._llm_timeout_s(spec)
+        if streaming and timeout_s is not None:
+            return max(300.0, timeout_s * 2)
         return timeout_s
 
     @staticmethod

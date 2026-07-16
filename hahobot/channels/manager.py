@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import inspect
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -15,10 +16,16 @@ from hahobot.bus.events import OutboundMessage
 from hahobot.bus.queue import MessageBus
 from hahobot.channels.base import BaseChannel, NonRetriableSendError
 from hahobot.config.schema import Config
-from hahobot.utils.restart import consume_restart_notice_from_env, format_restart_completed_message
+from hahobot.utils.restart import (
+    RestartNotice,
+    consume_restart_notice_from_env,
+    format_restart_completed_message,
+)
 
 # Retry delays for message sending (exponential backoff: 1s, 2s, 4s)
 _SEND_RETRY_DELAYS = (1, 2, 4)
+_RESTART_NOTICE_START_TIMEOUT_S = 30.0
+_RESTART_NOTICE_START_POLL_S = 0.25
 
 
 class ChannelManager:
@@ -203,23 +210,47 @@ class ChannelManager:
         # Wait for all to complete (they should run forever)
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    def _notify_restart_done_if_needed(self) -> None:
-        """Send restart completion message when runtime env markers are present."""
+    def _notify_restart_done_if_needed(self) -> asyncio.Task[None] | None:
+        """Schedule restart completion after the target channel starts."""
         notice = consume_restart_notice_from_env()
         if not notice:
-            return
+            return None
+        return asyncio.create_task(self._send_restart_notice_when_started(notice))
+
+    async def _send_restart_notice_when_started(
+        self,
+        notice: RestartNotice,
+        *,
+        timeout_s: float = _RESTART_NOTICE_START_TIMEOUT_S,
+        poll_s: float = _RESTART_NOTICE_START_POLL_S,
+    ) -> None:
+        """Deliver a restart notice only after the target channel reconnects."""
         target = self.channels.get(notice.channel)
-        if not target:
+        if target is None:
+            logger.warning("Restart notice target channel is not enabled: {}", notice.channel)
             return
-        asyncio.create_task(
-            self._send_with_retry(
-                target,
-                OutboundMessage(
-                    channel=notice.channel,
-                    chat_id=notice.chat_id,
-                    content=format_restart_completed_message(notice.started_at_raw),
-                ),
-            )
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        while not target.is_running:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                logger.warning(
+                    "Restart notice target did not start: {}:{}",
+                    notice.channel,
+                    notice.chat_id,
+                )
+                return
+            await asyncio.sleep(min(poll_s, remaining))
+
+        await self._send_with_retry(
+            target,
+            OutboundMessage(
+                channel=notice.channel,
+                chat_id=notice.chat_id,
+                content=format_restart_completed_message(notice.started_at_raw),
+            ),
+            deadline=deadline,
         )
 
     async def stop_all(self) -> None:
@@ -342,14 +373,33 @@ class ChannelManager:
         )
         return merged, non_matching
 
-    async def _send_with_retry(self, channel: BaseChannel, msg: OutboundMessage) -> None:
+    async def _send_with_retry(
+        self,
+        channel: BaseChannel,
+        msg: OutboundMessage,
+        *,
+        deadline: float | None = None,
+    ) -> None:
         """Send a message with retry on failure using exponential backoff.
+
+        When ``deadline`` is set, retry until that monotonic time instead of
+        stopping at the configured attempt count. Restart completion delivery
+        uses this because a channel can report running just before its transport
+        is fully ready.
 
         Note: CancelledError is re-raised to allow graceful shutdown.
         """
-        max_attempts = max(self.config.channels.send_max_retries, 1)
+        if msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):
+            # Stateful stream adapters may mutate a per-chat buffer before a
+            # transport call fails. Keep one stable delivery id across manager
+            # retries so adapters can avoid appending the same delta twice.
+            msg.metadata.setdefault("_delivery_id", uuid.uuid4().hex)
 
-        for attempt in range(max_attempts):
+        max_attempts = max(self.config.channels.send_max_retries, 1)
+        attempt = 0
+
+        while True:
+            attempt += 1
             try:
                 await self._send_once(channel, msg)
                 return  # Send succeeded
@@ -361,21 +411,27 @@ class ChannelManager:
                 )
                 return
             except Exception as e:
-                if attempt == max_attempts - 1:
+                loop = asyncio.get_running_loop()
+                exhausted = attempt >= max_attempts if deadline is None else loop.time() >= deadline
+                if exhausted:
                     logger.error(
                         "Failed to send to {} after {} attempts: {} - {}",
                         msg.channel,
-                        max_attempts,
+                        attempt,
                         type(e).__name__,
                         e,
                     )
                     return
-                delay = _SEND_RETRY_DELAYS[min(attempt, len(_SEND_RETRY_DELAYS) - 1)]
+                delay = _SEND_RETRY_DELAYS[min(attempt - 1, len(_SEND_RETRY_DELAYS) - 1)]
+                if deadline is not None:
+                    delay = min(delay, max(0.0, deadline - loop.time()))
+                attempt_label = str(attempt)
+                if deadline is None:
+                    attempt_label = f"{attempt}/{max_attempts}"
                 logger.warning(
-                    "Send to {} failed (attempt {}/{}): {}, retrying in {}s",
+                    "Send to {} failed (attempt {}): {}, retrying in {}s",
                     msg.channel,
-                    attempt + 1,
-                    max_attempts,
+                    attempt_label,
                     type(e).__name__,
                     delay,
                 )

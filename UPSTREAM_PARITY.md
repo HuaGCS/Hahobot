@@ -31,8 +31,9 @@ These upstreams are not tracked in the same way:
   implementation is not expected to mirror file layout or minimal-tool philosophy one-to-one.
 - `claude-mem` is tracked as a memory-architecture inspiration source. Hahobot adopts compatible
   ideas such as structured observations, progressive-disclosure recall, file timelines, and private
-  tags through its existing archive/Dream/admin surfaces rather than copying the AGPL-licensed
-  implementation or Claude Code hook layout.
+  tags through its existing archive/Dream/admin surfaces rather than mirroring its Claude Code hook
+  and hosted-service layout. The public repository has been Apache-2.0 since v13.0.0
+  (`36b0929fa`); the hosted cloud service remains a separate reserved surface.
 - `nocturne_memory` is tracked as a memory-architecture inspiration source (MIT-licensed). It is a
   graph-backed long-term memory MCP server (Node→Memory→Edge→Path, URI addressing, per-entry
   disclosure triggers, patch-only updates). Hahobot evaluates its ideas against the local
@@ -65,6 +66,76 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-07-15` pass): re-checked against upstream `main` through `5ed28a67`
+  (`2026-07-15`); 46 commits since `45d1caba`. The range is mostly React/Vite WebUI polish,
+  guided onboarding, prompt-override refactoring, docs/CI churn, Windows PowerShell work, and
+  heartbeat/Dream changes that are already covered locally or remain architecture-specific.
+  **Four portable hardening clusters were adopted:**
+  (1) **Telegram streamed overflow is now bounded during the turn, not only at `stream_end`**
+  (`67648774` / `87478b6e` / `a335ce07` / `3b14d59d`) — raw Markdown is split with fenced-code
+  balancing, rendered HTML chunks are kept within Telegram's 4096-character boundary, completed
+  chunks are flushed mid-stream, and the live buffer keeps the unrendered Markdown tail so later
+  deltas can be rendered correctly. Telegram `BadRequest` HTML rejections fall back to plain text;
+  retry state records the first unsent overflow chunk so already accepted chunks are not repeated.
+  Tests: `tests/test_telegram_markdown_split.py` and `tests/channels/test_telegram_channel.py`.
+  (2) **Restart completion waits for channel reconnection and retries to a deadline** (`88c38e9b`,
+  adapted) — `ChannelManager` no longer sends the completion notice immediately after merely
+  scheduling channel start tasks. It waits for the target's running state and retries transient
+  delivery failures until the startup deadline. Telegram, Discord, Feishu, Matrix, DingTalk, QQ,
+  WeCom, WhatsApp, Weixin, Xiaoyi, and WebSocket delivery paths now propagate not-ready/send failures
+  instead of silently returning, so the manager can actually retry. Tests cover the manager and
+  channel-specific failure contracts. WebSocket connection ids are still process-local, so a stable
+  client identity for post-restart completion remains a follow-up design item rather than a false
+  success; Slack media partial-success/retry semantics are also left for a focused pass. Stateful
+  stream messages carry one stable `_delivery_id` across manager retries, and Telegram/Discord/
+  Feishu/Matrix buffers deduplicate delta application and retain final follow-up progress.
+  (3) **Streaming LLM calls get a wider finite wall-clock budget** (`11eb9d8c`, portable core) —
+  non-streaming calls still use `HAHOBOT_LLM_TIMEOUT_S`, while streaming calls use
+  `max(300, 2 * timeout)`; `0` still disables the wall-clock timeout. The separate nanobot reasoning
+  close state (`4916fc07`) is not applicable because hahobot closes its stream through hook
+  lifecycle callbacks. Test: `tests/agent/test_runner.py`.
+  (4) **Windows timezone data is an explicit runtime dependency** (`1a1e6666`) — `tzdata>=2025.2`
+  is installed on `win32`, matching hahobot's `ZoneInfo`-based cron/timezone features.
+  The MCP shutdown symptom fix (`86f65587`) is retained as defense-in-depth, but the underlying
+  cross-task ownership issue was fixed through the `jiuwenswarm` owner-task port recorded below.
+  Reviewed and not ported: nanobot's SPA/native-runtime/document-attachment UI, Discord pairing,
+  PowerShell-specific shell changes, custom evaluator prompt surface, and Codex onboarding defaults.
+  Document-ingress ZIP/PDF resource limits (`fe0717b3`), Dream commit filtering/real-parent diffs
+  (`8c9110fe`), and Docker loopback-only gateway publishing (`3824206a`) remain explicit watchlist
+  items requiring a focused security/compatibility decision rather than an incidental parity port.
+- `GenericAgent` (`2026-07-15` pass): re-checked against upstream `main` through `1e89c3ee`
+  (`2026-07-14`). The range contains 354 reachable commits, but merge `1e89c3ee` introduced 346
+  desktop-fork ancestors; only seven commits are linear mainline changes. Repo-root-pinned `/update`
+  (`172889fc`) is already covered by `utils/self_update.py`; the routed session facade (`3d614d48`)
+  matches hahobot's stateless session history plus `ProviderPoolProvider`; prefix retention
+  (`db964659`) does not map onto hahobot's rebuilt system prompt, consolidation, and legal-suffix
+  strategy. Automatic scaling of the fixed `maxToolResultChars` threshold (`3b5fdfb1`) and the
+  desktop branch's stale-turn `active_turn_id` guard (`c921bad7`) are watchlisted for a focused local
+  design. Tauri, desktop bridge, portable packaging, and external-core probing remain intentional
+  divergences. No direct code port this pass.
+- `claude-mem` (`2026-07-15` pass): re-checked via temporary clone through `f5633c1f`
+  (`2026-07-12`, v13.11.0); 16 commits since `1a39fb80`, all in the hosted Cloud Sync cluster:
+  durable DB queueing, worker-native debounce/single-flight/backoff, startup draining, schema
+  self-heal, guarded sync stamps, and repair/requeue flows. Hahobot remains file-first and local-only,
+  so no direct port is needed; DB-as-queue and compare-and-set stamping are reference ideas only if
+  an explicit remote-sync surface is added later. This audit also corrected the ledger's stale
+  license note: the public claude-mem repository has been Apache-2.0 since v13.0.0
+  (`36b0929fa`), while its hosted cloud service remains separate.
+- `nocturne_memory` (`2026-07-15` pass): re-checked upstream `main`; still `15930e09`
+  (`2026-06-26`) with no new commits since the prior boundary.
+- `jiuwenswarm` (`2026-07-15` pass): re-checked `develop@c673d587` (`2026-07-15`; `main` remains
+  `ce25a7b6`); 43 commits since `9edd6ec`. **The stdio MCP owner-task fix was adapted from
+  `aa5bf954`:** every MCP connection generation now owns its local `AsyncExitStack`, transport, and
+  `ClientSession` inside one long-lived asyncio task; startup uses `asyncio.timeout` rather than
+  `wait_for`, the shared runtime stack registers only task-safe `owner.close` callbacks, reconnect
+  swaps to a new owner before closing the old generation, and registration/timeout/cancellation
+  failures close without leaking. This removes the reproducible AnyIO failure
+  `Attempted to exit cancel scope in a different task` and its CPU/resource-leak risk. Tests in
+  `tests/tools/test_mcp_tool.py`, `tests/agent/test_mcp_reconnect.py`, and
+  `tests/agent/test_mcp_runtime.py` enforce same-task enter/exit, timeout cleanup, reconnect, rollback,
+  cancellation, and idempotent close. Cross-process config transactions (`42e8a0a9`) and active-task
+  config-reload coordination (`a98d7adc` / `f90f4d04`) remain watchlist items; Team/Yuanrong,
+  desktop, experience-index, and jiuwenbox changes remain architectural divergences.
 - `nanobot` (`2026-07-13` pass): re-checked against upstream `main` through `45d1caba`
   (`2026-07-12`); 109 commits since `d04ad1a5`. The bulk is still nanobot-specific WebUI
   refinement (file-edit diff previews, prompt rail layout, bootstrap token handling, remote
@@ -117,8 +188,8 @@ This file therefore records both:
   (`7d281423`), worker endpoint probing, and Windows spawn shims. These live in claude-mem's
   Claude-Code plugin / hosted-worker / Chroma stack and are not directly portable to hahobot's
   file-first memory model. The non-blocking-hook idea remains covered locally by
-  `ExternalHookBridge`'s explicit event selection, timeout, and fail-open defaults; no AGPL code
-  copied.
+  `ExternalHookBridge`'s explicit event selection, timeout, and fail-open defaults; no direct code
+  was copied in that pass.
 - `nocturne_memory` (`2026-07-13` pass): re-checked upstream `HEAD`; still `15930e09`
   (`2026-06-26`) with no new commits since the prior audit.
 - `jiuwenswarm` (`2026-07-13` pass): atomgit now works with git clone for this audit; default
@@ -449,9 +520,10 @@ This file therefore records both:
   Larger deltas reviewed and **not ported** this pass: `d7abf391` (set an explicit `httpx.Timeout`
   on the streamableHttp transport instead of `timeout=None`) is **not applicable** — hahobot
   deliberately runs the MCP HTTP client with `timeout=None` (documented at the call site) because the
-  outer `asyncio.wait_for` tool timeout (`_tool_timeout`) and `connect_timeout` already bound every
-  MCP call/connect, so adopting the upstream httpx-level timeout would just re-introduce the inner
-  preemption hahobot removed on purpose; intentional divergence. `33638417` (delete_session also
+  outer tool-call timeout (`_tool_timeout`) and the owner task's `asyncio.timeout(connect_timeout)`
+  already bound every MCP call/connect, so adopting the upstream httpx-level timeout would just
+  re-introduce the inner preemption hahobot removed on purpose; intentional divergence. `33638417`
+  (delete_session also
   unlinks the legacy `~/.nanobot/sessions/` path to prevent history revival) is **not applicable** —
   hahobot's `SessionManager` exposes no session-delete path at all (it only migrates legacy files on
   load), so there is nothing to leak. `f9511049` + `bbd7bbd7` (ignore malformed / shape-variant MCP
@@ -735,11 +807,13 @@ This file therefore records both:
   `last_consolidated` to `0` so a bad offset can neither crash history slicing nor silently hide
   every message (regression test in `tests/session/test_consolidated_offset_clamp.py`). This pass
   also ported the larger `e9145b7` + `d0eba7c` auto-reconnect for terminated MCP sessions (the
-  long-watchlisted "MCP transient reconnect retry" item), adapted to hahobot's shared-
-  `AsyncExitStack` + three-wrapper layout: `_is_session_terminated`, a shared `_MCPWrapperBase`
+  long-watchlisted "MCP transient reconnect retry" item), originally adapted to hahobot's then-
+  shared `AsyncExitStack` + three-wrapper layout: `_is_session_terminated`, a shared `_MCPWrapperBase`
   reconnect gate, a per-server `_MCPServerConnection` coordinator (lock + generation counter for
   single-rebuild-under-concurrency), and a factored-out `_open_session` transport helper, with
-  tests in `tests/agent/test_mcp_reconnect.py`. This pass also investigated the session-archive
+  tests in `tests/agent/test_mcp_reconnect.py`. The connection lifetime was later superseded by the
+  same-task `_MCPConnectionOwner` design recorded in the 2026-07-15 audit; the reconnect markers,
+  wrapper gate, lock, and generation semantics remain. This pass also investigated the session-archive
   durability cluster `72fb642e` (prevent duplicate archive + message loss), `baffd6ef` (correct
   `last_consolidated` tracking), `0e370241` (archive actual idle-compact drops) and found it
   **not applicable** to hahobot: all three nanobot bugs stem from nanobot's *non-contiguous*
@@ -854,7 +928,8 @@ This file therefore records both:
 | Empty-string `reasoning_content` preservation | `synced` | `openai_compat_provider._parse` now uses `is None` identity checks (not truthiness) for `reasoning_content` on both the dict and SDK-object paths, so a provider's explicit `""` (DeepSeek "no reasoning occurred") is preserved instead of coerced to `None` and dropped — which made strict providers reject the next request. Ported from nanobot `05de864f`. |
 | Malformed history-entry guard | `synced` | `MemoryStore._read_entries` drops `history.jsonl` lines that parse as JSON but carry a malformed shape (non-int cursor, non-string timestamp/content) via a new `_valid_history_payload`, warning once. Previously only JSON-decode errors were skipped, so an external writer's shape-bad entry could crash `read_unprocessed_history`'s `e["cursor"]` access (and downstream dream/consolidation). Ported from nanobot `f85101f0`; tests in `tests/agent/test_memory_store.py`. |
 | SQLite derived-cache concurrency pragmas | `synced` | `memory_facts_sqlite.py` and `history_sqlite.py` open their derived FTS caches through a `_connect()` helper that sets `journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`, and `timeout=5.0`, so concurrent gateway/CLI/Dream/`memory index rebuild` access no longer races into "database is locked". Adopted as a nocturne_memory idea (`52b47f4d`); the markdown/JSONL sidecars remain the source of truth and the caches stay rebuildable. |
-| Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. |
+| Finite LLM request timeout | `synced` | `AgentRunner` wraps provider calls and finalization retries with a finite timeout (`HAHOBOT_LLM_TIMEOUT_S`, legacy `NANOBOT_LLM_TIMEOUT_S`, default 300s, `0` disables) so hung gateways return a timeout error instead of starving a session lock. Non-streaming requests use the configured value directly; streaming requests use `max(300, 2 * timeout)` in addition to provider idle timeouts, adapted from nanobot `11eb9d8c`. |
+| Windows IANA timezone data | `synced` | `pyproject.toml` includes `tzdata>=2025.2; sys_platform == 'win32'`, so `ZoneInfo`-based cron, heartbeat, and user timezone handling also work on Windows hosts that do not ship the IANA database. Ported from nanobot `1a1e6666`. |
 | Streaming-idle httpx timeout | `synced` | `LLMProvider._stream_idle_timeout_s()` reads `HAHOBOT_STREAM_IDLE_TIMEOUT_S` (default 90s). The anthropic, openai_compat, and openai_codex providers all share the helper, so the previously hardcoded 60s on the Codex provider no longer aborts streams sooner than its peers. The upstream nanobot env var is intentionally not honored here — this is a hahobot-native knob, not a legacy rename-transition. The override is now validated: non-numeric / non-positive input falls back to the default and anything above `3600` is clamped (warned once), so `HAHOBOT_STREAM_IDLE_TIMEOUT_S=0` no longer makes httpx abort streams instantly. Hardened per nanobot `846410f9`; tests in `tests/providers/test_stream_idle_timeout_config.py`. |
 | Anthropic tool-id pattern sanitization | `synced` | `anthropic_provider._sanitize_tool_id` coerces tool IDs to Anthropic's required `^[a-zA-Z0-9_-]+$` at both wire-format conversion points (`_tool_result_block` `tool_use_id`, `_assistant_blocks` `tool_use` id), appending a `sha1[:8]` suffix to invalid IDs so two distinct bad IDs cannot collapse onto the same value and orphan the `tool_use`/`tool_result` pairing. Prevents a 400 ("String should match pattern") when tool IDs from other providers or restored sessions carry pipes/dots. Defense-in-depth past the earlier `_sanitize_messages` id-normalization. Ported from nanobot `4d7c2074` / `bdf21c93`; tests in `tests/providers/test_anthropic_tool_id_sanitize.py`. |
 | Anthropic duplicate `tool_use` id drop | `synced` | `anthropic_provider._parse_response` drops a duplicate `tool_use` id within one assistant turn (keeps the first, warns) via a `seen_tool_ids` set, so a mis-assembled stream surfacing the same block twice is never persisted and cannot brick the session with a repeated 400 ("tool_use ids must be unique"). Both `chat()` and `chat_stream()` funnel through `_parse_response`, so one guard covers both paths. Independent of the charset-level `_sanitize_tool_id` and the openai-compat-path dedupe (neither drops an identical *valid* Anthropic id). Ported from nanobot `6689e2d3`; tests in `tests/providers/test_anthropic_duplicate_tool_id.py`. |
@@ -871,10 +946,11 @@ This file therefore records both:
 | MCP resources / prompts as tool surfaces | `synced` | MCP connections already wrap remote tools, resources, and prompts into native hahobot tool entries, keeping non-mutating resource/prompt calls read-only while preserving local timeout/error handling and `enabledTools` filtering. |
 | Cron state / scheduler behavior | `synced` | Cron preserves last-run status plus merged run history on disk, and the workspace scheduler periodically wakes to reload external `cron/jobs.json` edits via `gateway.cron.maxSleepMs`. |
 | Proactive delivery session continuity | `synced` | Cross-session `message` tool sends, cron delivery, and heartbeat notify now record delivered assistant text into the target `channel:chat` session so later user replies can see what was actually sent. |
+| Restart completion after channel reconnect | `synced` | The new process waits for the originating channel's `is_running` state, then retries the completion notice until a startup deadline. Telegram, Discord, Feishu, Matrix, DingTalk, QQ, WeCom, WhatsApp, Weixin, Xiaoyi, and WebSocket propagate transient not-ready/send failures so the manager does not mistake a logged-and-returned failure for delivery. WebSocket's process-local connection id still prevents targeting the replacement connection after a full restart; stable client identity remains watchlisted. Adapted from nanobot `88c38e9b`. |
 | Configurable consolidation ratio | `watchlist` | Upstream exposes a bounded `consolidationRatio` for token compaction targets. Local compaction has richer archive/Dream behavior; adding the knob may help large-context users if docs/admin make the tradeoff clear. |
 | Telegram / Discord streaming | `synced` | Telegram uses configurable `channels.telegram.streamEditInterval`; Discord keeps edit-based streaming enabled by default, and the related runtime knobs are exposed in local schema/docs/admin surfaces. |
 | Telegram fenced-code-block split | `synced` | Outbound Telegram markdown is split through `_split_telegram_markdown(content, max_len)` at both the `send()` and stream-end edit paths, which re-balances ```` ``` ```` fences across chunks (close at the chunk boundary, re-open with the original fence line) so a split landing inside a code block no longer leaves an unbalanced fence that `_markdown_to_telegram_html` fails to match. The generic `split_message` stays shared with Discord. Ported from nanobot `131446fa` + `a5a816ab` + `ffae1dca`; tests in `tests/test_telegram_markdown_split.py`. |
-| Telegram rendered-HTML length re-split | `watchlist` | nanobot `ffae1dca` also adds `_split_telegram_markdown_html`, which re-splits raw markdown so each *rendered* HTML chunk fits Telegram's true 4096 limit instead of slicing HTML. hahobot renders per-chunk in `_send_text` / the stream-end edit, so an over-4096 chunk already degrades to the existing plain-text fallback; adopting the HTML-length re-split would mean restructuring the per-chunk render path. Revisit if over-limit Telegram replies start silently dropping to plain text in practice. |
+| Telegram rendered-HTML length and mid-stream overflow | `synced` | `_split_telegram_markdown_html_chunks` bounds every rendered HTML payload to Telegram's true 4096-character limit. `_flush_stream_overflow` sends completed chunks once the raw stream exceeds 4000 characters, falls back from rejected HTML to plain text, and keeps the remaining raw Markdown tail for later deltas and `stream_end`. Ported from nanobot `67648774` / `87478b6e` / `a335ce07` / `3b14d59d`; tests cover rendered expansion, fenced code, fallback, and continued streaming. |
 | Telegram inline buttons | `synced` | `channels.telegram.inlineKeyboards` can render `OutboundMessage.buttons` as Telegram inline keyboards, caps callback payload bytes, and falls back to inline text when native keyboards are disabled. |
 | Feishu topic reply routing | `synced` | Topic/thread replies keep every split outbound part on the Reply API path using the root/message id, so card/table chunks do not fall out of the active topic after the first segment. |
 | WebSocket server channel | `synced` | Local runtime already ships `channels.websocket`, including tokenless local mode, optional `tokenIssuePath` / `tokenIssueSecret`, and the simple `ready` / `message` / `delta` / `stream_end` frame contract. |
@@ -882,7 +958,7 @@ This file therefore records both:
 | Config fallback behavior | `intentional_divergence` | When no config path is passed, hahobot checks `~/.hahobot/config.json` first, then copies `~/.nanobot/config.json` into the hahobot location instead of migrating in place. |
 | Web search backend mix | `synced` | Built-in web search now supports Brave, SearXNG, and DuckDuckGo; DuckDuckGo runs as an exclusive tool so concurrent tool batches do not group multiple searches together. |
 | Search provider breadth | `watchlist` | Upstream now also carries additional search backends such as Kagi/Olostep; local runtime still intentionally limits `tools.web.search.provider` to Brave, SearXNG, and DuckDuckGo until there is real demand for another backend plus matching config/admin/docs wiring. |
-| MCP terminated-session reconnect | `synced` | Ported from nanobot `e9145b7` + `d0eba7c`, adapted to hahobot's shared-`AsyncExitStack`/three-wrapper layout. `_is_session_terminated` matches "session terminated"/"connection closed" (in `str(exc)` and `exc.error.message`); a shared `_MCPWrapperBase._refresh_session_after_termination` reconnects once per `execute()` before falling back to the existing error-string behavior; a per-server `_MCPServerConnection` coordinator uses an `asyncio.Lock` + generation counter so concurrent terminated calls trigger exactly one rebuild and the rest adopt the fresh session; transport setup is factored into a shared `_open_session(name, cfg, stack)` used by both initial connect and reconnect. The existing `TimeoutError` / `CancelledError` (re-raise only on external cancel) / `McpError` handling is preserved unchanged. Tests in `tests/agent/test_mcp_reconnect.py`. |
+| MCP terminated-session reconnect and task ownership | `synced` | `_is_session_terminated` still triggers one generation-guarded reconnect for concurrent wrappers (nanobot `e9145b7` + `d0eba7c`), but each generation is now owned by `_MCPConnectionOwner`: the same task enters and exits its local `AsyncExitStack`, transport, and `ClientSession`; startup uses `asyncio.timeout`; the shared runtime stack stores only idempotent `owner.close` callbacks; and reconnect swaps wrappers before closing the old owner. External cancellation is re-raised while SDK-leaked cleanup cancellation remains tolerable. Adapted from jiuwenswarm `aa5bf954` plus nanobot `edf78e70` / `86f65587`; tests in `tests/tools/test_mcp_tool.py`, `tests/agent/test_mcp_reconnect.py`, and `tests/agent/test_mcp_runtime.py`. |
 | OpenAI-compatible API file inputs | `synced` | `hahobot serve` now accepts both JSON and `multipart/form-data`, extracts text-like uploaded or inline base64 file payloads into the prompt, and emits stable placeholders for binary/image attachments while keeping the direct API path single-message and non-streaming. |
 | OpenAI-compatible API usage forwarding | `synced` | `hahobot serve`'s `_chat_completion_response` no longer hardcodes usage to zero. It accepts an optional `usage` dict (deriving `total_tokens` when the provider omits it) and the handler forwards `getattr(agent_loop, "_last_usage", None)` — already tracked by `run_runtime` after every LLM call. Non-streaming only, matching the existing API contract. Ported from nanobot `9814a3b9`; tests in `tests/test_openai_api.py`. |
 | OpenAI-compatible API streaming | `intentional_divergence` | Upstream now supports SSE when `stream=true`; local `hahobot serve` intentionally stays non-streaming until the API contract is deliberately expanded across docs, tests, and client expectations together. |
@@ -1183,7 +1259,7 @@ Reviewed and intentionally skipped / left on watchlist:
   port either direction; local regex was already URL-safe.
 - **`claude-mem` `oh-my-issues` + `weekly-digests` skills** (v13.3.0): potentially portable as
   hahobot bundled workflow skills (GitHub issue clustering, ISO-week serial narrative). Track on
-  watchlist pending operator demand; do not import claude-mem AGPL files verbatim.
+  watchlist pending operator demand; adapt selectively through hahobot's existing skill surfaces.
 - **`nocturne_memory` boot URI presets + AntiGravity heartbeat** (v2.5.3): boot URI presets sit
   on top of the mandatory boot protocol that hahobot has already rejected as intentional
   divergence; AntiGravity heartbeat is IDE-integration-specific. Nothing to adopt.
@@ -1261,15 +1337,17 @@ Implemented locally in this pass:
   could either crash `get_history()` slicing (non-int) or silently hide every message (offset past
   the message tail). Regression coverage in `tests/session/test_consolidated_offset_clamp.py`.
 - **MCP terminated-session auto-reconnect** (nanobot `e9145b7` + `d0eba7c`): the long-watchlisted
-  "MCP transient reconnect retry" item, ported and adapted to hahobot's shared-`AsyncExitStack` +
-  three-wrapper layout rather than copied verbatim. `hahobot/agent/tools/mcp.py` now has
+  "MCP transient reconnect retry" item, originally ported onto hahobot's then-shared
+  `AsyncExitStack` + three-wrapper layout rather than copied verbatim. `hahobot/agent/tools/mcp.py`
+  added
   `_is_session_terminated` (markers "session terminated"/"connection closed" in `str(exc)` and
   `exc.error.message`), a shared `_MCPWrapperBase._refresh_session_after_termination` that
   reconnects at most once per `execute()`, a per-server `_MCPServerConnection` coordinator
   (`asyncio.Lock` + generation counter so concurrent terminated calls cause exactly one rebuild and
   the rest adopt the fresh session), and a factored-out `_open_session(name, cfg, stack)` transport
-  helper shared by initial connect and reconnect. Existing `TimeoutError` / `CancelledError` /
-  `McpError` handling is unchanged. Tests in `tests/agent/test_mcp_reconnect.py`. Minor side effect:
+  helper shared by initial connect and reconnect. The 2026-07-15 owner-task hardening replaced the
+  shared transport lifetime while preserving these reconnect semantics. Tests remain in
+  `tests/agent/test_mcp_reconnect.py`. Minor side effect:
   a misconfigured server (no command/url, unknown transport) now surfaces through the outer
   connect-error handler instead of a dedicated skip-warning; functionally equivalent (server is
   still skipped and the loop continues).
@@ -1719,7 +1797,7 @@ These are local choices. When upstream behaves differently, that is not automati
   streaming is added to the interactive CLI) remain on the watchlist.
 - claude-mem v13.3.0 added two new workflow skills (`oh-my-issues` for GitHub issue clustering,
   `weekly-digests` for ISO-week serial narrative). Consider porting as hahobot bundled workflow
-  skills only when operator demand exists; do not import the AGPL implementation verbatim.
+  skills only when operator demand exists; adapt them through hahobot's existing skill surfaces.
 - The 2026-05-19 pass synced Chinese rate-limit markers and the Consolidator session-refresh guard.
 - Re-check `thedotmack/claude-mem` directly on the next pass; the 2026-05-19 audit could not
   fetch reliable content and was deferred.

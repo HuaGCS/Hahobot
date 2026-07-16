@@ -99,7 +99,7 @@ async def test_send_multiple_media():
 
 
 @pytest.mark.asyncio
-async def test_send_when_disconnected_is_noop():
+async def test_send_when_disconnected_raises_retryable_error():
     ch = _make_channel()
     ch._connected = False
 
@@ -109,7 +109,8 @@ async def test_send_when_disconnected_is_noop():
         content="hello",
         media=["/tmp/x.jpg"],
     )
-    await ch.send(msg)
+    with pytest.raises(RuntimeError, match="not connected"):
+        await ch.send(msg)
 
     ch._ws.send.assert_not_called()
 

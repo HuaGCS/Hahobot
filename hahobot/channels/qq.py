@@ -360,7 +360,7 @@ class QQChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through QQ."""
         if not self._client:
-            raise NonRetriableSendError("QQ client not initialized")
+            raise RuntimeError("QQ client not initialized")
 
         try:
             msg_id = msg.metadata.get("message_id")

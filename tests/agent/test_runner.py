@@ -1501,3 +1501,35 @@ async def test_runner_timeout_can_be_disabled(monkeypatch):
     )
 
     assert result.final_content == "ok"
+
+
+def test_runner_gives_streaming_requests_a_wider_wall_clock_timeout():
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
+
+    tools = MagicMock()
+    short = AgentRunSpec(
+        initial_messages=[],
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        llm_timeout_s=10,
+    )
+    long = AgentRunSpec(
+        initial_messages=[],
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        llm_timeout_s=200,
+    )
+    disabled = AgentRunSpec(
+        initial_messages=[],
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        llm_timeout_s=0,
+    )
+
+    assert AgentRunner._request_timeout_s(short, streaming=False) == 10
+    assert AgentRunner._request_timeout_s(short, streaming=True) == 300
+    assert AgentRunner._request_timeout_s(long, streaming=True) == 400
+    assert AgentRunner._request_timeout_s(disabled, streaming=True) is None

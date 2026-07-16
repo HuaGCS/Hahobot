@@ -13,7 +13,13 @@ except ImportError:
 
 from hahobot.bus.events import OutboundMessage
 from hahobot.bus.queue import MessageBus
-from hahobot.channels.telegram import TELEGRAM_REPLY_CONTEXT_MAX_LEN, TelegramChannel, _StreamBuf
+from hahobot.channels.telegram import (
+    TELEGRAM_HTML_MAX_LEN,
+    TELEGRAM_REPLY_CONTEXT_MAX_LEN,
+    TelegramChannel,
+    _markdown_to_telegram_html,
+    _StreamBuf,
+)
 from hahobot.config.schema import TelegramConfig
 
 
@@ -127,6 +133,17 @@ class _FakeBuilder:
 
     def build(self):
         return self.app
+
+
+@pytest.mark.asyncio
+async def test_send_raises_when_bot_is_not_running() -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+
+    with pytest.raises(RuntimeError, match="bot is not running"):
+        await channel.send(OutboundMessage(channel="telegram", chat_id="123", content="hello"))
 
 
 def _make_telegram_update(
@@ -532,6 +549,161 @@ async def test_send_delta_stream_end_splits_oversized_reply() -> None:
 
     channel._app.bot.send_message.assert_called_once()
     assert "123" not in channel._stream_bufs
+
+
+@pytest.mark.asyncio
+async def test_send_delta_retry_does_not_append_same_delivery_twice() -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.send_message = AsyncMock(
+        side_effect=[RuntimeError("temporary"), SimpleNamespace(message_id=7)]
+    )
+    metadata = {"_stream_delta": True, "_stream_id": "s:0", "_delivery_id": "delivery-1"}
+
+    with pytest.raises(RuntimeError, match="temporary"):
+        await channel.send_delta("123", "hello", metadata)
+    await channel.send_delta("123", "hello", metadata)
+
+    assert channel._stream_bufs["123"].text == "hello"
+
+
+@pytest.mark.asyncio
+async def test_stream_end_not_modified_still_flushes_overflow_followup() -> None:
+    from telegram.error import BadRequest
+
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.edit_message_text = AsyncMock(
+        side_effect=BadRequest("Message is not modified")
+    )
+    channel._app.bot.send_message = AsyncMock(return_value=SimpleNamespace(message_id=99))
+    channel._stream_bufs["123"] = _StreamBuf(text="x" * 4500, message_id=7)
+
+    await channel.send_delta("123", "", {"_stream_end": True})
+
+    channel._app.bot.send_message.assert_awaited_once()
+    assert "123" not in channel._stream_bufs
+
+
+@pytest.mark.asyncio
+async def test_overflow_retry_resumes_after_last_successful_followup(monkeypatch) -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.edit_message_text = AsyncMock()
+    chunks = [("first", "first"), ("middle", "middle"), ("tail", "tail")]
+    monkeypatch.setattr(
+        "hahobot.channels.telegram._split_telegram_markdown_html_chunks",
+        lambda *_args: chunks,
+    )
+    channel._send_stream_chunk = AsyncMock(
+        side_effect=[
+            SimpleNamespace(message_id=8),
+            RuntimeError("tail failed"),
+            SimpleNamespace(message_id=9),
+        ]
+    )
+    buf = _StreamBuf(text="all", message_id=7)
+
+    with pytest.raises(RuntimeError, match="tail failed"):
+        await channel._flush_stream_overflow(123, buf, {})
+    await channel._flush_stream_overflow(123, buf, {})
+
+    assert [call.args[1] for call in channel._send_stream_chunk.await_args_list] == [
+        "middle",
+        "tail",
+        "tail",
+    ]
+    assert buf.message_id == 9
+    assert buf.text == "tail"
+
+
+@pytest.mark.asyncio
+async def test_send_delta_incremental_overflow_reanchors_raw_markdown_tail() -> None:
+    """Mid-stream overflow flushes bounded HTML and preserves raw Markdown state."""
+    from hahobot.channels.telegram import TELEGRAM_MAX_MESSAGE_LEN
+
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.edit_message_text = AsyncMock()
+    channel._app.bot.send_message = AsyncMock(return_value=SimpleNamespace(message_id=99))
+
+    first_chunk = f"**{'x' * 3900}**\n"
+    tail = "**tail** " * 50
+    oversized = first_chunk + tail
+    assert len(oversized) > TELEGRAM_MAX_MESSAGE_LEN
+    channel._stream_bufs["123"] = _StreamBuf(
+        text=oversized,
+        message_id=7,
+        last_edit=0.0,
+        stream_id="s:0",
+    )
+
+    await channel.send_delta("123", "y", {"_stream_delta": True, "_stream_id": "s:0"})
+
+    edit_kwargs = channel._app.bot.edit_message_text.call_args.kwargs
+    assert edit_kwargs["parse_mode"] == "HTML"
+    assert len(edit_kwargs["text"]) <= TELEGRAM_HTML_MAX_LEN
+
+    send_kwargs = channel._app.bot.send_message.call_args.kwargs
+    assert send_kwargs["parse_mode"] == "HTML"
+    assert len(send_kwargs["text"]) <= TELEGRAM_HTML_MAX_LEN
+    buf = channel._stream_bufs["123"]
+    assert buf.message_id == 99
+    assert buf.text == tail + "y"
+    assert send_kwargs["text"] == _markdown_to_telegram_html(buf.text)
+    assert "<b>" not in buf.text
+
+
+@pytest.mark.asyncio
+async def test_send_delta_incremental_overflow_html_failure_falls_back_to_plain() -> None:
+    """Telegram HTML rejections retry overflow chunks as raw Markdown."""
+    from telegram.error import BadRequest
+
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.edit_message_text = AsyncMock(
+        side_effect=[BadRequest("Can't parse entities"), None]
+    )
+    channel._app.bot.send_message = AsyncMock(
+        side_effect=[BadRequest("Can't parse entities"), SimpleNamespace(message_id=99)]
+    )
+
+    first_chunk = f"**{'x' * 3900}**\n"
+    tail = "**tail** " * 50
+    channel._stream_bufs["123"] = _StreamBuf(
+        text=first_chunk + tail,
+        message_id=7,
+        last_edit=0.0,
+        stream_id="s:0",
+    )
+
+    await channel.send_delta("123", "y", {"_stream_delta": True, "_stream_id": "s:0"})
+
+    edit_calls = channel._app.bot.edit_message_text.call_args_list
+    assert edit_calls[0].kwargs["parse_mode"] == "HTML"
+    assert edit_calls[1].kwargs["text"] == first_chunk.rstrip()
+    assert "parse_mode" not in edit_calls[1].kwargs
+
+    send_calls = channel._app.bot.send_message.call_args_list
+    assert send_calls[0].kwargs["parse_mode"] == "HTML"
+    assert send_calls[1].kwargs["text"] == tail + "y"
+    assert "parse_mode" not in send_calls[1].kwargs
+    assert channel._stream_bufs["123"].text == tail + "y"
 
 
 @pytest.mark.asyncio
