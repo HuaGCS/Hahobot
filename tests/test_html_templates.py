@@ -50,3 +50,5 @@ def test_gateway_html_templates_render_from_package() -> None:
     assert "hahobot gateway status" in status_html
     assert "运行状态页" in status_html
     assert 'id="status-uptime-kpi"' in status_html
+    assert "font-variant-numeric: tabular-nums" in status_html
+    assert "radial-gradient" not in status_html

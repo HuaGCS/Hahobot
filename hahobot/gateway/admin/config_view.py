@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from collections.abc import Awaitable, Callable
 from html import escape
 from typing import Any
@@ -30,6 +31,8 @@ from hahobot.gateway.admin.base import (
 )
 from hahobot.gateway.admin.constants import (
     _ADMIN_RELOAD_RUNTIME_KEY,
+    _ADMIN_RESTART_BASELINE_KEY,
+    _ADMIN_RESTART_RUNTIME_KEY,
     _MEMORIX_MCP_DEFAULT_ARGS,
     _MEMORIX_MCP_DEFAULT_COMMAND,
     _MEMORIX_MCP_DEFAULT_TIMEOUT,
@@ -543,6 +546,118 @@ def _reload_runtime_callback(request: web.Request) -> Callable[[], Awaitable[Non
     except KeyError:
         return None
     return callback if callable(callback) else None
+
+
+def _restart_runtime_callback(request: web.Request) -> Callable[[], Awaitable[None]] | None:
+    try:
+        callback = request.app[_ADMIN_RESTART_RUNTIME_KEY]
+    except KeyError:
+        return None
+    return callback if callable(callback) else None
+
+
+def _nested_config_value(data: dict[str, Any], path: tuple[str, ...]) -> tuple[bool, Any]:
+    node: Any = data
+    for segment in path:
+        if not isinstance(node, dict):
+            return False, None
+        key = _resolve_nested_key(node, segment)
+        if key not in node:
+            return False, None
+        node = node[key]
+    return True, node
+
+
+def _restart_required_field_values(config: Config) -> dict[str, tuple[bool, Any]]:
+    """Return canonical values for fields whose running process needs a restart."""
+    data = config.model_dump(mode="json", by_alias=True)
+    return {
+        field.name: _nested_config_value(data, field.path)
+        for field in _CONFIG_FIELDS
+        if field.restart_required
+    }
+
+
+def _pending_restart_fields(request: web.Request) -> tuple[ConfigFieldSpec, ...]:
+    try:
+        baseline = request.app[_ADMIN_RESTART_BASELINE_KEY]
+    except KeyError:
+        return ()
+    if not isinstance(baseline, dict):
+        return ()
+    current = _restart_required_field_values(_load_current_config(request))
+    return tuple(
+        field
+        for field in _CONFIG_FIELDS
+        if field.restart_required and baseline.get(field.name) != current.get(field.name)
+    )
+
+
+def _restart_scope(field: ConfigFieldSpec) -> str:
+    return "serve" if field.path[0] in {"api", "a2a"} else "gateway"
+
+
+def _restart_command(request: web.Request, process: str) -> str:
+    config_path = shlex.quote(str(_current_config_path(request)))
+    return f"hahobot {process} --config {config_path}"
+
+
+def _restart_field_list(request: web.Request, fields: tuple[ConfigFieldSpec, ...]) -> str:
+    return "".join(
+        "<li>"
+        f"<span>{escape(_t(request, field.label_key))}</span> "
+        f"<code>{escape('.'.join(field.path))}</code>"
+        "</li>"
+        for field in fields
+    )
+
+
+def _render_restart_card(request: web.Request) -> str:
+    pending = _pending_restart_fields(request)
+    if not pending:
+        return ""
+
+    gateway_fields = tuple(field for field in pending if _restart_scope(field) == "gateway")
+    serve_fields = tuple(field for field in pending if _restart_scope(field) == "serve")
+    parts = [
+        '<section class="card stack restart-card">',
+        f"<h2>{escape(_t(request, 'admin_config_restart_pending_title'))}</h2>",
+        f'<p class="muted">{_th(request, "admin_config_restart_pending_desc", count=len(pending))}</p>',
+    ]
+    if gateway_fields:
+        parts.extend(
+            [
+                f"<h3>{escape(_t(request, 'admin_config_restart_gateway_heading'))}</h3>",
+                f'<p class="muted">{_th(request, "admin_config_restart_gateway_desc")}</p>',
+                f'<ul class="detail-list restart-change-list">{_restart_field_list(request, gateway_fields)}</ul>',
+                '<div class="restart-command"><code>'
+                f"{escape(_restart_command(request, 'gateway'))}</code></div>",
+            ]
+        )
+        if _restart_runtime_callback(request) is not None:
+            parts.extend(
+                [
+                    '<form method="post" action="/admin/restart" class="actions">',
+                    f'<button type="submit">{escape(_t(request, "admin_config_restart_gateway_button"))}</button>',
+                    "</form>",
+                ]
+            )
+        else:
+            parts.append(
+                f'<div class="notice error">{_th(request, "admin_config_restart_gateway_unavailable")}</div>'
+            )
+    if serve_fields:
+        parts.extend(
+            [
+                f"<h3>{escape(_t(request, 'admin_config_restart_serve_heading'))}</h3>",
+                f'<p class="muted">{_th(request, "admin_config_restart_serve_desc")}</p>',
+                f'<ul class="detail-list restart-change-list">{_restart_field_list(request, serve_fields)}</ul>',
+                '<div class="restart-command"><code>'
+                f"{escape(_restart_command(request, 'serve'))}</code></div>",
+            ]
+        )
+    parts.append("</section>")
+    return "".join(parts)
 
 
 def _config_section_id(title_key: str) -> str:
@@ -1237,6 +1352,7 @@ def _render_config_page(
         jump_title=_t(request, "admin_config_jump_title"),
         jump_desc=_t(request, "admin_config_jump_desc"),
         jump_links_html=_markup("".join(jump_links)),
+        restart_card_html=_markup(_render_restart_card(request)),
         sections_html=_markup(sections),
         save_visual_label=_t(request, "admin_config_save_visual"),
         memory_migrate_card_html=_markup(_render_memory_migrate_card(request)),
@@ -1431,3 +1547,44 @@ async def _admin_config_submit(request: web.Request) -> web.Response:
             )
         raise _redirect(request, "/admin/config?saved=1&reloaded=1")
     raise _redirect(request, "/admin/config?saved=1")
+
+
+async def _admin_restart_current(request: web.Request) -> web.Response:
+    """Restart the current gateway after restart-required config changes."""
+    _require_admin_auth(request)
+    gateway_fields = tuple(
+        field for field in _pending_restart_fields(request) if _restart_scope(field) == "gateway"
+    )
+    if not gateway_fields:
+        raise _redirect(request, "/admin/config")
+
+    restart_runtime = _restart_runtime_callback(request)
+    if restart_runtime is None:
+        config = _load_current_config(request)
+        return _render_config_page(
+            request,
+            visual_values=_config_form_values(config),
+            raw_text=_pretty_json(_load_raw_config_data(request)),
+            error=_t(request, "admin_error_restart_unavailable"),
+        )
+
+    try:
+        await restart_runtime()
+    except Exception as exc:
+        config = _load_current_config(request)
+        return _render_config_page(
+            request,
+            visual_values=_config_form_values(config),
+            raw_text=_pretty_json(_load_raw_config_data(request)),
+            error=_t(request, "admin_error_restart_failed", error=exc),
+        )
+
+    return _page(
+        template_name="gateway/admin/restart.html",
+        title=_t(request, "admin_restart_title"),
+        heading=_t(request, "admin_restart_heading"),
+        request=request,
+        restart_body_html=_markup(_th(request, "admin_restart_body")),
+        restart_command=_restart_command(request, "gateway"),
+        restart_return_label=_t(request, "admin_restart_return"),
+    )

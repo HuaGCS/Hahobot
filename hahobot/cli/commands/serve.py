@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from pathlib import Path
 
 import typer
@@ -307,6 +309,15 @@ def gateway(
         )
         http_server.update_runtime_workspace(reloaded.workspace_path)
 
+    async def _restart_runtime_process() -> None:
+        """Schedule an in-place restart after the admin response is flushed."""
+
+        async def _do_restart() -> None:
+            await asyncio.sleep(1)
+            os.execv(sys.executable, [sys.executable, "-m", "hahobot"] + sys.argv[1:])
+
+        asyncio.create_task(_do_restart())
+
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""
         enabled = set(channels.enabled_channels)
@@ -376,6 +387,7 @@ def gateway(
         config_path=runtime_config_path,
         workspace=config.workspace_path,
         reload_runtime=_reload_runtime_state,
+        restart_runtime=_restart_runtime_process,
         star_office_tracker=star_office_tracker,
         runtime_status_tracker=runtime_status_tracker,
         heartbeat_service=heartbeat,

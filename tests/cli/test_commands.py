@@ -1514,6 +1514,7 @@ def test_gateway_constructs_http_server_without_public_file_options(
             config_path: Path,
             workspace: Path,
             reload_runtime,
+            restart_runtime,
             star_office_tracker,
             runtime_status_tracker,
             heartbeat_service,
@@ -1528,6 +1529,7 @@ def test_gateway_constructs_http_server_without_public_file_options(
             seen["config_path"] = config_path
             seen["workspace"] = workspace
             seen["reload_runtime"] = reload_runtime
+            seen["restart_runtime"] = restart_runtime
             seen["star_office_tracker"] = star_office_tracker
             seen["runtime_status_tracker"] = runtime_status_tracker
             seen["heartbeat_service"] = heartbeat_service
@@ -1550,6 +1552,7 @@ def test_gateway_constructs_http_server_without_public_file_options(
     assert seen["config_path"] == config_file.resolve()
     assert seen["workspace"] == config.bind_config_path(config_file.resolve()).workspace_path
     assert callable(seen["reload_runtime"])
+    assert callable(seen["restart_runtime"])
     assert seen["star_office_tracker"] is not None
     assert seen["runtime_status_tracker"] is not None
     assert seen["heartbeat_service"] is not None

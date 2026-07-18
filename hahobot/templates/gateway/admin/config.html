@@ -32,6 +32,7 @@
     </nav>
   </aside>
   <div class="stack">
+    {{ restart_card_html }}
     <form method="post" action="/admin/config" class="stack">
       <input type="hidden" name="mode" value="visual">
       {{ sections_html }}

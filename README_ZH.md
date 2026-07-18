@@ -1314,6 +1314,8 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
 - 带实时工作检查点面板（读取会话 `working_checkpoint`），以及语音输入（麦克风 → `/app/transcribe`，
   复用已配置的转写 provider：`channels.transcriptionProvider` + `providers.openai`/`groq` 的 key）
 - 支持会话分叉（`/app/session/fork` 复制当前会话为新分支）、回到最新按钮与移动端自适应布局
+- WebUI 与 admin 共用克制的交互动效规范：高频操作只保留快速按压/状态反馈，hover 仅在精细指针设备启用，
+  同时支持 `prefers-reduced-motion`、`prefers-reduced-transparency`、高对比度和清晰的键盘焦点样式
 - 主动推送：cron / heartbeat / `message` 工具产生的主动消息会**实时推**进已打开的 WebUI 对话，并落库；
   无客户端连接时也会在下次打开页面时显示。可在 WebUI 对话里让 agent “10 分钟后提醒我”并看到它到点出现。
   实现为 `webui` 伪渠道 + 连接注册表（`WebUIBroadcaster`）+ 单写者双向 `/app/ws`；调度有两种方式：
@@ -1325,7 +1327,7 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
 当前 admin 页面支持：
 
 - 可视化编辑并校验 `config.json`，同时保留高级 JSON 兜底编辑器
-- `/admin` 和浏览器访问的 `/status` 采用 Hermes 风格的深色 dashboard 视觉，但仍复用当前 hahobot gateway 进程，不额外引入第二套前端运行时
+- `/admin` 和浏览器访问的 `/status` 采用克制、可扫描的深色 dashboard 视觉和统一 motion token，但仍复用当前 hahobot gateway 进程，不额外引入第二套前端运行时
 - admin 新增只读的会话页、技能页和 Cron 页，可直接查看当前 runtime workspace 下保存的 session、已加载 skill 和 `cron/jobs.json`
 - 可视化编辑 `gateway.status`，用于 Star-Office-UI 一类状态看板访问当前实例的 `GET /status`，也可直接配置 HTTP 主动推送
 - 可视化编辑 `agents.defaults.providerPool`，提供按行维护 targets 的列表式界面，支持新增 / 删除 / 排序，以及故障切换 / 轮询策略
@@ -1340,6 +1342,9 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
 - 独立的命令总览页，展示所有聊天 slash 命令、别名和用法
 - 每个可视化配置项都带悬浮说明，鼠标移动到字段名即可查看详细解释
 - 每个可视化配置项都会直接标注“可热重载”或“需重启”
+- 保存后，admin 会把“需重启”字段与当前进程启动时的配置基线比较，列出真正发生变化的字段路径；
+  gateway / agent / provider / channel 类变更可直接点击“重启当前 gateway”，而 `api.*` / `a2a.*`
+  会单独显示 `hahobot serve --config ...` 命令，避免误重启错误的进程；将字段改回启动值后提示会自动消失
 - 编辑当前 runtime workspace 下 persona 的 `SOUL.md`、`USER.md`、可选 `PROFILE.md`、可选 `INSIGHTS.md`、`STYLE.md`、`LORE.md`
 - 编辑 persona 的 `VOICE.json`
 - 可视化编辑 persona 的 companion scene 字段，例如 `/scene` 的默认参考图、分场景参考图、prompt 覆盖和配文覆盖

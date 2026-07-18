@@ -8,17 +8,22 @@ from pathlib import Path
 from aiohttp import web
 
 from hahobot.agent.tools.image_gen import ImageGenTool
+from hahobot.config.loader import load_config
 from hahobot.gateway.admin.base import _admin_login_page, _admin_login_submit, _admin_logout
 from hahobot.gateway.admin.config_view import (
     _admin_config_models,
     _admin_config_page,
     _admin_config_submit,
     _admin_memory_migrate_legacy,
+    _admin_restart_current,
+    _restart_required_field_values,
     validate_admin_config_specs,
 )
 from hahobot.gateway.admin.constants import (
     _ADMIN_CONFIG_PATH_KEY,
     _ADMIN_RELOAD_RUNTIME_KEY,
+    _ADMIN_RESTART_BASELINE_KEY,
+    _ADMIN_RESTART_RUNTIME_KEY,
     _ADMIN_SUBAGENT_MANAGER_KEY,
     _ADMIN_WEIXIN_LOGIN_SESSIONS_KEY,
     _ADMIN_WORKSPACE_KEY,
@@ -67,6 +72,7 @@ def register_admin_routes(
     config_path: Path,
     workspace: Path,
     reload_runtime: Callable[[], Awaitable[None]] | None = None,
+    restart_runtime: Callable[[], Awaitable[None]] | None = None,
     subagent_manager: object | None = None,
 ) -> None:
     """Register built-in admin routes for the current gateway instance."""
@@ -75,9 +81,12 @@ def register_admin_routes(
     validate_admin_config_specs()
     app[_ADMIN_CONFIG_PATH_KEY] = config_path
     app[_ADMIN_WORKSPACE_KEY] = workspace
+    app[_ADMIN_RESTART_BASELINE_KEY] = _restart_required_field_values(load_config(config_path))
     app[_ADMIN_WEIXIN_LOGIN_SESSIONS_KEY] = {}
     if reload_runtime is not None:
         app[_ADMIN_RELOAD_RUNTIME_KEY] = reload_runtime
+    if restart_runtime is not None:
+        app[_ADMIN_RESTART_RUNTIME_KEY] = restart_runtime
     if subagent_manager is not None:
         app[_ADMIN_SUBAGENT_MANAGER_KEY] = subagent_manager
     app.router.add_get("/admin", _admin_index)
@@ -87,6 +96,7 @@ def register_admin_routes(
     app.router.add_get("/admin/config", _admin_config_page)
     app.router.add_get("/admin/config/models", _admin_config_models)
     app.router.add_post("/admin/config", _admin_config_submit)
+    app.router.add_post("/admin/restart", _admin_restart_current)
     app.router.add_post("/admin/memory/migrate-legacy", _admin_memory_migrate_legacy)
     app.router.add_get("/admin/sessions", _admin_sessions_page)
     app.router.add_get("/admin/skills", _admin_skills_page)

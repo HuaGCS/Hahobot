@@ -7,13 +7,14 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #041c1c;
-        --panel: rgba(6, 36, 36, 0.92);
-        --panel-strong: rgba(8, 42, 42, 0.98);
-        --line: rgba(255, 230, 203, 0.14);
-        --line-strong: rgba(255, 230, 203, 0.22);
-        --ink: #ffe6cb;
-        --muted: #8aaa9a;
+        --bg: #101216;
+        --panel: #171a20;
+        --panel-strong: #1c2027;
+        --line: rgba(230, 232, 236, 0.12);
+        --line-strong: rgba(230, 232, 236, 0.22);
+        --ink: #e6e8ec;
+        --muted: #98a0ac;
+        --accent: #f05a3c;
         --ok: #4ade80;
         --ok-bg: rgba(74, 222, 128, 0.10);
         --warn: #ffbd38;
@@ -26,24 +27,13 @@
       body {
         margin: 0;
         min-height: 100vh;
-        font-family: "Palatino Linotype", "Book Antiqua", "STSong", serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
         color: var(--ink);
-        background:
-          radial-gradient(circle at top left, rgba(255, 189, 56, 0.18), transparent 34%),
-          radial-gradient(circle at right 10%, rgba(255, 230, 203, 0.06), transparent 28%),
-          var(--bg);
+        background: var(--bg);
         position: relative;
         overflow-x: hidden;
-      }
-      body::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        mix-blend-mode: color-dodge;
-        opacity: 0.10;
-        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' fill='%23eaeaea' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
-        background-size: 512px 512px;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
       }
       main {
         width: min(1280px, calc(100vw - 28px));
@@ -55,7 +45,8 @@
         border: 1px solid var(--line);
         background: var(--panel);
         box-shadow: var(--shadow);
-        backdrop-filter: blur(14px);
+        border-radius: 8px;
+        overflow: hidden;
       }
       .topbar {
         display: flex;
@@ -66,11 +57,12 @@
         padding: 0 18px;
         border-bottom: 1px solid var(--line);
         text-transform: uppercase;
-        letter-spacing: 0.14em;
+        letter-spacing: 0;
         font-size: 12px;
       }
       .brand {
         font-weight: 700;
+        color: var(--accent);
       }
       .version {
         color: var(--muted);
@@ -89,15 +81,15 @@
       }
       .eyebrow {
         font-size: 11px;
-        letter-spacing: 0.18em;
+        letter-spacing: 0;
         text-transform: uppercase;
         color: var(--muted);
       }
       h1 {
         margin: 0;
-        font-size: clamp(30px, 4vw, 52px);
-        line-height: 0.94;
-        letter-spacing: -0.02em;
+        font-size: 42px;
+        line-height: 1.05;
+        letter-spacing: 0;
       }
       .sub {
         margin: 0;
@@ -122,8 +114,9 @@
         font-size: 18px;
       }
       .kpi {
-        font-size: clamp(26px, 3vw, 42px);
+        font-size: 36px;
         font-weight: 700;
+        font-variant-numeric: tabular-nums;
       }
       .badge {
         display: inline-flex;
@@ -135,7 +128,7 @@
         font-size: 12px;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.12em;
+        letter-spacing: 0;
       }
       .badge.ok { background: var(--ok-bg); color: var(--ok); }
       .badge.warn { background: var(--warn-bg); color: var(--warn); }
@@ -166,10 +159,16 @@
         font-size: 18px;
         font-weight: 700;
       }
+      #status-uptime-seconds, code { font-variant-numeric: tabular-nums; }
+      @media (prefers-contrast: more) {
+        .shell, .hero, .card, .badge { border-color: currentColor; }
+      }
       @media (max-width: 860px) {
         main { width: min(100vw - 16px, 1280px); margin: 10px auto 18px; }
         .grid { grid-template-columns: 1fr; }
         .content { padding: 14px; }
+        h1 { font-size: 30px; }
+        .kpi { font-size: 28px; }
       }
     </style>
   </head>

@@ -1,0 +1,11 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<section class="card stack spotlight">
+  <h2 class="panel-title">{{ heading_text }}</h2>
+  <p class="muted">{{ restart_body_html }}</p>
+  <div class="restart-command"><code>{{ restart_command }}</code></div>
+  <div class="actions">
+    <a class="button-link ghost" href="/admin/config">{{ restart_return_label }}</a>
+  </div>
+</section>
+{% endblock %}

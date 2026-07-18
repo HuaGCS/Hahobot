@@ -179,6 +179,9 @@ async def test_webui_authenticated_renders_shell(tmp_path: Path, client_factory)
     assert 'data-session="webui:default"' in body
     assert "/app/ws" in body
     assert "Send" in body  # composer send label (en locale)
+    assert "--motion-press: 120ms" in body
+    assert "@media (prefers-reduced-motion: reduce)" in body
+    assert "@media (hover: hover) and (pointer: fine)" in body
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
@@ -488,6 +491,8 @@ async def test_admin_shows_webui_topbar_when_enabled(tmp_path: Path, client_fact
     assert '<div class="webui-topbar">' in body
     assert 'href="/app"' in body
     assert 'href="/app/settings"' in body
+    assert "--ease-out: cubic-bezier(0.23, 1, 0.32, 1)" in body
+    assert "@media (prefers-reduced-transparency: reduce)" in body
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")

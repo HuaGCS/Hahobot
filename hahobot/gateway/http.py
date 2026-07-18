@@ -201,6 +201,7 @@ def create_http_app(
     config_path: Path | None = None,
     workspace: Path | None = None,
     reload_runtime: Callable[[], Awaitable[None]] | None = None,
+    restart_runtime: Callable[[], Awaitable[None]] | None = None,
     star_office_tracker: StarOfficeStatusTracker | None = None,
     runtime_status_tracker: GatewayRuntimeStatusTracker | None = None,
     heartbeat_service: HeartbeatService | None = None,
@@ -270,6 +271,7 @@ def create_http_app(
             config_path=config_path,
             workspace=workspace,
             reload_runtime=reload_runtime,
+            restart_runtime=restart_runtime,
             subagent_manager=subagent_manager,
         )
         # WebUI shares the admin config/workspace/auth wiring; routes no-op at
@@ -295,6 +297,7 @@ class GatewayHttpServer:
         config_path: Path | None = None,
         workspace: Path | None = None,
         reload_runtime: Callable[[], Awaitable[None]] | None = None,
+        restart_runtime: Callable[[], Awaitable[None]] | None = None,
         star_office_tracker: StarOfficeStatusTracker | None = None,
         runtime_status_tracker: GatewayRuntimeStatusTracker | None = None,
         heartbeat_service: HeartbeatService | None = None,
@@ -310,6 +313,7 @@ class GatewayHttpServer:
             config_path=config_path,
             workspace=workspace,
             reload_runtime=reload_runtime,
+            restart_runtime=restart_runtime,
             star_office_tracker=star_office_tracker,
             runtime_status_tracker=runtime_status_tracker,
             heartbeat_service=heartbeat_service,

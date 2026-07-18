@@ -293,14 +293,19 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     save_config(config, config_path)
 
     reload_calls: list[str] = []
+    restart_calls: list[str] = []
 
     async def _reload_runtime() -> None:
         reload_calls.append("called")
+
+    async def _restart_runtime() -> None:
+        restart_calls.append("called")
 
     app = create_http_app(
         config_path=config_path,
         workspace=workspace,
         reload_runtime=_reload_runtime,
+        restart_runtime=_restart_runtime,
     )
 
     response = await _call_route(app, "GET", "/admin")
@@ -571,6 +576,30 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
         {"provider": "deepseek", "model": "deepseek-chat"},
     ]
 
+    restart_config_page = await _call_route(
+        app,
+        "GET",
+        "/admin/config",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert restart_config_page.status == 200
+    assert "配置需要重启生效" in restart_config_page.text
+    assert 'action="/admin/restart"' in restart_config_page.text
+    assert "providers.openrouter.apiKey" in restart_config_page.text
+    assert "channels.telegram.token" in restart_config_page.text
+    assert "hahobot gateway --config" in restart_config_page.text
+
+    restart_response = await _call_route(
+        app,
+        "POST",
+        "/admin/restart",
+        cookies={"hahobot_admin_session": cookie},
+    )
+    assert restart_response.status == 200
+    assert restart_calls == ["called"]
+    assert "正在重启当前 gateway" in restart_response.text
+    assert "hahobot gateway --config" in restart_response.text
+
     overview_page = await _call_route(
         app,
         "GET",
@@ -580,6 +609,60 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert overview_page.status == 200
     assert "providerPool/failover" in overview_page.text
     assert "openrouter, deepseek" in overview_page.text
+
+
+@pytest.mark.asyncio
+async def test_admin_restart_guidance_distinguishes_serve_and_hot_reload(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    workspace = tmp_path / "workspace"
+    config = Config()
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    save_config(config, config_path)
+
+    app = create_http_app(config_path=config_path, workspace=workspace)
+    login = await _call_route(
+        app,
+        "POST",
+        "/admin/login",
+        data={"auth_key": "secret-key", "next": "/admin/config"},
+    )
+    cookie = login.cookies["hahobot_admin_session"].value
+    cookies = {"hahobot_admin_session": cookie, "hahobot_admin_lang": "en"}
+
+    serve_data = config.model_dump(mode="json", by_alias=True)
+    serve_data["api"]["port"] = config.api.port + 1
+    save_serve = await _call_route(
+        app,
+        "POST",
+        "/admin/config",
+        cookies=cookies,
+        data={"mode": "raw", "config_json": json.dumps(serve_data)},
+    )
+    assert save_serve.status == 302
+
+    serve_page = await _call_route(app, "GET", "/admin/config", cookies=cookies)
+    assert serve_page.status == 200
+    assert "Separate serve process" in serve_page.text
+    assert "api.port" in serve_page.text
+    assert "hahobot serve --config" in serve_page.text
+    assert 'action="/admin/restart"' not in serve_page.text
+
+    hot_data = config.model_dump(mode="json", by_alias=True)
+    hot_data["agents"]["defaults"]["model"] = "openai/gpt-hot-reload"
+    save_hot = await _call_route(
+        app,
+        "POST",
+        "/admin/config",
+        cookies=cookies,
+        data={"mode": "raw", "config_json": json.dumps(hot_data)},
+    )
+    assert save_hot.status == 302
+
+    hot_page = await _call_route(app, "GET", "/admin/config", cookies=cookies)
+    assert hot_page.status == 200
+    assert "Restart required" not in hot_page.text
+    assert "Separate serve process" not in hot_page.text
 
 
 @pytest.mark.asyncio

@@ -609,15 +609,21 @@ Notable gateway features:
     - proactive/scheduled delivery: cron, heartbeat, and the `message` tool push into an open
       conversation (and persist so they show on reload) — ask the agent to "remind me in 10 minutes"
       or use the composer's reminder form
-    - a responsive mobile layout
+    - a responsive mobile layout with restrained press/state motion, keyboard-visible focus rings,
+      fine-pointer hover gating, and reduced-motion/transparency/contrast fallbacks
 - Hermes-inspired dashboard styling for `/admin` and browser `/status`, without introducing a
-  second SPA runtime
+  second SPA runtime; shared motion tokens keep frequent operational interactions crisp and avoid
+  decorative page animation
 - read-only sessions, skills, and cron pages in the admin UI for the active runtime workspace
 - visual config coverage for `tools.exec.*`, channel runtime controls such as
   `channels.transcriptionProvider` / `channels.transcriptionLanguage`,
   `agents.defaults.toolHintMaxLength`, and the common
   Telegram/Discord single-instance extras (`channels.telegram.streamEditInterval`,
   `channels.telegram.inlineKeyboards`, Discord streaming/emoji/proxy fields)
+- restart-aware config saves: the admin page compares restart-required fields against the values
+  used when the current process started, lists the exact changed paths, and offers a one-click
+  restart for the current gateway. `api.*` / `a2a.*` changes are kept separate and show the
+  corresponding `hahobot serve --config ...` command because they belong to another process
 - built-in slash-command reference in the admin page
 - persona editor in the admin page, including companion scene fields for `/scene` reference images,
   prompt overrides, and caption overrides
