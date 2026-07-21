@@ -22,7 +22,7 @@ def _resolve_version() -> str:
         return _pkg_version("hahobot-ai")
     except PackageNotFoundError:
         # Source checkouts often import hahobot without installed dist-info.
-        return _read_pyproject_version() or "0.1.4"
+        return _read_pyproject_version() or "0.1.5"
 
 
 __version__ = _resolve_version()
