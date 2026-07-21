@@ -6,6 +6,7 @@
   <nav class="topnav">
     <a class="nav-link{% if active == 'chat' %} active{% endif %}" href="/app">{{ nav_chat_label }}</a>
     <a class="nav-link{% if active == 'settings' %} active{% endif %}" href="/app/settings">{{ nav_settings_label }}</a>
+    {% if status_enabled %}<a class="nav-link" href="/status">{{ nav_status_label }}</a>{% endif %}
     {{ language_switch_html }}
     <form method="post" action="/admin/logout" class="inline-form">
       <button type="submit" class="nav-link nav-link-button">{{ logout_label }}</button>

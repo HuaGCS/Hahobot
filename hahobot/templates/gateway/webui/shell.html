@@ -175,7 +175,7 @@
       function addMessage(role, text) {
         clearEmpty();
         const wrap = document.createElement("div");
-        wrap.className = "msg " + role;
+        wrap.className = "msg " + role + " live";
         const bubble = document.createElement("div");
         bubble.className = "bubble";
         bubble.textContent = text;
@@ -192,7 +192,7 @@
         clearThinking();
         clearEmpty();
         const wrap = document.createElement("div");
-        wrap.className = "msg assistant thinking-msg";
+        wrap.className = "msg assistant thinking-msg live";
         const bubble = document.createElement("div");
         bubble.className = "bubble thinking";
         bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';

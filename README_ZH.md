@@ -1314,8 +1314,13 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
 - 带实时工作检查点面板（读取会话 `working_checkpoint`），以及语音输入（麦克风 → `/app/transcribe`，
   复用已配置的转写 provider：`channels.transcriptionProvider` + `providers.openai`/`groq` 的 key）
 - 支持会话分叉（`/app/session/fork` 复制当前会话为新分支）、回到最新按钮与移动端自适应布局
-- WebUI 与 admin 共用克制的交互动效规范：高频操作只保留快速按压/状态反馈，hover 仅在精细指针设备启用，
-  同时支持 `prefers-reduced-motion`、`prefers-reduced-transparency`、高对比度和清晰的键盘焦点样式
+- WebUI、admin 与浏览器 `/status` 共用 Apple 风格的系统蓝、分层玻璃材质、平台字体与空间层级；桌面
+  WebUI 使用圆角窗口内容区、半透明侧栏和浮动输入区，语言控件只显示当前语言，点击后再以下拉菜单选择。
+  只有实时消息和 working checkpoint 采用轻量 continuity transition，高频导航不做整页动画。
+  hover 仅在精细指针设备启用，同时支持 `prefers-reduced-motion`、`prefers-reduced-transparency`、
+  高对比度和清晰的键盘焦点样式
+- Chat / Settings / Status 保持即时切换，不对根页面做透明度或缩放过渡；开启 `gateway.status.enabled`
+  后 WebUI 与 admin 顶栏显示 Status 入口，同时仍遵守 Status 独立的 Bearer 鉴权
 - 主动推送：cron / heartbeat / `message` 工具产生的主动消息会**实时推**进已打开的 WebUI 对话，并落库；
   无客户端连接时也会在下次打开页面时显示。可在 WebUI 对话里让 agent “10 分钟后提醒我”并看到它到点出现。
   实现为 `webui` 伪渠道 + 连接注册表（`WebUIBroadcaster`）+ 单写者双向 `/app/ws`；调度有两种方式：

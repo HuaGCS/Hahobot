@@ -609,11 +609,16 @@ Notable gateway features:
     - proactive/scheduled delivery: cron, heartbeat, and the `message` tool push into an open
       conversation (and persist so they show on reload) — ask the agent to "remind me in 10 minutes"
       or use the composer's reminder form
-    - a responsive mobile layout with restrained press/state motion, keyboard-visible focus rings,
-      fine-pointer hover gating, and reduced-motion/transparency/contrast fallbacks
-- Hermes-inspired dashboard styling for `/admin` and browser `/status`, without introducing a
-  second SPA runtime; shared motion tokens keep frequent operational interactions crisp and avoid
-  decorative page animation
+    - an Apple-inspired responsive material system: system-blue controls, layered translucent
+      chrome, a rounded desktop window layout, a floating composer, a compact current-language
+      dropdown, restrained live-message/checkpoint continuity motion,
+      keyboard-visible focus rings, fine-pointer hover gating, and reduced-motion/transparency/
+      contrast fallbacks
+    - Chat/Settings/Status navigation stays immediate without a root-page transition; the Status
+      link appears when `gateway.status.enabled` and keeps its independent Bearer-auth requirement
+- the same Apple-style material, typography, selection, and depth language across `/admin` and
+  browser `/status`, without introducing a second SPA runtime; high-frequency operational
+  navigation stays immediate and avoids decorative page animation
 - read-only sessions, skills, and cron pages in the admin UI for the active runtime workspace
 - visual config coverage for `tools.exec.*`, channel runtime controls such as
   `channels.transcriptionProvider` / `channels.transcriptionLanguage`,

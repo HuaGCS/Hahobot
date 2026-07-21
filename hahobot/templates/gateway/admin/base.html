@@ -18,6 +18,7 @@
     <nav class="webui-topnav">
       <a class="nav-link" href="/app">{{ webui_chat_label }}</a>
       <a class="nav-link active" href="/app/settings">{{ webui_settings_label }}</a>
+      {% if status_enabled %}<a class="nav-link" href="/status">{{ webui_status_label }}</a>{% endif %}
       {{ language_switch_html }}
       <form method="post" action="/admin/logout" class="inline-form">
         <button type="submit" class="ghost nav-link nav-link-button">{{ webui_logout_label }}</button>

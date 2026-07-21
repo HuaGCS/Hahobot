@@ -43,6 +43,8 @@ def test_gateway_html_templates_render_from_package() -> None:
         heartbeat_interval="600s",
         heartbeat_checked_at="2026-04-13 10:10:00",
         heartbeat_detail="最近一次 heartbeat 检测成功",
+        admin_enabled=True,
+        webui_enabled=True,
     )
 
     assert "<!doctype html>" in admin_html.lower()
@@ -51,4 +53,9 @@ def test_gateway_html_templates_render_from_package() -> None:
     assert "运行状态页" in status_html
     assert 'id="status-uptime-kpi"' in status_html
     assert "font-variant-numeric: tabular-nums" in status_html
-    assert "radial-gradient" not in status_html
+    assert "--accent: #0a84ff" in status_html
+    assert "backdrop-filter: blur(28px)" in status_html
+    assert "prefers-reduced-transparency" in status_html
+    assert "@view-transition" not in status_html
+    assert 'href="/app"' in status_html
+    assert 'href="/app/settings"' in status_html

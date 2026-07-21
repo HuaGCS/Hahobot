@@ -192,6 +192,7 @@
         "webui_brand": "hahobot",
         "webui_nav_chat": "对话",
         "webui_nav_settings": "设置",
+        "webui_nav_status": "运行状态",
         "webui_sessions_heading": "会话",
         "webui_new_session": "新建",
         "webui_new_session_placeholder": "新会话名称",

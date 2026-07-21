@@ -222,6 +222,9 @@ async def test_gateway_status_route_renders_html_status_page_for_browser_request
     )
     config = Config()
     config.gateway.status.enabled = True
+    config.gateway.admin.enabled = True
+    config.gateway.admin.auth_key = "secret-key"
+    config.gateway.webui.enabled = True
     save_config(config, config_path)
 
     star_tracker = StarOfficeStatusTracker()
@@ -279,6 +282,9 @@ async def test_gateway_status_route_renders_html_status_page_for_browser_request
     assert "hahobot-meta: confidence=high last_verified=YYYY-MM-DD" in response.text
     assert "openrouter/sonnet" in response.text
     assert "最近一次成功" in response.text
+    assert 'href="/app"' in response.text
+    assert 'href="/app/settings"' in response.text
+    assert 'href="/status"' in response.text
 
 
 @pytest.mark.asyncio
@@ -806,6 +812,11 @@ async def test_gateway_admin_language_switch_and_raw_json_editor(tmp_path: Path)
     )
     assert config_page.status == 200
     assert "Config Editor" in config_page.text
+    assert 'class="lang-menu"' in config_page.text
+    assert 'class="lang-trigger"' in config_page.text
+    assert 'role="menuitemradio"' in config_page.text
+    assert 'aria-checked="true"' in config_page.text
+    assert "lang-switch" not in config_page.text
     assert "/admin/commands" in config_page.text
     assert "Advanced JSON editor" in config_page.text
     assert "Default workspace path" in config_page.text

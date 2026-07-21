@@ -73,6 +73,7 @@ def _make_app(
     agent=None,
     broadcaster=None,
     cron_service=None,
+    status_enabled: bool = False,
 ):
     config_path = tmp_path / "config.json"
     workspace = tmp_path / "workspace"
@@ -81,6 +82,7 @@ def _make_app(
     config.gateway.admin.enabled = admin_enabled
     config.gateway.admin.auth_key = AUTH_KEY if admin_enabled else ""
     config.gateway.webui.enabled = webui_enabled
+    config.gateway.status.enabled = status_enabled
     save_config(config, config_path)
     return create_http_app(
         config_path=config_path,
@@ -171,7 +173,7 @@ async def test_webui_unauthenticated_redirects_to_login(tmp_path: Path, client_f
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_webui_authenticated_renders_shell(tmp_path: Path, client_factory) -> None:
-    app = _make_app(tmp_path, webui_enabled=True)
+    app = _make_app(tmp_path, webui_enabled=True, status_enabled=True)
     client = await client_factory(app)
     resp = await client.get("/app", cookies=_auth_cookies())
     assert resp.status == 200
@@ -179,7 +181,15 @@ async def test_webui_authenticated_renders_shell(tmp_path: Path, client_factory)
     assert 'data-session="webui:default"' in body
     assert "/app/ws" in body
     assert "Send" in body  # composer send label (en locale)
+    assert 'class="lang-menu"' in body
+    assert 'class="lang-popover"' in body
+    assert 'role="menuitemradio"' in body
     assert "--motion-press: 120ms" in body
+    assert "--accent: #0a84ff" in body
+    assert ".msg.live" in body
+    assert 'wrap.className = "msg " + role + " live"' in body
+    assert "@view-transition" not in body
+    assert 'href="/status"' in body
     assert "@media (prefers-reduced-motion: reduce)" in body
     assert "@media (hover: hover) and (pointer: fine)" in body
 
@@ -222,6 +232,7 @@ async def test_webui_settings_renders_panels_and_links(tmp_path: Path, client_fa
         assert f'href="{href}"' in body
     # memory-layer panel labels
     assert "PROFILE.md" in body and "INSIGHTS.md" in body
+    assert 'href="/status"' not in body
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
@@ -483,7 +494,7 @@ async def test_webui_transcribe_requires_auth(tmp_path: Path, client_factory) ->
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_admin_shows_webui_topbar_when_enabled(tmp_path: Path, client_factory) -> None:
-    app = _make_app(tmp_path, webui_enabled=True)
+    app = _make_app(tmp_path, webui_enabled=True, status_enabled=True)
     client = await client_factory(app)
     resp = await client.get("/admin", cookies=_auth_cookies())
     assert resp.status == 200
@@ -492,6 +503,9 @@ async def test_admin_shows_webui_topbar_when_enabled(tmp_path: Path, client_fact
     assert 'href="/app"' in body
     assert 'href="/app/settings"' in body
     assert "--ease-out: cubic-bezier(0.23, 1, 0.32, 1)" in body
+    assert "--accent: #0a84ff" in body
+    assert "backdrop-filter: blur(28px)" in body
+    assert 'href="/status"' in body
     assert "@media (prefers-reduced-transparency: reduce)" in body
 
 

@@ -117,6 +117,8 @@ def _render_status_page(
     workspace: Path | None,
     runtime_snapshot,
     heartbeat_snapshot: HeartbeatStatusSnapshot,
+    admin_enabled: bool = False,
+    webui_enabled: bool = False,
 ) -> str:
     task = runtime_snapshot.recent_task
     task_html = (
@@ -193,6 +195,8 @@ def _render_status_page(
         heartbeat_checked_at=heartbeat_snapshot.last_checked_at or "-",
         heartbeat_detail=heartbeat_snapshot.last_detail or "暂无 heartbeat 检测记录",
         memory_layers_html=memory_layers_html,
+        admin_enabled=admin_enabled,
+        webui_enabled=webui_enabled,
     )
 
 
@@ -257,6 +261,8 @@ def create_http_app(
                 workspace=workspace,
                 runtime_snapshot=runtime_tracker.snapshot(star_snapshot),
                 heartbeat_snapshot=heartbeat_snapshot,
+                admin_enabled=config.gateway.admin.enabled,
+                webui_enabled=config.gateway.webui.enabled,
             )
             return web.Response(text=html, content_type="text/html")
         payload = star_snapshot.to_payload()

@@ -205,15 +205,26 @@ def _query_url(request: web.Request, **updates: str | None) -> str:
 
 def _language_switch(request: web.Request) -> str:
     active = _admin_language(request)
-    links: list[str] = []
+    options: list[str] = []
     for code in ("zh", "en"):
         href = escape(_query_url(request, lang=code))
         label = escape(_language_switch_label(code, active))
-        css_class = "lang-link active" if code == active else "lang-link"
-        links.append(f'<a class="{css_class}" href="{href}">{label}</a>')
+        is_active = code == active
+        css_class = "lang-option active" if is_active else "lang-option"
+        options.append(
+            f'<a class="{css_class}" href="{href}" role="menuitemradio" '
+            f'aria-checked="{str(is_active).lower()}">'
+            f"<span>{label}</span>"
+            f'<span class="lang-check" aria-hidden="true">{"✓" if is_active else ""}</span>'
+            "</a>"
+        )
+    current_label = escape(_language_switch_label(active, active))
+    menu_label = escape(_t(request, "admin_meta_language"))
     return (
-        f'<div class="lang-switch"><span class="muted">{escape(_t(request, "admin_meta_language"))}</span>'
-        f"{''.join(links)}</div>"
+        f'<details class="lang-menu"><summary class="lang-trigger" aria-label="{menu_label}">'
+        f'<span>{current_label}</span><span class="lang-chevron" aria-hidden="true">›</span>'
+        f'</summary><div class="lang-popover" role="menu" aria-label="{menu_label}">'
+        f"{''.join(options)}</div></details>"
     )
 
 
@@ -287,9 +298,12 @@ def _page(
 
     show_topbar = authenticated and webui_enabled
     webui_title = "Hahobot"
+    status_enabled = False
     if show_topbar:
         try:
-            webui_title = _load_current_config(request).gateway.webui.title or "Hahobot"
+            current_config = _load_current_config(request)
+            webui_title = current_config.gateway.webui.title or "Hahobot"
+            status_enabled = current_config.gateway.status.enabled
         except Exception:
             webui_title = "Hahobot"
 
@@ -316,6 +330,8 @@ def _page(
         webui_title=webui_title,
         webui_chat_label=_t(request, "webui_nav_chat"),
         webui_settings_label=_t(request, "webui_nav_settings"),
+        webui_status_label=_t(request, "webui_nav_status"),
+        status_enabled=status_enabled,
         webui_logout_label=_t(request, "admin_nav_logout"),
         **context,
     )

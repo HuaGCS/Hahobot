@@ -192,6 +192,7 @@
         "webui_brand": "hahobot",
         "webui_nav_chat": "Chat",
         "webui_nav_settings": "Settings",
+        "webui_nav_status": "Runtime Status",
         "webui_sessions_heading": "Conversations",
         "webui_new_session": "New",
         "webui_new_session_placeholder": "New conversation name",
