@@ -5,15 +5,19 @@ import json
 import os
 import shutil
 import tempfile
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from weakref import WeakValueDictionary
 
 from loguru import logger
 
 from hahobot.config.paths import get_legacy_sessions_dir
 from hahobot.utils.helpers import ensure_dir, find_legal_message_start, safe_filename
+
+SESSION_CACHE_MAX_SIZE = 128
 
 
 @dataclass
@@ -136,13 +140,38 @@ class SessionManager:
         self.workspace = workspace
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self.legacy_sessions_dir = get_legacy_sessions_dir()
-        self._cache: dict[str, Session] = {}
+        self._cache: OrderedDict[str, Session] = OrderedDict()
+        # Evicted sessions that active callers still hold stay discoverable by
+        # identity, without keeping inactive sessions alive indefinitely.
+        self._overflow_cache: WeakValueDictionary[str, Session] = WeakValueDictionary()
+        self._max_cached_sessions = SESSION_CACHE_MAX_SIZE
+
+    def _remember(self, session: Session) -> None:
+        """Keep recent sessions strongly cached without duplicating live objects."""
+        self._overflow_cache.pop(session.key, None)
+        self._cache[session.key] = session
+        self._cache.move_to_end(session.key)
+        while len(self._cache) > self._max_cached_sessions:
+            key, evicted = self._cache.popitem(last=False)
+            self._overflow_cache[key] = evicted
+
+    def _cached(self, key: str) -> Session | None:
+        session = self._cache.get(key)
+        if session is not None:
+            self._cache.move_to_end(key)
+            return session
+
+        session = self._overflow_cache.get(key)
+        if session is not None:
+            self._remember(session)
+        return session
 
     def rebind_workspace(self, workspace: Path) -> None:
         """Repoint session storage to a new workspace root."""
         self.workspace = workspace
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self._cache.clear()
+        self._overflow_cache.clear()
 
     @staticmethod
     def _storage_key(key: str) -> str:
@@ -208,14 +237,15 @@ class SessionManager:
         Returns:
             The session.
         """
-        if key in self._cache:
-            return self._cache[key]
+        session = self._cached(key)
+        if session is not None:
+            return session
 
         session = self._load(key)
         if session is None:
             session = Session(key=key)
 
-        self._cache[key] = session
+        self._remember(session)
         return session
 
     def _load(self, key: str) -> Session | None:
@@ -467,11 +497,12 @@ class SessionManager:
                         self._write_jsonl_line(f, self._metadata_line(session))
                 self._mark_persisted(session)
 
-        self._cache[session.key] = session
+        self._remember(session)
 
     def invalidate(self, key: str) -> None:
         """Remove a session from the in-memory cache."""
         self._cache.pop(key, None)
+        self._overflow_cache.pop(key, None)
 
     def delete_session(self, key: str) -> bool:
         """Delete a session's persisted file(s) and drop it from the cache.
@@ -481,6 +512,7 @@ class SessionManager:
         reappear via :meth:`list_sessions`. Returns True if any file was removed.
         """
         self._cache.pop(key, None)
+        self._overflow_cache.pop(key, None)
         removed = False
         for path in (
             self._get_session_path(key),

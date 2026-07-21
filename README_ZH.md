@@ -226,6 +226,8 @@ hahobot config unset skills.entries.today-task.config.authCode
 模型请求默认仍受 `HAHOBOT_LLM_TIMEOUT_S` 的有限总时长保护（设为 `0` 可关闭）；流式请求
 会使用 `max(300, 2 × timeout)` 的更宽总时长，并继续叠加 provider 的空闲超时，避免正常长推理
 被普通请求边界提前终止，同时防止持续吐出极小 delta 的异常流永久占用 session。
+Moonshot 直连请求中，Kimi K2.5/K2.6 不再显式发送 `temperature`，由服务端根据 thinking
+模式选择合法值；K2.7 系列仍保留服务端要求的 `1.0` 覆盖。
 
 对于直连 OpenAI 的请求，当前实现也已经同步了上游新逻辑：
 

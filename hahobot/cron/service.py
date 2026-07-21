@@ -104,47 +104,7 @@ class CronService:
         if self.store_path.exists():
             try:
                 data = json.loads(self.store_path.read_text(encoding="utf-8"))
-                jobs = []
-                for j in data.get("jobs", []):
-                    jobs.append(
-                        CronJob(
-                            id=j["id"],
-                            name=j["name"],
-                            enabled=j.get("enabled", True),
-                            schedule=CronSchedule(
-                                kind=j["schedule"]["kind"],
-                                at_ms=j["schedule"].get("atMs"),
-                                every_ms=j["schedule"].get("everyMs"),
-                                expr=j["schedule"].get("expr"),
-                                tz=j["schedule"].get("tz"),
-                            ),
-                            payload=CronPayload(
-                                kind=j["payload"].get("kind", "agent_turn"),
-                                message=j["payload"].get("message", ""),
-                                deliver=j["payload"].get("deliver", False),
-                                channel=j["payload"].get("channel"),
-                                to=j["payload"].get("to"),
-                            ),
-                            state=CronJobState(
-                                next_run_at_ms=j.get("state", {}).get("nextRunAtMs"),
-                                last_run_at_ms=j.get("state", {}).get("lastRunAtMs"),
-                                last_status=j.get("state", {}).get("lastStatus"),
-                                last_error=j.get("state", {}).get("lastError"),
-                                run_history=[
-                                    CronRunRecord(
-                                        run_at_ms=r["runAtMs"],
-                                        status=r["status"],
-                                        duration_ms=r.get("durationMs", 0),
-                                        error=r.get("error"),
-                                    )
-                                    for r in j.get("state", {}).get("runHistory", [])
-                                ],
-                            ),
-                            created_at_ms=j.get("createdAtMs", 0),
-                            updated_at_ms=j.get("updatedAtMs", 0),
-                            delete_after_run=j.get("deleteAfterRun", False),
-                        )
-                    )
+                jobs = [CronJob.from_store_dict(job) for job in data.get("jobs", [])]
                 self._store = CronStore(jobs=jobs)
                 self._last_mtime = self.store_path.stat().st_mtime
             except Exception as e:

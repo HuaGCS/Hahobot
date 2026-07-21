@@ -310,6 +310,9 @@ def split_message(content: str, max_len: int = 2000) -> list[str]:
     """
     if not content:
         return []
+    # A non-positive max_len cannot advance the cut pointer and would loop forever.
+    if max_len <= 0:
+        return [content]
     if len(content) <= max_len:
         return [content]
     chunks: list[str] = []

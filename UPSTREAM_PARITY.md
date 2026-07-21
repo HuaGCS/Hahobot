@@ -66,6 +66,44 @@ This file therefore records both:
 
 ## Latest Audit
 
+- `nanobot` (`2026-07-21` pass): re-checked upstream `main` through `d5658dbc`
+  (`2026-07-21`); 56 commits since `5ed28a67`. **Five portable runtime-hardening clusters were
+  adopted:** (1) exec allowlists now split `&&`, `||`, `;`, pipes, and background `&` at top-level
+  shell boundaries and require every segment to `re.fullmatch` an allow pattern
+  (`bbca32fe`..`d5658dbc`, adapted); Hahobot deliberately retains the stricter local rule that deny
+  patterns run first and cannot be overridden by an allow entry. (2) persisted cron jobs load both
+  camelCase and snake_case fields and normalize null/blank numeric timestamps/history durations
+  (`afed32b0` / `0b1b02f1` / `b6156fdd`). (3) `SessionManager` uses a 128-entry strong LRU plus weak
+  overflow references, bounding idle memory while preserving identity for sessions still held by
+  active callers (`d35f99ab`, adapted to Hahobot's incremental JSONL store). (4) `split_message`
+  returns non-positive budgets unsplit instead of entering a non-advancing loop (`7ac9a469`).
+  (5) Moonshot Kimi K2.5/K2.6 omit `temperature` so server thinking mode selects the valid value,
+  while K2.7 variants retain the required `1.0` override (`8a48af7c`). Reviewed and not ported:
+  provider-pool failover on error responses is already broader locally; MCP cancellation already
+  uses owner-task cleanup; the separate exec-session manager, React/Vite UI, channel-manifest,
+  QQ reconnect, and native runtime changes do not map onto current Hahobot surfaces. Nanobot's
+  session-file retention/archiver (`7cf3c71e`) remains a watchlist item because Hahobot persists
+  incrementally and needs a local compaction design rather than a direct file rewrite port.
+- `GenericAgent` (`2026-07-21` pass): re-checked upstream `main` through `d69ec880`
+  (`2026-07-21`); 12 commits since `1e89c3ee`. Its concurrent prompt-file fix (`51f76929`) is
+  already covered by Hahobot's `tempfile.mkstemp`-based atomic/session writes. Desktop/Tauri/STApp,
+  conductor prompt, memory-template, and packaging changes remain architecture-specific; no direct
+  code port this pass.
+- `claude-mem` (`2026-07-21` pass): temporary-clone audit is unchanged at `f5633c1f`
+  (`2026-07-12`); zero commits since the prior boundary, so the file-first/local-only divergence is
+  unchanged.
+- `nocturne_memory` (`2026-07-21` pass): re-checked upstream `main` through `2cbfb8a`
+  (`2026-07-20`); five commits since `15930e09`. Requiring a title on structured memory writes is a
+  useful schema idea, but Hahobot's Markdown/Dream memory path has no equivalent mandatory title
+  field, so imposing one would be a new contract rather than a safe parity port. Agency-prompt and
+  package/version churn were not copied.
+- `jiuwenswarm` (`2026-07-21` pass): re-checked `develop@caec89ca` (`2026-07-21`); 64 commits since
+  `c673d587`. The Web stream `metadata.ws_id` isolation fix (`be115f6c`) is already covered locally:
+  `/app/ws` binds one immutable `session_key` per connection and `WebUIBroadcaster` indexes by that
+  key with a single writer queue. Cron defaults already schedule `every` jobs from `now + interval`
+  (`b698f77f` equivalent). Model-reload broadcast, background `/config set`, terminal-processor
+  reclamation, SIGUSR1 state dumps, Team authority, and plan/fast-mode changes target
+  jiuwenswarm's TUI/server/Team architecture; they remain reference ideas rather than direct ports.
 - `nanobot` (`2026-07-15` pass): re-checked against upstream `main` through `5ed28a67`
   (`2026-07-15`); 46 commits since `45d1caba`. The range is mostly React/Vite WebUI polish,
   guided onboarding, prompt-override refactoring, docs/CI churn, Windows PowerShell work, and

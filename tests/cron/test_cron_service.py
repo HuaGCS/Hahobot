@@ -203,6 +203,50 @@ def test_cron_job_from_dict_rehydrates_run_history() -> None:
     assert isinstance(job.state.run_history[0], CronRunRecord)
 
 
+def test_store_loader_accepts_camel_and_snake_case_with_null_numbers(tmp_path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    store_path.parent.mkdir(parents=True)
+    store_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "compat",
+                        "name": "compat",
+                        "schedule": {"kind": "every", "every_ms": 1000},
+                        "payload": {"message": "hello"},
+                        "state": {
+                            "next_run_at_ms": None,
+                            "run_history": [
+                                {
+                                    "runAtMs": None,
+                                    "status": "ok",
+                                    "duration_ms": None,
+                                }
+                            ],
+                        },
+                        "createdAtMs": None,
+                        "updated_at_ms": "",
+                        "delete_after_run": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    job = CronService(store_path).get_job("compat")
+
+    assert job is not None
+    assert job.schedule.every_ms == 1000
+    assert job.created_at_ms == 0
+    assert job.updated_at_ms == 0
+    assert job.delete_after_run is True
+    assert job.state.run_history[0].run_at_ms == 0
+    assert job.state.run_history[0].duration_ms == 0
+
+
 @pytest.mark.asyncio
 async def test_running_service_picks_up_external_add(tmp_path):
     """A running service should detect and execute a job added by another instance."""

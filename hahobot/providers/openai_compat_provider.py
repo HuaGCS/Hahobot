@@ -63,6 +63,7 @@ _DEFAULT_OPENROUTER_HEADERS = {
 }
 _RESPONSES_FAILURE_THRESHOLD = 3
 _RESPONSES_PROBE_INTERVAL_S = 300
+_KIMI_SERVER_MANAGED_TEMPERATURE_MODELS = frozenset({"kimi-k2.5", "kimi-k2.6"})
 _THINKING_STYLE_MAP: dict[str, Any] = {
     "thinking_type": lambda on: {"thinking": {"type": "enabled" if on else "disabled"}},
     "enable_thinking": lambda on: {"enable_thinking": on},
@@ -379,6 +380,15 @@ class OpenAICompatProvider(LLMProvider):
                 if pattern in model_lower:
                     kwargs.update(overrides)
                     break
+
+        # Moonshot selects the only valid K2.5/K2.6 temperature from thinking
+        # mode. Omitting it works for both provider-default and explicit modes.
+        if (
+            spec
+            and spec.name == "moonshot"
+            and model_name.lower().split("/")[-1] in _KIMI_SERVER_MANAGED_TEMPERATURE_MODELS
+        ):
+            kwargs.pop("temperature", None)
 
         semantic_effort: str | None = None
         wire_effort = reasoning_effort

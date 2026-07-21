@@ -1,8 +1,7 @@
 """Tests for the exec allowlist (allow_patterns) gate.
 
-Regression coverage for the chained-command allowlist bypass ported from nanobot
-aa6c1bf3 / 2bf111f4: allow_patterns must fullmatch the whole command so an
-allowlisted prefix cannot smuggle an appended command through.
+Regression coverage for chained-command allowlist handling ported from nanobot:
+each top-level shell segment must independently match an allow pattern.
 """
 
 from __future__ import annotations
@@ -37,13 +36,35 @@ def test_allowlist_blocks_chained_command_after_allowed_prefix():
 
 def test_allowlist_blocks_anded_command():
     tool = ExecTool(allow_patterns=[r"ls.*"])
-    # "ls.*" fullmatches the whole string only if every chained part is intended;
-    # a tightly scoped allowlist that does not anticipate chaining stays enforced.
-    tool2 = ExecTool(allow_patterns=[r"ls"])
-    assert tool._guard_command("ls && curl http://evil", "/tmp") is None  # author opted into .*
-    result = tool2._guard_command("ls && curl http://evil", "/tmp")
+    result = tool._guard_command("ls && curl http://evil", "/tmp")
     assert result is not None
     assert "allowlist" in result.lower()
+
+
+def test_allowlist_permits_each_approved_chained_segment():
+    tool = ExecTool(allow_patterns=[r"git status", r"git log(?: .*)?"])
+    assert tool._guard_command("git status && git log -1", "/tmp") is None
+
+
+def test_allowlist_does_not_split_quoted_or_parenthesized_operators():
+    tool = ExecTool(allow_patterns=[r"printf 'a;b'", r"\(printf x; printf y\)"])
+    assert tool._guard_command("printf 'a;b'", "/tmp") is None
+    assert tool._guard_command("(printf x; printf y)", "/tmp") is None
+
+
+def test_allowlist_preserves_background_operator_for_matching():
+    tool = ExecTool(allow_patterns=[r"sleep 1 &", r"echo done"])
+    assert tool._guard_command("sleep 1 & echo done", "/tmp") is None
+
+    foreground_only = ExecTool(allow_patterns=[r"sleep 1", r"echo done"])
+    assert foreground_only._guard_command("sleep 1 & echo done", "/tmp") is not None
+
+
+def test_allowlist_does_not_override_deny_patterns():
+    tool = ExecTool(allow_patterns=[r"rm -rf build"])
+    result = tool._guard_command("rm -rf build", "/tmp")
+    assert result is not None
+    assert "dangerous" in result.lower()
 
 
 def test_allowlist_supports_regex_alternation():

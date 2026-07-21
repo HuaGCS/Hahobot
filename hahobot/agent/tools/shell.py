@@ -292,12 +292,16 @@ class ExecTool(Tool):
                 return "Error: Command blocked by safety guard (dangerous pattern detected)"
 
         if self.allow_patterns:
-            # Use fullmatch (not search) so an allowlist entry must match the WHOLE
-            # command. With re.search, an allowlist like "^git status" is bypassed by
-            # chaining ("git status; <anything>") because the pattern still matches at
-            # the start while the appended command rides through. Ported from nanobot
-            # aa6c1bf3 / 2bf111f4.
-            if not any(re.fullmatch(p, lower) for p in self.allow_patterns):
+            # Match every top-level shell segment independently. This permits an
+            # intentionally allowlisted sequence such as ``git status && git log``
+            # without letting a broad whole-command regex hide an unapproved suffix.
+            # Keep Hahobot's stricter deny-pattern precedence: an allowlist entry does
+            # not exempt a dangerous command. Adapted from nanobot bbca32fe..d5658dbc.
+            segments = self._split_shell_segments(lower)
+            if not segments or not all(
+                any(re.fullmatch(pattern, segment) for pattern in self.allow_patterns)
+                for segment in segments
+            ):
                 return "Error: Command blocked by safety guard (not in allowlist)"
 
         if self.restrict_to_workspace:
@@ -326,6 +330,86 @@ class ExecTool(Tool):
                     return "Error: Command blocked by safety guard (path outside working dir)"
 
         return None
+
+    @staticmethod
+    def _split_shell_segments(command: str) -> list[str]:
+        """Split a command on top-level shell chaining operators."""
+        segments: list[str] = []
+        current: list[str] = []
+        quote: str | None = None
+        escaped = False
+        paren_depth = 0
+        i = 0
+
+        while i < len(command):
+            ch = command[i]
+
+            if escaped:
+                current.append(ch)
+                escaped = False
+                i += 1
+                continue
+
+            if ch == "\\" and quote != "'":
+                current.append(ch)
+                escaped = True
+                i += 1
+                continue
+
+            if quote is not None:
+                current.append(ch)
+                if ch == quote:
+                    quote = None
+                i += 1
+                continue
+
+            if ch in {"'", '"', "`"}:
+                current.append(ch)
+                quote = ch
+                i += 1
+                continue
+
+            if ch == "(":
+                paren_depth += 1
+                current.append(ch)
+                i += 1
+                continue
+
+            if ch == ")" and paren_depth > 0:
+                paren_depth -= 1
+                current.append(ch)
+                i += 1
+                continue
+
+            operator_len = 0
+            if paren_depth == 0:
+                if command.startswith(("&&", "||"), i):
+                    operator_len = 2
+                elif ch == "&" and not (
+                    (i > 0 and command[i - 1] in "<>") or command.startswith("&>", i)
+                ):
+                    # Preserve the background operator on its preceding segment so
+                    # allowlist patterns can distinguish foreground/background use.
+                    current.append(ch)
+                    operator_len = 1
+                elif ch in {";", "|"}:
+                    operator_len = 1
+
+            if operator_len:
+                segment = "".join(current).strip()
+                if segment:
+                    segments.append(segment)
+                current = []
+                i += operator_len
+                continue
+
+            current.append(ch)
+            i += 1
+
+        segment = "".join(current).strip()
+        if segment:
+            segments.append(segment)
+        return segments
 
     @staticmethod
     def _extract_absolute_paths(command: str) -> list[str]:

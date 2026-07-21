@@ -646,6 +646,22 @@ def test_openai_no_thinking_extra_body() -> None:
     assert "extra_body" not in kw
 
 
+@pytest.mark.parametrize("model", ["kimi-k2.5", "kimi-k2.6"])
+@pytest.mark.parametrize("reasoning_effort", [None, "none", "minimal", "medium", "high"])
+def test_moonshot_kimi_k25_k26_omit_temperature(
+    model: str,
+    reasoning_effort: str | None,
+) -> None:
+    kw = _build_kwargs_for("moonshot", model, reasoning_effort=reasoning_effort)
+    assert "temperature" not in kw
+
+
+@pytest.mark.parametrize("model", ["kimi-k2.7", "kimi-k2.7-code-highspeed"])
+def test_moonshot_kimi_k27_forces_temperature(model: str) -> None:
+    kw = _build_kwargs_for("moonshot", model)
+    assert kw["temperature"] == 1.0
+
+
 def test_deepseek_thinking_enabled_and_backfills_legacy_assistant_reasoning() -> None:
     spec = find_by_name("deepseek")
     with patch("hahobot.providers.openai_compat_provider.AsyncOpenAI"):

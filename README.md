@@ -155,6 +155,8 @@ Minimal config example:
 Provider requests keep a finite wall-clock timeout through `HAHOBOT_LLM_TIMEOUT_S` (`0` disables
 it). Streaming requests use the wider `max(300, 2 * timeout)` budget in addition to provider idle
 timeouts, allowing healthy long reasoning to finish while still bounding trickle streams.
+For direct Moonshot requests, Kimi K2.5/K2.6 leave `temperature` to the server's thinking mode;
+K2.7 variants keep the provider-required `1.0` override.
 
 ### 3. Start chatting
 
