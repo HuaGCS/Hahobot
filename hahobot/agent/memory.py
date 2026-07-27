@@ -658,7 +658,8 @@ class MemoryStore:
                 lines = [line for line in data.split("\n") if line.strip()]
                 if not lines:
                     return None
-                return json.loads(lines[-1])
+                entry = json.loads(lines[-1])
+                return entry if self._valid_history_payload(entry) else None
         except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
             return None
 
@@ -1338,12 +1339,13 @@ class Dream:
                 if event["status"] == "ok":
                     changelog.append(f"{event['name']}: {event['detail']}")
 
-        # Advance cursor — always, to avoid re-processing Phase 1
         new_cursor = batch[-1]["cursor"]
-        self.store.set_last_dream_cursor(new_cursor)
-        self.store.compact_history()
-
         if result and result.stop_reason == "completed":
+            # Only acknowledge a batch once Phase 2 completed. An exception or
+            # iteration limit may have left the memory edits incomplete; keeping
+            # the cursor in place makes the same history retryable next run.
+            self.store.set_last_dream_cursor(new_cursor)
+            self.store.compact_history()
             logger.info(
                 "Dream done: {} change(s), cursor advanced to {}",
                 len(changelog),
@@ -1352,13 +1354,18 @@ class Dream:
         else:
             reason = result.stop_reason if result else "exception"
             logger.warning(
-                "Dream incomplete ({}): cursor advanced to {}",
+                "Dream incomplete ({}): cursor remains at {} for retry",
                 reason,
-                new_cursor,
+                last_cursor,
             )
 
-        # Git auto-commit (only when there are actual changes)
-        if changelog and self.store.git.is_initialized():
+        # Git auto-commit only acknowledges completed batches with actual changes.
+        if (
+            result
+            and result.stop_reason == "completed"
+            and changelog
+            and self.store.git.is_initialized()
+        ):
             ts = batch[-1]["timestamp"]
             sha = self.store.git.auto_commit(f"dream: {ts}, {len(changelog)} change(s)")
             if sha:

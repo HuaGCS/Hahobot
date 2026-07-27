@@ -97,6 +97,47 @@ def test_code_block_closing_budget():
         assert len(chunk) <= max_len
 
 
+def test_long_single_line_code_body_advances_and_stays_balanced():
+    body = "a" * 4500
+    content = f"```\n{body}\n```"
+
+    chunks = _split_telegram_markdown(content, 4000)
+
+    assert len(chunks) > 1
+    assert all(len(chunk) <= 4000 for chunk in chunks)
+    assert all(chunk.count("```") % 2 == 0 for chunk in chunks)
+    reassembled = []
+    for chunk in chunks:
+        part = chunk.split("\n", 1)[1]
+        if part.endswith("\n```"):
+            part = part[:-4]
+        elif part.endswith("```"):
+            part = part[:-3]
+        reassembled.append(part)
+    assert "".join(reassembled) == body
+
+
+def test_tiny_limit_hard_cuts_fence_prefix_without_looping():
+    body = "a" * 100
+
+    chunks = _split_telegram_markdown(f"```\n{body}", 8)
+
+    assert chunks
+    assert all(len(chunk) <= 8 for chunk in chunks)
+    assert "".join(chunks).replace("```", "").replace("\n", "") == body
+
+
+def test_leading_space_in_fence_body_still_advances():
+    body = "a" * 4500
+
+    chunks = _split_telegram_markdown(f"```\n {body}", 4000)
+
+    assert chunks
+    assert all(len(chunk) <= 4000 for chunk in chunks)
+    plain = "".join(chunks).replace("```", "").replace("\n", "")
+    assert plain.count("a") == 4500
+
+
 def test_rendered_html_chunks_stay_within_telegram_limit():
     text = "**bold** " * 501
     assert len(_markdown_to_telegram_html(text)) > TELEGRAM_HTML_MAX_LEN

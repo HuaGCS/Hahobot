@@ -157,6 +157,10 @@ it). Streaming requests use the wider `max(300, 2 * timeout)` budget in addition
 timeouts, allowing healthy long reasoning to finish while still bounding trickle streams.
 For direct Moonshot requests, Kimi K2.5/K2.6 leave `temperature` to the server's thinking mode;
 K2.7 variants keep the provider-required `1.0` override.
+Qwen thinking controls are selected by model family rather than applied to every model on an
+OpenAI-compatible endpoint. Provider-bound nested messages also sanitize malformed UTF-16
+surrogates before JSON encoding. If a provider stops with `finish_reason="length"`, hahobot anchors
+the continuation at the delivered tail and merges recovered segments into one final/streamed reply.
 
 ### 3. Start chatting
 
@@ -339,6 +343,8 @@ image when `tools.imageGen.enabled` is configured, and it automatically prefers 
 persona's reference images when available. If `.hahobot/st_manifest.json` defines custom
 `scene_prompts`, `scene_captions`, or scene-specific `reference_images`, those scene names also
 become valid `/scene <name>` shortcuts.
+For Gemini image models, hahobot sends aspect ratio and image-size hints only where that exact model
+family supports them, avoiding invalid `imageConfig` fields on older or narrower variants.
 
 The admin persona page can preview a `/scene` result with the current runtime image settings and
 save that preview back into `.hahobot/st_manifest.json` as a named scene template.
@@ -515,6 +521,10 @@ The built-in Dream workflow reviews history and current memory files in two phas
 1. analyze what should be added, corrected, merged, or removed
 2. apply targeted edits to `SOUL.md`, `USER.md`, `PROFILE.md`, `INSIGHTS.md`, and `memory/MEMORY.md`
 
+The archive cursor advances only after phase 2 completes (including a valid no-op run). A failed or
+max-iteration batch remains unprocessed and is retried on the next Dream run instead of being
+silently compacted away.
+
 That design is closer to Hermes Agent's "persistent files as long-term state" philosophy than to a
 simple rolling transcript. In practice this means hahobot can gradually refine stable facts,
 validated working preferences, and stale memory cleanup instead of endlessly appending notes.
@@ -560,13 +570,17 @@ Recent upstream nanobot syncs already included here:
   within Telegram's 4096-character limit, malformed-HTML rejections fall back to plain text, and the
   remaining live buffer keeps raw Markdown so formatting survives later deltas. A transient send
   failure resumes from the first unsent overflow chunk instead of repeating chunks already accepted.
+  Minified single-line fenced code and tiny split budgets also use a guaranteed-progress hard cut,
+  preventing an infinite split loop.
 - Telegram can render `OutboundMessage.buttons` as native inline keyboards when
   `channels.telegram.inlineKeyboards` is enabled; otherwise button labels are preserved as inline
   text fallback.
 - Feishu topic replies keep every split outbound part in the same thread instead of only replying
   with the first segment.
+- Slack and Feishu leave fenced pipe-delimited code intact instead of converting it to a table;
+  Feishu also tolerates null text/list fields in post and card payloads.
 - `read_file` can extract text from Office Open XML documents (`.docx`, `.xlsx`, `.pptx`) without
-  adding a second document service.
+  adding a second document service, and rejects files over 100 MiB from metadata before loading.
 - Channel audio transcription can pass an optional `channels.transcriptionLanguage` ISO-639 hint to
   the configured Groq/OpenAI transcription backend, and transient Whisper upload failures now retry
   before the channel falls back to an empty transcription.
@@ -579,6 +593,8 @@ Recent upstream nanobot syncs already included here:
   surfaces.
 - `tools.exec.allowedEnvKeys` lets you pass specific parent environment variables such as
   `JAVA_HOME` or `GOPATH` into shell tool subprocesses without exposing the whole parent env.
+- Workspace-restricted shell commands also inspect assignment-form paths such as
+  `--output=/tmp/result`, closing the whitespace-only path-check gap.
 - `agents.defaults.toolHintMaxLength` controls how much of each tool-call hint is shown when
   `channels.sendToolHints` is enabled; it hot-reloads with the rest of the safe agent defaults.
 - A built-in `websocket` channel can expose hahobot as a local WebSocket server; see
@@ -605,7 +621,8 @@ Notable gateway features:
   memory-layer summary, and links to every admin section). Chat is scoped to `webui:*` sessions, so it
   never writes into a live channel conversation. It includes:
     - streaming replies and a conversation sidebar over a WebSocket (`/app/ws`)
-    - inline media (images served from `workspace/out` via `/app/media/...`)
+    - inline media (images served from `workspace/out` via `/app/media/...`), restored from
+      persisted history after refresh even when a message contains media but no text
     - an in-chat persona selector, a live working-checkpoint panel, and conversation forking
     - voice input (mic → `/app/transcribe`, using the configured transcription provider)
     - proactive/scheduled delivery: cron, heartbeat, and the `message` tool push into an open
@@ -631,6 +648,8 @@ Notable gateway features:
   used when the current process started, lists the exact changed paths, and offers a one-click
   restart for the current gateway. `api.*` / `a2a.*` changes are kept separate and show the
   corresponding `hahobot serve --config ...` command because they belong to another process
+- config and admin saves use a mode-preserving atomic replace, so an interrupted write cannot leave
+  a truncated active `config.json`
 - built-in slash-command reference in the admin page
 - persona editor in the admin page, including companion scene fields for `/scene` reference images,
   prompt overrides, and caption overrides
@@ -641,6 +660,14 @@ Notable gateway features:
 - Weixin QR login helper in the admin page
 - workspace-scoped cron periodically reloads its store, so jobs added by another process can still
   be picked up even when the current scheduler was idle or waiting on a far-future task
+- cron mutations lock the complete cross-process read-modify-write and atomically replace the store,
+  so concurrent gateway/CLI writers do not overwrite each other's jobs; due/manual runs also claim
+  a job before execution so two schedulers do not perform the same live task concurrently; async
+  scheduling pins its submission workspace and waits in a dedicated store worker pool, while timer
+  re-arming never cancels a task whose live side effects have already started; writes refuse to
+  replace a malformed store, pre-replace cancellation leaves no commit, and a replace already in
+  progress wins over cancellation; workspace rebinding drains old automated ticks before publishing
+  the new store (delivery remains at-least-once across ambiguous crash/network boundaries)
 - that periodic wake interval is configurable through `gateway.cron.maxSleepMs`
 
 Admin and status routes are disabled by default and should be explicitly configured.
@@ -789,6 +816,10 @@ workspace.
 You can also use `enabledTools` on one MCP server to register only a subset of raw MCP tool names
 or wrapped hahobot names such as `mcp_filesystem_write_file`. Omit it, or use `["*"]`, to keep all
 tools; use `[]` to register none from that server.
+
+MCP input schemas are normalized before OpenAI-compatible registration: existing `$defs` stay
+intact, arbitrary local JSON Pointer refs are URI-decoded and hoisted into `$defs`, and recursive
+schemas are handled without infinite expansion.
 
 Servers are connected concurrently, each bounded by `tools.mcpServers.<name>.connectTimeout`
 (seconds, default `20`). If a server's transport spawn or `initialize` handshake exceeds it, that

@@ -270,6 +270,7 @@ def agent(
                             if renderer:
                                 await renderer.on_end(
                                     resuming=msg.metadata.get("_resuming", False),
+                                    merge_next=msg.metadata.get("_merge_next", False),
                                 )
                             continue
                         if msg.metadata.get("_streamed"):

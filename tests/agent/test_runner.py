@@ -895,6 +895,84 @@ async def test_loop_stream_filter_handles_think_only_prefix_without_crashing(tmp
 
 
 @pytest.mark.asyncio
+async def test_loop_length_recovery_keeps_one_visible_stream_and_supplements_terminal(tmp_path):
+    loop = _make_loop(tmp_path)
+    deltas: list[str] = []
+    endings: list[tuple[bool, bool]] = []
+    call_count = 0
+
+    async def chat_stream_with_retry(*, on_content_delta, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            await on_content_delta("first ")
+            return LLMResponse(content="first ", finish_reason="length", usage={})
+        return LLMResponse(content="second", finish_reason="stop", usage={})
+
+    loop.provider.chat_stream_with_retry = chat_stream_with_retry
+
+    async def on_stream(delta: str) -> None:
+        deltas.append(delta)
+
+    async def on_stream_end(
+        *,
+        resuming: bool = False,
+        merge_next: bool,
+    ) -> None:
+        endings.append((resuming, merge_next))
+
+    final_content, _, _, _ = await loop._run_agent_loop(
+        [],
+        on_stream=on_stream,
+        on_stream_end=on_stream_end,
+    )
+
+    assert final_content == "first second"
+    assert deltas == ["first", " ", "second"]
+    assert "".join(deltas) == final_content
+    assert endings == [(True, True), (False, False)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("terminal_deltas", "terminal_content", "expected_terminal_deltas"),
+    [
+        (("<think>hidden</think>",), "<think>hidden</think>suffix", ["suffix"]),
+        (("sec",), "second", ["sec", "ond"]),
+    ],
+)
+async def test_loop_length_recovery_supplements_hidden_or_partial_terminal_deltas(
+    tmp_path,
+    terminal_deltas: tuple[str, ...],
+    terminal_content: str,
+    expected_terminal_deltas: list[str],
+) -> None:
+    loop = _make_loop(tmp_path)
+    streamed: list[str] = []
+    call_count = 0
+
+    async def chat_stream_with_retry(*, on_content_delta, **_kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            await on_content_delta("prefix ")
+            return LLMResponse(content="prefix ", finish_reason="length", usage={})
+        for delta in terminal_deltas:
+            await on_content_delta(delta)
+        return LLMResponse(content=terminal_content, finish_reason="stop", usage={})
+
+    loop.provider.chat_stream_with_retry = chat_stream_with_retry
+
+    async def on_stream(delta: str) -> None:
+        streamed.append(delta)
+
+    final_content, _, _, _ = await loop._run_agent_loop([], on_stream=on_stream)
+
+    assert streamed == ["prefix", " ", *expected_terminal_deltas]
+    assert "".join(streamed) == final_content == f"prefix {terminal_content.split('>')[-1]}"
+
+
+@pytest.mark.asyncio
 async def test_loop_retries_think_only_final_response(tmp_path):
     loop = _make_loop(tmp_path)
     call_count = {"n": 0}
@@ -1180,10 +1258,16 @@ async def test_length_recovery_continues_from_truncated_output():
     )
 
     assert result.stop_reason == "completed"
-    assert result.final_content == "final"
+    assert result.final_content == "part1 part2 final"
     assert call_count["n"] == 3
-    roles = [m["role"] for m in result.messages if m["role"] == "user"]
-    assert len(roles) >= 3  # original + 2 recovery prompts
+    recovery_prompts = [
+        message["content"]
+        for message in result.messages
+        if message.get("role") == "user" and "<already_delivered_tail>" in message["content"]
+    ]
+    assert len(recovery_prompts) == 2
+    assert "part1 " in recovery_prompts[0]
+    assert "part2 " in recovery_prompts[1]
 
 
 @pytest.mark.asyncio
@@ -1196,16 +1280,19 @@ async def test_length_recovery_streaming_calls_on_stream_end_with_resuming():
     provider = MagicMock()
     call_count = {"n": 0}
     stream_end_calls: list[bool] = []
+    merge_next_calls: list[bool] = []
+    streamed: list[str] = []
 
     class StreamHook(AgentHook):
         def wants_streaming(self) -> bool:
             return True
 
         async def on_stream(self, context: AgentHookContext, delta: str) -> None:
-            pass
+            streamed.append(delta)
 
         async def on_stream_end(self, context: AgentHookContext, resuming: bool = False) -> None:
             stream_end_calls.append(resuming)
+            merge_next_calls.append(context.stream_continues_current_message)
 
     async def chat_stream_with_retry(*, messages, on_content_delta=None, **kwargs):
         call_count["n"] += 1
@@ -1218,7 +1305,7 @@ async def test_length_recovery_streaming_calls_on_stream_end_with_resuming():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    await runner.run(
+    result = await runner.run(
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "go"}],
             tools=tools,
@@ -1232,6 +1319,52 @@ async def test_length_recovery_streaming_calls_on_stream_end_with_resuming():
     assert len(stream_end_calls) == 2
     assert stream_end_calls[0] is True  # length recovery: resuming
     assert stream_end_calls[1] is False  # final response: done
+    assert merge_next_calls == [True, False]
+    assert streamed == ["partial ", "done"]
+    assert result.final_content == "partial done"
+
+
+@pytest.mark.asyncio
+async def test_length_recovery_streams_non_delta_terminal_segment_once():
+    from hahobot.agent.hook import AgentHook, AgentHookContext
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
+
+    provider = MagicMock()
+    call_count = 0
+    streamed: list[str] = []
+
+    async def chat_stream_with_retry(*, on_content_delta, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            await on_content_delta("first ")
+            return LLMResponse(content="first ", finish_reason="length", usage={})
+        return LLMResponse(content="second", finish_reason="stop", usage={})
+
+    provider.chat_stream_with_retry = chat_stream_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    class StreamHook(AgentHook):
+        def wants_streaming(self) -> bool:
+            return True
+
+        async def on_stream(self, context: AgentHookContext, delta: str) -> None:
+            streamed.append(delta)
+
+    result = await AgentRunner(provider).run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "go"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=10,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=StreamHook(),
+        )
+    )
+
+    assert streamed == ["first ", "second"]
+    assert result.final_content == "first second"
 
 
 @pytest.mark.asyncio
@@ -1266,7 +1399,129 @@ async def test_length_recovery_gives_up_after_max_retries():
     )
 
     assert call_count["n"] == _MAX_LENGTH_RECOVERIES + 1
-    assert result.final_content is not None
+    assert result.final_content == "chunk1chunk2chunk3chunk4"
+
+
+@pytest.mark.asyncio
+async def test_length_recovery_chain_resets_after_tool_work():
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
+
+    provider = MagicMock()
+    responses = iter(
+        [
+            LLMResponse(content="discarded partial ", finish_reason="length"),
+            LLMResponse(
+                content="",
+                finish_reason="tool_calls",
+                tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
+            ),
+            LLMResponse(content="done", finish_reason="stop"),
+        ]
+    )
+
+    async def chat_with_retry(**kwargs):
+        return next(responses)
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    tools.execute = AsyncMock(return_value="ok")
+
+    result = await AgentRunner(provider).run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "go"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
+
+    assert result.final_content == "done"
+
+
+def test_length_recovery_prompt_anchors_only_the_last_64_characters():
+    from hahobot.utils.runtime import build_length_recovery_message
+
+    omitted_prefix = "OMITTED_PREFIX"
+    tail = "x" * 64
+
+    message = build_length_recovery_message(omitted_prefix + tail)
+
+    assert message["role"] == "user"
+    assert omitted_prefix not in message["content"]
+    assert f"<already_delivered_tail>\n{tail}\n</already_delivered_tail>" in message["content"]
+
+
+@pytest.mark.asyncio
+async def test_length_recovery_max_iterations_streams_only_the_fallback_tail():
+    from hahobot.agent.hook import AgentHook, AgentHookContext
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
+
+    provider = MagicMock()
+    provider.chat_stream_with_retry = AsyncMock(
+        return_value=LLMResponse(content="partial", finish_reason="length")
+    )
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    streamed: list[str] = []
+    endings: list[tuple[bool, bool]] = []
+
+    class StreamHook(AgentHook):
+        def wants_streaming(self) -> bool:
+            return True
+
+        async def on_stream(self, context: AgentHookContext, delta: str) -> None:
+            streamed.append(delta)
+
+        async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
+            endings.append((resuming, context.stream_continues_current_message))
+
+    result = await AgentRunner(provider).run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "go"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_iterations_message="limit reached",
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=StreamHook(),
+        )
+    )
+
+    assert result.final_content == "partial\n\nlimit reached"
+    assert streamed == ["partial", "\n\nlimit reached"]
+    assert endings == [(True, True), (False, False)]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_recovery_boundary_reuses_stream_id_until_final_end(tmp_path):
+    from hahobot.bus.events import InboundMessage
+
+    loop = _make_loop(tmp_path)
+    msg = InboundMessage(
+        channel="mock",
+        sender_id="user",
+        chat_id="chat",
+        content="go",
+        metadata={"_wants_stream": True},
+    )
+    on_stream, on_stream_end = loop._dispatch_runtime_manager()._stream_callbacks(msg)
+
+    await on_stream("first ")
+    await on_stream_end(resuming=True, merge_next=True)
+    await on_stream("second")
+    await on_stream_end(resuming=False)
+    await on_stream("next segment")
+
+    outbound = [await loop.bus.consume_outbound() for _ in range(5)]
+    recovery_ids = {message.metadata["_stream_id"] for message in outbound[:4]}
+
+    assert len(recovery_ids) == 1
+    assert outbound[1].metadata["_merge_next"] is True
+    assert outbound[1].metadata["_resuming"] is True
+    assert "_merge_next" not in outbound[3].metadata
+    assert outbound[4].metadata["_stream_id"] not in recovery_ids
 
 
 # ---------------------------------------------------------------------------

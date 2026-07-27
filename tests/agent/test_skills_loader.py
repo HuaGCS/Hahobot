@@ -221,6 +221,37 @@ def test_list_skills_filter_unavailable_excludes_unmet_env_requirement(
     assert loader.list_skills(filter_unavailable=True) == []
 
 
+def test_malformed_requirement_lists_are_safely_filtered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "ws"
+    skills_root = workspace / "skills"
+    skills_root.mkdir(parents=True)
+    skill_path = _write_skill(
+        skills_root,
+        "mixed_requirements",
+        metadata_json={
+            "requires": {
+                "bins": None,
+                "env": [None, 7, " ", "HAHOBOT_MISSING_SKILL_ENV"],
+            }
+        },
+    )
+    builtin = tmp_path / "builtin"
+    builtin.mkdir()
+    monkeypatch.delenv("HAHOBOT_MISSING_SKILL_ENV", raising=False)
+
+    loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
+
+    assert loader.list_skills(filter_unavailable=True) == []
+    assert loader.list_skills(filter_unavailable=False) == [
+        {"name": "mixed_requirements", "path": str(skill_path), "source": "workspace"}
+    ]
+    assert loader._get_missing_requirements(loader._get_skill_meta("mixed_requirements")) == (
+        "ENV: HAHOBOT_MISSING_SKILL_ENV"
+    )
+
+
 def test_list_skills_openclaw_metadata_parsed_for_requirements(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

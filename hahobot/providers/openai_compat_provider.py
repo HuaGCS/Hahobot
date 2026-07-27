@@ -69,6 +69,33 @@ _THINKING_STYLE_MAP: dict[str, Any] = {
     "enable_thinking": lambda on: {"enable_thinking": on},
     "reasoning_split": lambda on: {"reasoning_split": on},
 }
+_QWEN_THINKING_MODELS = frozenset(
+    {
+        "qwen3.7-max",
+        "qwen3.7-plus",
+        "qwen3.6-max-preview",
+        "qwen3.6-plus",
+        "qwen3.6-flash",
+        "qwen3.5-plus",
+        "qwen3.5-flash",
+    }
+)
+_MODEL_THINKING_STYLES = dict.fromkeys(_QWEN_THINKING_MODELS, "enable_thinking")
+
+
+def _model_slug(model_name: str) -> str:
+    return model_name.lower().rsplit("/", 1)[-1]
+
+
+def _thinking_styles_for(spec: ProviderSpec | None, model_name: str) -> list[str]:
+    """Combine provider- and model-level thinking controls without duplicates."""
+    styles: list[str] = []
+    if spec and spec.thinking_style:
+        styles.append(spec.thinking_style)
+    model_style = _MODEL_THINKING_STYLES.get(_model_slug(model_name), "")
+    if model_style and model_style not in styles:
+        styles.append(model_style)
+    return styles
 
 
 def _short_tool_id() -> str:
@@ -398,27 +425,30 @@ class OpenAICompatProvider(LLMProvider):
                 semantic_effort = "minimal"
             wire_effort = "minimal" if semantic_effort == "minimal" else reasoning_effort
 
-        if wire_effort:
+        if wire_effort and semantic_effort != "none":
             kwargs["reasoning_effort"] = wire_effort
 
-        # Provider-specific thinking parameters.
+        # Provider- and model-specific thinking parameters. Model-level mapping
+        # keeps Qwen controls intact when the model is routed through a gateway
+        # such as OpenRouter instead of the DashScope provider directly.
         # Only sent when reasoning_effort is explicitly configured so that
         # the provider default is preserved otherwise.
-        if spec and spec.thinking_style and reasoning_effort is not None:
-            thinking_enabled = semantic_effort != "minimal"
-            extra = _THINKING_STYLE_MAP.get(spec.thinking_style, lambda _: None)(thinking_enabled)
-            if extra:
-                kwargs.setdefault("extra_body", {}).update(extra)
+        thinking_styles = _thinking_styles_for(spec, model_name)
+        if thinking_styles and reasoning_effort is not None:
+            thinking_enabled = semantic_effort not in {"minimal", "none"}
+            for thinking_style in thinking_styles:
+                extra = _THINKING_STYLE_MAP.get(thinking_style, lambda _: None)(thinking_enabled)
+                if extra:
+                    kwargs.setdefault("extra_body", {}).update(extra)
 
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
 
         thinking_active = (
-            spec is not None
-            and bool(spec.thinking_style)
+            bool(thinking_styles)
             and reasoning_effort is not None
-            and semantic_effort != "minimal"
+            and semantic_effort not in {"minimal", "none"}
         )
         if thinking_active:
             for msg in kwargs["messages"]:

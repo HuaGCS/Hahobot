@@ -35,6 +35,13 @@ class Session:
     _requires_full_save: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        # Persisted sessions can contain ``"metadata": null`` (or another
+        # malformed JSON type). Runtime callers universally treat metadata as a
+        # mutable mapping, so normalize it at the boundary instead of crashing
+        # much later on ``metadata.get(...)``.
+        if not isinstance(self.metadata, dict):
+            self.metadata = {}
+
         # Corrupt metadata could carry a non-integer or out-of-range last_consolidated
         # offset, which would either crash history slicing or silently hide every
         # message (offset past the tail). Reset to a safe value on load/construction.
@@ -372,8 +379,15 @@ class SessionManager:
                     skipped += 1
                     continue
 
+                if not isinstance(data, dict):
+                    if not tolerate_corrupt:
+                        raise ValueError("session JSONL records must be objects")
+                    skipped += 1
+                    continue
+
                 if data.get("_type") == "metadata":
-                    metadata = data.get("metadata", {})
+                    raw_metadata = data.get("metadata", {})
+                    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
                     created_at = self._parse_iso_datetime(data.get("created_at")) or created_at
                     updated_at = self._parse_iso_datetime(data.get("updated_at")) or updated_at
                     last_consolidated = data.get("last_consolidated", 0)

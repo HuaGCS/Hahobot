@@ -154,3 +154,94 @@ def test_agent_loop_registers_image_gen_tool_when_enabled(tmp_path: Path) -> Non
         )
 
     assert loop.tools.has("image_gen")
+
+
+@pytest.mark.parametrize(
+    ("model", "aspect_ratio", "image_size", "expected"),
+    [
+        (
+            "gemini-3-pro-image",
+            "16:9",
+            "2k",
+            {"aspectRatio": "16:9", "imageSize": "2K"},
+        ),
+        ("gemini-2.5-flash-image", "4:3", "1K", {"aspectRatio": "4:3"}),
+        ("gemini-2.0-flash-preview-image-generation", "16:9", "1K", {"aspectRatio": "16:9"}),
+        ("gemini-3.1-flash-image", "1:8", "512", {"aspectRatio": "1:8", "imageSize": "512"}),
+        ("gemini-3.1-flash-lite-image", "4:1", "1K", {"aspectRatio": "4:1", "imageSize": "1K"}),
+        ("gemini-3.1-flash-lite-image", "1:1", "2K", {"aspectRatio": "1:1"}),
+        ("gemini-3-pro-image", "1:8", "512", {}),
+        ("gemini-3-pro", "1:1", "2K", {}),
+    ],
+)
+def test_gemini_image_config_is_scoped_by_model(
+    model: str,
+    aspect_ratio: str,
+    image_size: str,
+    expected: dict[str, str],
+) -> None:
+    assert image_gen_module._gemini_image_config(model, aspect_ratio, image_size) == expected
+
+
+@pytest.mark.parametrize(
+    ("model", "size", "expected"),
+    [
+        (
+            "gemini-3-pro-image",
+            "2048x1152",
+            {"image": {"aspectRatio": "16:9", "imageSize": "2K"}},
+        ),
+        (
+            "gemini-2.5-flash-image",
+            "1024x768",
+            {"image": {"aspectRatio": "4:3"}},
+        ),
+        (
+            "gemini-3.1-flash-image",
+            "64x512",
+            {"image": {"aspectRatio": "1:8", "imageSize": "512"}},
+        ),
+        ("gemini-3-pro-image", "64x512", None),
+    ],
+)
+@pytest.mark.asyncio
+async def test_gemini_request_uses_response_format_capabilities(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+    size: str,
+    expected: dict[str, dict[str, str]] | None,
+) -> None:
+    calls: list[dict] = []
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self) -> _FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, url: str, **kwargs):
+            calls.append({"url": url, **kwargs})
+            return _FakeResponse(
+                {"candidates": [{"content": {"parts": [{"inlineData": {"data": _PNG_B64}}]}}]}
+            )
+
+    monkeypatch.setattr(image_gen_module.httpx, "AsyncClient", _FakeAsyncClient)
+    tool = ImageGenTool(
+        workspace=tmp_path,
+        api_key="test-key",
+        base_url="https://generativelanguage.googleapis.com",
+        model=model,
+    )
+
+    result = await tool.execute(prompt="Draw a cat", size=size)
+
+    assert "Image generated successfully." in result
+    generation_config = calls[0]["json"]["generationConfig"]
+    assert generation_config["responseModalities"] == ["IMAGE"]
+    assert generation_config.get("responseFormat") == expected
+    assert "imageConfig" not in generation_config

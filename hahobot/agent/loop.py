@@ -760,9 +760,9 @@ class AgentLoop:
         """Run the agent iteration loop.
 
         *on_stream*: called with each content delta during streaming.
-        *on_stream_end(resuming)*: called when a streaming session finishes.
-        ``resuming=True`` means tool calls follow (spinner should restart);
-        ``resuming=False`` means this is the final response.
+        *on_stream_end(resuming, merge_next)*: called when a streaming segment finishes.
+        ``resuming=True`` means the active turn continues. ``merge_next=True`` means
+        the next text segment belongs to the same user-visible assistant message.
         """
         return await self._run_runtime_manager().run_agent_loop(
             initial_messages,

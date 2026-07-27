@@ -94,6 +94,22 @@ class TestReadFileTool:
         assert "Use offset=" in result
 
     @pytest.mark.asyncio
+    async def test_oversized_file_is_rejected_before_read(self, tool, tmp_path, monkeypatch):
+        f = tmp_path / "huge.txt"
+        with f.open("wb") as stream:
+            stream.truncate(ReadFileTool._MAX_FILE_SIZE_BYTES + 1)
+
+        def fail_read_bytes(self):
+            raise AssertionError("oversized file content should not be loaded")
+
+        monkeypatch.setattr(type(f), "read_bytes", fail_read_bytes)
+
+        result = await tool.execute(path=str(f))
+
+        assert "File too large to read" in result
+        assert "Maximum is 100 MiB" in result
+
+    @pytest.mark.asyncio
     async def test_read_docx_extracts_text(self, tool, tmp_path):
         f = tmp_path / "sample.docx"
         with zipfile.ZipFile(f, "w") as zf:

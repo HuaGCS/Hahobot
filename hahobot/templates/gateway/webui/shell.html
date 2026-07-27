@@ -57,7 +57,7 @@
           {% endif %}
           {% for m in messages %}
           <div class="msg {{ m.role }}">
-            <div class="bubble">{{ m.content }}</div>
+            <div class="bubble">{{ m.content }}{% for item in m.media %}{% if item.is_image %}<img class="msg-media" src="{{ item.url }}" loading="lazy">{% else %}<a class="msg-file" href="{{ item.url }}" target="_blank" rel="noopener">{{ item.label }}</a>{% endif %}{% endfor %}</div>
           </div>
           {% endfor %}
         </div>

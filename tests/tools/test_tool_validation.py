@@ -1,5 +1,7 @@
 from typing import Any
 
+import pytest
+
 from hahobot.agent.tools import (
     ArraySchema,
     IntegerSchema,
@@ -223,10 +225,30 @@ def test_exec_extract_absolute_paths_captures_posix_absolute_paths() -> None:
 
 
 def test_exec_extract_absolute_paths_captures_home_paths() -> None:
-    cmd = "cat ~/.hahobot/config.json > ~/out.txt"
+    cmd = "cat ~ ~/.hahobot/config.json ~root/.profile ~-/old.txt > ~/out.txt"
     paths = ExecTool._extract_absolute_paths(cmd)
+    assert "~" in paths
     assert "~/.hahobot/config.json" in paths
+    assert "~root/.profile" in paths
+    assert "~-/old.txt" in paths
     assert "~/out.txt" in paths
+
+
+def test_exec_extract_absolute_paths_captures_paths_after_equals() -> None:
+    cmd = "curl --output=/etc/passwd --config=~/.hahobot/config.json"
+
+    paths = ExecTool._extract_absolute_paths(cmd)
+
+    assert "/etc/passwd" in paths
+    assert "~/.hahobot/config.json" in paths
+
+
+def test_exec_extract_absolute_paths_does_not_capture_query_tilde() -> None:
+    cmd = "python query.py --query '{job=~\"app\"}'"
+
+    paths = ExecTool._extract_absolute_paths(cmd)
+
+    assert not any(path.startswith("~") for path in paths)
 
 
 def test_exec_extract_absolute_paths_captures_quoted_paths() -> None:
@@ -239,6 +261,33 @@ def test_exec_extract_absolute_paths_captures_quoted_paths() -> None:
 def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command("cat ~/.hahobot/config.json", str(tmp_path))
+    assert error == "Error: Command blocked by safety guard (path outside working dir)"
+
+
+def test_exec_guard_blocks_equals_home_path_outside_workspace(tmp_path) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+
+    error = tool._guard_command("cat --config=~/.hahobot/config.json", str(tmp_path))
+
+    assert error == "Error: Command blocked by safety guard (path outside working dir)"
+
+
+def test_exec_guard_blocks_named_user_home_path_outside_workspace(tmp_path) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+
+    error = tool._guard_command("cat ~root/.profile", str(tmp_path))
+
+    assert error == "Error: Command blocked by safety guard (path outside working dir)"
+
+
+def test_exec_guard_blocks_oldpwd_home_path_outside_workspace(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+    monkeypatch.setenv("OLDPWD", "/")
+
+    error = tool._guard_command("cat ~-/etc/passwd", str(tmp_path))
+
     assert error == "Error: Command blocked by safety guard (path outside working dir)"
 
 

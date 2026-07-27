@@ -237,11 +237,17 @@ class DispatchRuntimeManager:
                 )
             )
 
-        async def on_stream_end(*, resuming: bool = False) -> None:
+        async def on_stream_end(
+            *,
+            resuming: bool = False,
+            merge_next: bool = False,
+        ) -> None:
             nonlocal stream_segment
             meta = dict(msg.metadata or {})
             meta["_stream_end"] = True
             meta["_resuming"] = resuming
+            if merge_next:
+                meta["_merge_next"] = True
             meta["_stream_id"] = _current_stream_id()
             await self.loop.bus.publish_outbound(
                 OutboundMessage(
@@ -251,6 +257,7 @@ class DispatchRuntimeManager:
                     metadata=meta,
                 )
             )
-            stream_segment += 1
+            if not merge_next:
+                stream_segment += 1
 
         return on_stream, on_stream_end

@@ -13,7 +13,7 @@ from typing import Any
 
 from loguru import logger
 
-from hahobot.utils.helpers import image_placeholder_text
+from hahobot.utils.helpers import image_placeholder_text, sanitize_surrogates_deep
 
 
 @dataclass
@@ -290,7 +290,8 @@ class LLMProvider(ABC):
                 continue
 
             result.append(msg)
-        return result
+        sanitized = sanitize_surrogates_deep(result)
+        return sanitized if isinstance(sanitized, list) else result
 
     @staticmethod
     def _tool_name(tool: dict[str, Any]) -> str:

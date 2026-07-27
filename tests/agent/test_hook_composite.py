@@ -337,6 +337,34 @@ async def test_agent_loop_extra_hook_receives_calls(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_extra_only_stream_hook_receives_provider_delta_once(tmp_path):
+    """An observer-only stream must not receive the terminal supplement twice."""
+    from hahobot.providers.base import LLMResponse
+
+    deltas: list[str] = []
+
+    class TrackingHook(AgentHook):
+        def wants_streaming(self) -> bool:
+            return True
+
+        async def on_stream(self, context, delta: str) -> None:
+            deltas.append(delta)
+
+    async def chat_stream_with_retry(*, on_content_delta, **kwargs):
+        await on_content_delta("done")
+        return LLMResponse(content="done", tool_calls=[], usage={})
+
+    loop = _make_loop(tmp_path, hooks=[TrackingHook()])
+    loop.provider.chat_stream_with_retry = chat_stream_with_retry
+    loop.tools.get_definitions = MagicMock(return_value=[])
+
+    content, _, _, _ = await loop._run_agent_loop([{"role": "user", "content": "hi"}])
+
+    assert content == "done"
+    assert deltas == ["done"]
+
+
+@pytest.mark.asyncio
 async def test_agent_loop_extra_hook_error_isolation(tmp_path):
     """A faulty extra hook does not crash the agent loop."""
     from hahobot.providers.base import LLMResponse

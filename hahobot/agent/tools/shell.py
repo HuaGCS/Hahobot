@@ -315,8 +315,19 @@ class ExecTool(Tool):
             for raw in self._extract_absolute_paths(cmd):
                 try:
                     expanded = os.path.expandvars(raw.strip())
+                    if expanded == "~+" or expanded.startswith("~+/"):
+                        expanded = str(Path(cwd) / expanded.removeprefix("~+/").removeprefix("~+"))
+                    elif expanded == "~-" or expanded.startswith("~-/"):
+                        oldpwd = os.environ.get("OLDPWD")
+                        if not oldpwd:
+                            return "Error: Command blocked by safety guard (unresolved home path)"
+                        expanded = str(
+                            Path(oldpwd) / expanded.removeprefix("~-/").removeprefix("~-")
+                        )
                     p = Path(expanded).expanduser().resolve()
                 except Exception:
+                    if raw.startswith("~"):
+                        return "Error: Command blocked by safety guard (unresolved home path)"
                     continue
 
                 media_path = get_media_dir().resolve()
@@ -417,9 +428,15 @@ class ExecTool(Tool):
         # NOTE: `*` is required so `C:\` (nothing after the slash) is still extracted.
         win_paths = re.findall(r"[A-Za-z]:\\[^\s\"'|><;]*", command)
         posix_paths = re.findall(
-            r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command
+            r"(?:^|[\s|>='\"])(/[^\s\"'>;|<]+)", command
         )  # POSIX: /absolute only
-        home_paths = re.findall(
-            r"(?:^|[\s|>'\"])(~[^\s\"'>;|<]*)", command
-        )  # POSIX/Windows home shortcut: ~
-        return win_paths + posix_paths + home_paths
+        # At ordinary shell boundaries, keep the complete tilde-expansion family
+        # (bare ``~``, ``~user``, ``~+``, and ``~-``). After ``=``, require a
+        # plausible expansion character so query operators such as ``=~\"...\"``
+        # are not mistaken for filesystem paths.
+        home_paths = re.findall(r"(?:^|[\s|>'\"])(~[^\s\"'>;|<]*)", command)
+        assigned_home_paths = re.findall(
+            r"=(~(?=[/+\-\w.])[^\s\"'>;|<]*)",
+            command,
+        )
+        return win_paths + posix_paths + home_paths + assigned_home_paths

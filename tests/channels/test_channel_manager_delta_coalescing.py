@@ -166,7 +166,13 @@ class TestDeltaCoalescing:
                 channel="mock",
                 chat_id="chat1",
                 content=" world",
-                metadata={"_stream_delta": True, "_stream_end": True},
+                metadata={
+                    "_stream_delta": True,
+                    "_stream_end": True,
+                    "_merge_next": True,
+                    "_resuming": True,
+                    "_stream_id": "stream-1",
+                },
             )
         )
 
@@ -177,8 +183,59 @@ class TestDeltaCoalescing:
         assert merged.content == "Hello world"
         # Should have stream_end flag
         assert merged.metadata.get("_stream_end") is True
+        assert merged.metadata.get("_merge_next") is True
+        assert merged.metadata.get("_resuming") is True
+        assert merged.metadata.get("_stream_id") == "stream-1"
         # No pending
         assert len(pending) == 0
+
+    @pytest.mark.asyncio
+    async def test_merge_next_boundary_keeps_channel_buffer_open(self, manager):
+        channel = manager.channels["mock"]
+        msg = OutboundMessage(
+            channel="mock",
+            chat_id="chat1",
+            content="",
+            metadata={
+                "_stream_end": True,
+                "_merge_next": True,
+                "_resuming": True,
+                "_stream_id": "stream-1",
+            },
+        )
+
+        await manager._send_once(channel, msg)
+
+        channel._send_delta_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_coalesced_merge_boundary_delivers_content_as_idempotent_delta(self, manager):
+        channel = manager.channels["mock"]
+        msg = OutboundMessage(
+            channel="mock",
+            chat_id="chat1",
+            content="first ",
+            metadata={
+                "_stream_delta": True,
+                "_stream_end": True,
+                "_merge_next": True,
+                "_resuming": True,
+                "_stream_id": "stream-1",
+                "_delivery_id": "delivery-1",
+            },
+        )
+
+        await manager._send_once(channel, msg)
+
+        channel._send_delta_mock.assert_awaited_once_with(
+            "chat1",
+            "first ",
+            {
+                "_stream_delta": True,
+                "_stream_id": "stream-1",
+                "_delivery_id": "delivery-1",
+            },
+        )
 
     @pytest.mark.asyncio
     async def test_coalescing_stops_at_first_non_matching_boundary(self, manager, bus):

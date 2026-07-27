@@ -228,6 +228,10 @@ hahobot config unset skills.entries.today-task.config.authCode
 被普通请求边界提前终止，同时防止持续吐出极小 delta 的异常流永久占用 session。
 Moonshot 直连请求中，Kimi K2.5/K2.6 不再显式发送 `temperature`，由服务端根据 thinking
 模式选择合法值；K2.7 系列仍保留服务端要求的 `1.0` 覆盖。
+Qwen 的 thinking 参数按模型家族匹配，不会因为共用一个 OpenAI 兼容端点就误加到其他模型。
+所有发往 provider 的嵌套消息还会在 JSON 编码前清理异常 UTF-16 surrogate。若 provider 以
+`finish_reason="length"` 截断输出，hahobot 会用已送达尾部锚定续写，并把各段合并成同一条
+最终回复和同一条可见流式消息。
 
 对于直连 OpenAI 的请求，当前实现也已经同步了上游新逻辑：
 
@@ -325,6 +329,8 @@ DuckDuckGo：
 - 当当前 persona 的 `.hahobot/st_manifest.json` 里有 `reference_image` 或 `reference_images` 时，`image_gen` 支持：
   - `reference_image="__default__"`
   - `reference_image="__default__:scene"`
+- Gemini 生图请求会按具体模型能力发送 `aspectRatio` / `imageSize`，不把不受支持的
+  `imageConfig` 字段强塞给较旧或能力较窄的模型。
 
 这使得角色一致性出图、场景换装、生活陪伴类配图都可以复用 persona 参考图。
 
@@ -523,7 +529,7 @@ OpenAI 兼容 TTS 示例：
 - `streaming` 默认就是 `true`，表示最终回复会优先走“先发一条、后续逐步编辑”的流式体验
 - `streamEditInterval` 控制 Telegram `edit_message_text` 的最小节流间隔，适合按自己的频率/限流情况调整
 - `inlineKeyboards` 开启后会把出站消息里的 `buttons` 渲染成 Telegram 原生内联按钮；关闭时会把按钮标签拼回正文，避免选项丢失
-- 超长流式回复会在生成过程中主动分片：渲染后的 HTML 每段都限制在 Telegram 的 4096 字符边界内；HTML 被拒绝时自动退回纯文本；仍在继续生成的尾段保留原始 Markdown，后续 delta 不会丢格式；瞬时发送失败会从首个未发送分片续传，不重复已经成功的分片
+- 超长流式回复会在生成过程中主动分片：渲染后的 HTML 每段都限制在 Telegram 的 4096 字符边界内；HTML 被拒绝时自动退回纯文本；仍在继续生成的尾段保留原始 Markdown，后续 delta 不会丢格式；瞬时发送失败会从首个未发送分片续传，不重复已经成功的分片。压成单行的超长 fenced code 或极小分片上限会走保证前进的硬切分，不会卡在同一段无限循环
 
 运行：
 
@@ -720,6 +726,8 @@ hahobot channels login whatsapp
 ```
 
 飞书话题内的回复会把拆分后的每一段出站消息都保持在同一个话题线程里，而不只让第一段走回复接口。
+飞书与 Slack 都会先保护 fenced code，再识别 Markdown 表格，因此代码里的竖线不会被误转成表格；
+飞书解析 post/card 时也会把空的文本、列表和 `multi_url` 字段安全地视为空值。
 
 ### QQ
 
@@ -1076,6 +1084,9 @@ hahobot 支持 [MCP](https://modelcontextprotocol.io/)。
 `mcp_filesystem_write_file`。省略该字段或设为 `["*"]` 表示注册全部工具，设为 `[]`
 表示该服务一个工具也不注册。
 
+注册到 OpenAI 兼容 provider 前，MCP 输入 schema 会保留已有 `$defs`，把其他本地 JSON
+Pointer 引用做 URI 解码并提升进 `$defs`；递归 schema 也不会被无限展开。
+
 MCP 服务仍会并发连接，并受各自 `connectTimeout` 限制。每一代连接现在由独立 owner task
 持有并在同一个 asyncio task 内打开/关闭 transport、session 与本地 `AsyncExitStack`，避免
 AnyIO cancel scope 在跨 task 关闭时造成 CPU 占用或资源泄漏。重连会先切换到新 owner，再让旧
@@ -1138,6 +1149,9 @@ HTTP 示例：
 
 - `self_inspect`：只读运行时自检工具，返回当前 model、provider、注册工具、实际 session key 和运行中 subagent 的 JSON 快照
 - `notebook_edit`：受控的 `.ipynb` 单元格编辑工具，支持 `replace` / `insert` / `delete`
+
+`read_file` 会在实际读入文本、图片或 OOXML 前先用文件元数据拒绝超过 100 MiB 的输入；
+workspace 限制下的 shell 路径检查也覆盖 `--output=/tmp/file` 这类等号赋值形式。
 
 其中 `self_inspect` 故意保持只读，不提供上游那类运行时自修改能力；`notebook_edit`
 主 agent 默认可用，`spawn(mode=implement)` 的 subagent 也会拿到，而 `explore` /
@@ -1237,7 +1251,8 @@ Consolidator 写 `MEMORY.md` 时,每个新片段会被服务端自动包上可�
 - `ts` 和 `src` 由代码填充,**LLM 无法伪造**(防 prompt 注入伪造 `src:dream` 等可信来源)。
 - 无头部的老片段仍可读,自动归 `tag=legacy` / `src=unknown`。
 
-Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
+Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。只有第二阶段完整结束（包括合法的
+无修改结果）才会推进归档游标并压缩原批次；失败或达到最大迭代的批次会保留到下次重试。
 
 #### 配置示例
 
@@ -1311,7 +1326,8 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
 - **与 admin 共用登录态**：必须先开启 `gateway.admin` 并设置 `authKey` 才可访问，没有单独的 WebUI 密钥；
   未登录时跳转到 `/admin/login`
 - 聊天仅限 `webui:*` 会话键，绝不会把消息写进某个真实渠道（如 Telegram）的会话
-- 支持内联媒体：生成的图片经 `/app/media/...` 从 `workspace/out` 提供并在气泡内展示；聊天区带人格选择器，
+- 支持内联媒体：生成的图片经 `/app/media/...` 从 `workspace/out` 提供并在气泡内展示；刷新后会从
+  持久化历史恢复图片/文件以及只有媒体没有文本的消息，同时继续拒绝工作区外路径和非 HTTP(S) URL；聊天区带人格选择器，
   切换时通过 WS 发送 `/persona set <name>`（复用既有命令路由）
 - 带实时工作检查点面板（读取会话 `working_checkpoint`），以及语音输入（麦克风 → `/app/transcribe`，
   复用已配置的转写 provider：`channels.transcriptionProvider` + `providers.openai`/`groq` 的 key）
@@ -1352,6 +1368,8 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。
 - 保存后，admin 会把“需重启”字段与当前进程启动时的配置基线比较，列出真正发生变化的字段路径；
   gateway / agent / provider / channel 类变更可直接点击“重启当前 gateway”，而 `api.*` / `a2a.*`
   会单独显示 `hahobot serve --config ...` 命令，避免误重启错误的进程；将字段改回启动值后提示会自动消失
+- 主配置与 admin 保存都通过保留权限的临时文件 + fsync + 原子替换完成，中断写入不会留下被截断的
+  `config.json`
 - 编辑当前 runtime workspace 下 persona 的 `SOUL.md`、`USER.md`、可选 `PROFILE.md`、可选 `INSIGHTS.md`、`STYLE.md`、`LORE.md`
 - 编辑 persona 的 `VOICE.json`
 - 可视化编辑 persona 的 companion scene 字段，例如 `/scene` 的默认参考图、分场景参考图、prompt 覆盖和配文覆盖
@@ -1550,7 +1568,7 @@ hahobot gateway --config ~/.hahobot-feishu/config.json --port 18792
 交互式 CLI 输入还会为 slash 命令提供补全，覆盖内置命令、常见子命令，以及当前
 workspace 里的 persona、scene 名称，以及内置 `/update` 与本地 `/session ...`、`/repo ...`、`/review ...`、`/compact` 候选。
 交互式输入和历史文件写入会在进入消息总线前清理异常 Unicode surrogate 码点，同时保留合法
-emoji 和其他 Unicode 文本。
+emoji 和其他 Unicode 文本；provider 边界仍会对恢复会话和工具生成的嵌套内容再次递归清理。
 
 其中 `/repo diff` 只看 tracked changes；如果还想确认 untracked 文件数量，用 `/repo status`。
 `/review` 则会把当前 diff 交给已配置模型做 findings-first 的代码审查，不会直接改动仓库文件。
@@ -1817,7 +1835,7 @@ print(resp.choices[0].message.content)
 
 `HEARTBEAT.md` 用来描述周期性任务。agent 也可以自己维护它，例如让它“添加一个周期任务”，它会直接更新 `HEARTBEAT.md`。
 
-运行中的 workspace 级 cron service 现在也会周期性重新读取自己的 `cron/jobs.json`。这意味着即使当前调度器手里只有很远之后才触发的任务，另一个进程后面新增的更早任务也能被及时发现，不需要重启 gateway。
+运行中的 workspace 级 cron service 现在也会周期性重新读取自己的 `cron/jobs.json`。这意味着即使当前调度器手里只有很远之后才触发的任务，另一个进程后面新增的更早任务也能被及时发现，不需要重启 gateway。每次修改都会在跨进程锁内完成完整的最新读取—修改—写回，并通过原子替换提交，因此并行 gateway/CLI 不会互相覆盖任务；到期或手动执行还会先持久化带 token 的认领，避免两个调度器并发执行同一个实时任务。异步调度会固定提交时的 workspace，并在专用存储工作池中完成锁等待与 fsync；定时器重挂只替换等待中的 sleeper，不会取消已经开始产生外部副作用的任务。损坏的 store 会拒绝写回而保留原文件；原子替换开始前的取消不会提交，替换一旦开始则由成功提交结果胜出；workspace 重绑定会先排空旧 workspace 的自动调度 tick，再发布新 store。崩溃或网络结果不明确时仍采用 at-least-once 交付语义，claim 保证的是不同时并发执行，而不是承诺所有边界都绝不重放。
 
 如果需要调节这个轮询上限，可以配置：
 

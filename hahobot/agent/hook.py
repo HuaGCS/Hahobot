@@ -27,6 +27,9 @@ class AgentHookContext:
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     tool_results: list[Any] = field(default_factory=list)
     tool_events: list[dict[str, str]] = field(default_factory=list)
+    streamed_content: bool = False
+    streamed_text: str = ""
+    stream_continues_current_message: bool = False
     final_content: str | None = None
     stop_reason: str | None = None
     error: str | None = None
@@ -41,6 +44,10 @@ class AgentHook:
     def wants_streaming(self) -> bool:
         return False
 
+    def manages_stream_output(self) -> bool:
+        """Return whether this hook records the actual user-visible streamed text."""
+        return False
+
     def prepare_messages(
         self,
         context: AgentHookContext,
@@ -53,6 +60,10 @@ class AgentHook:
 
     async def on_stream(self, context: AgentHookContext, delta: str) -> None:
         pass
+
+    async def on_stream_supplement(self, context: AgentHookContext, delta: str) -> None:
+        """Deliver visible text that the provider omitted from its raw delta stream."""
+        await self.on_stream(context, delta)
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         pass
@@ -87,6 +98,9 @@ class CompositeHook(AgentHook):
     def wants_streaming(self) -> bool:
         return any(h.wants_streaming() for h in self._hooks)
 
+    def manages_stream_output(self) -> bool:
+        return any(h.manages_stream_output() for h in self._hooks)
+
     async def _for_each_hook_safe(self, method_name: str, *args: Any, **kwargs: Any) -> None:
         for h in self._hooks:
             if getattr(h, "_reraise", False):
@@ -103,6 +117,9 @@ class CompositeHook(AgentHook):
 
     async def on_stream(self, context: AgentHookContext, delta: str) -> None:
         await self._for_each_hook_safe("on_stream", context, delta)
+
+    async def on_stream_supplement(self, context: AgentHookContext, delta: str) -> None:
+        await self._for_each_hook_safe("on_stream_supplement", context, delta)
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         await self._for_each_hook_safe("on_stream_end", context, resuming=resuming)

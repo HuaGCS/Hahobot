@@ -151,3 +151,20 @@ async def test_send_updates_reaction_when_final_response_sent() -> None:
     assert fake_web.reactions_add_calls == [
         {"channel": "C123", "name": "white_check_mark", "timestamp": "1700000000.000100"}
     ]
+
+
+def test_to_mrkdwn_keeps_fenced_markdown_tables_intact() -> None:
+    text = "Intro\n\n```\n| a | b |\n| - | - |\n| 1 | 2 |\n```\n\nOutro"
+
+    rendered = SlackChannel._to_mrkdwn(text)
+
+    assert "```\n| a | b |\n| - | - |\n| 1 | 2 |\n```" in rendered
+    assert "**a**: 1" not in rendered
+    assert "*a*: 1" not in rendered
+
+
+def test_to_mrkdwn_still_converts_unfenced_markdown_tables() -> None:
+    rendered = SlackChannel._to_mrkdwn("| a | b |\n| - | - |\n| 1 | 2 |")
+
+    assert "| a | b |" not in rendered
+    assert all(value in rendered for value in ("a", "1", "b", "2"))

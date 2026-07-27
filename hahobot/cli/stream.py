@@ -129,8 +129,13 @@ class StreamRenderer:
             self._live.refresh()
             self._t = now
 
-    async def on_end(self, *, resuming: bool = False) -> None:
+    async def on_end(self, *, resuming: bool = False, merge_next: bool = False) -> None:
         self._finish_segment()
+        if merge_next:
+            if self._live:
+                self._live.update(self._render())
+                self._live.refresh()
+            return
         if self._interactive:
             if resuming:
                 self._buf = ""

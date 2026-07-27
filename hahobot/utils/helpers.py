@@ -2,10 +2,14 @@
 
 import base64
 import json
+import os
 import re
 import shutil
+import stat
 import time
 import uuid
+from collections.abc import Callable
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -132,6 +136,37 @@ def image_placeholder_text(path: str | None, *, empty: str = "[image]") -> str:
     return f"[image: {path}]" if path else empty
 
 
+def sanitize_surrogates(text: Any) -> Any:
+    """Reconstruct valid UTF-16 pairs and replace unpaired surrogate code points."""
+    if not isinstance(text, str):
+        return text
+    if not any(0xD800 <= ord(char) <= 0xDFFF for char in text):
+        return text
+    return text.encode("utf-16-le", errors="surrogatepass").decode("utf-16-le", errors="replace")
+
+
+def sanitize_surrogates_deep(value: Any) -> Any:
+    """Sanitize every string leaf while preserving clean container identities."""
+    if isinstance(value, str):
+        return sanitize_surrogates(value)
+    if isinstance(value, list):
+        rewritten = [sanitize_surrogates_deep(item) for item in value]
+        return (
+            rewritten if any(a is not b for a, b in zip(rewritten, value, strict=True)) else value
+        )
+    if isinstance(value, dict):
+        rewritten = {key: sanitize_surrogates_deep(item) for key, item in value.items()}
+        return (
+            rewritten if any(rewritten[key] is not item for key, item in value.items()) else value
+        )
+    if isinstance(value, tuple):
+        rewritten = tuple(sanitize_surrogates_deep(item) for item in value)
+        return (
+            rewritten if any(a is not b for a, b in zip(rewritten, value, strict=True)) else value
+        )
+    return value
+
+
 def truncate_text(text: str, max_chars: int) -> str:
     """Truncate text with a stable suffix."""
     if max_chars <= 0 or len(text) <= max_chars:
@@ -238,11 +273,34 @@ def _cleanup_tool_result_buckets(root: Path, current_bucket: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
-def _write_text_atomic(path: Path, content: str) -> None:
+def _write_text_atomic(
+    path: Path,
+    content: str,
+    *,
+    replace_file: Callable[[Path, Path], None] | None = None,
+) -> None:
+    """Durably replace a text file without changing its existing POSIX mode."""
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    existing_mode: int | None = None
+    with suppress(OSError):
+        existing_mode = stat.S_IMODE(path.stat().st_mode)
     try:
-        tmp.write_text(content, encoding="utf-8")
-        tmp.replace(path)
+        with open(tmp, "w", encoding="utf-8") as handle:
+            if existing_mode is not None:
+                os.chmod(tmp, existing_mode)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if replace_file is None:
+            tmp.replace(path)
+        else:
+            replace_file(tmp, path)
+        with suppress(OSError, NotImplementedError):
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
         if tmp.exists():
             tmp.unlink(missing_ok=True)

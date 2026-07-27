@@ -172,6 +172,110 @@ def test_wrapper_normalizes_nullable_property_anyof() -> None:
     }
 
 
+def test_wrapper_hoists_recursive_local_json_pointer_refs() -> None:
+    ref = "#/properties/filter/properties/items"
+    tool_def = SimpleNamespace(
+        name="demo",
+        description="demo tool",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "object",
+                            "properties": {"next": {"$ref": ref}},
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    wrapper = MCPToolWrapper(SimpleNamespace(call_tool=None), "test", tool_def)
+
+    rewritten_ref = wrapper.parameters["properties"]["filter"]["properties"]["items"]["properties"][
+        "next"
+    ]["$ref"]
+    assert rewritten_ref.startswith("#/$defs/ref_")
+    definition_name = rewritten_ref.removeprefix("#/$defs/")
+    definition = wrapper.parameters["$defs"][definition_name]
+    assert definition["properties"]["next"]["$ref"] == rewritten_ref
+
+
+def test_wrapper_hoists_root_self_ref_without_recursing_forever() -> None:
+    tool_def = SimpleNamespace(
+        name="demo",
+        description="demo tool",
+        inputSchema={"$ref": "#"},
+    )
+
+    wrapper = MCPToolWrapper(SimpleNamespace(call_tool=None), "test", tool_def)
+
+    rewritten_ref = wrapper.parameters["$ref"]
+    definition_name = rewritten_ref.removeprefix("#/$defs/")
+    assert rewritten_ref.startswith("#/$defs/ref_")
+    assert wrapper.parameters["$defs"][definition_name]["$ref"] == rewritten_ref
+
+
+def test_wrapper_preserves_existing_defs_refs() -> None:
+    tool_def = SimpleNamespace(
+        name="demo",
+        description="demo tool",
+        inputSchema={
+            "type": "object",
+            "properties": {"value": {"$ref": "#/$defs/value"}},
+            "$defs": {"value": {"type": "string"}},
+        },
+    )
+
+    wrapper = MCPToolWrapper(SimpleNamespace(call_tool=None), "test", tool_def)
+
+    assert wrapper.parameters["properties"]["value"]["$ref"] == "#/$defs/value"
+    assert wrapper.parameters["$defs"]["value"] == {"type": "string"}
+
+
+def test_wrapper_resolves_uri_encoded_json_pointer_tokens() -> None:
+    tool_def = SimpleNamespace(
+        name="demo",
+        description="demo tool",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "space name/value": {"type": "string"},
+                "alias": {"$ref": "#/properties/space%20name~1value"},
+            },
+        },
+    )
+
+    wrapper = MCPToolWrapper(SimpleNamespace(call_tool=None), "test", tool_def)
+
+    rewritten_ref = wrapper.parameters["properties"]["alias"]["$ref"]
+    definition_name = rewritten_ref.removeprefix("#/$defs/")
+    assert wrapper.parameters["$defs"][definition_name] == {"type": "string"}
+
+
+def test_wrapper_drops_unresolved_local_ref_but_keeps_sibling_schema() -> None:
+    tool_def = SimpleNamespace(
+        name="demo",
+        description="demo tool",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "value": {
+                    "$ref": "#/components/schemas/missing",
+                    "description": "fallback value",
+                }
+            },
+        },
+    )
+
+    wrapper = MCPToolWrapper(SimpleNamespace(call_tool=None), "test", tool_def)
+
+    assert wrapper.parameters["properties"]["value"] == {"description": "fallback value"}
+
+
 @pytest.mark.asyncio
 async def test_execute_returns_text_blocks() -> None:
     async def call_tool(_name: str, arguments: dict) -> object:

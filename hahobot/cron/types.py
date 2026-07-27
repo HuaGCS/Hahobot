@@ -16,7 +16,7 @@ def _get_camel_snake(
     return data.get(snake, default)
 
 
-def _store_int(value: Any, default: int = 0) -> int:
+def _store_int(value: Any, default: int | None = 0) -> int | None:
     """Coerce JSON numerics while treating null/blank like a missing value."""
     if value is None or value == "":
         return default
@@ -41,8 +41,8 @@ class CronSchedule:
     def from_store_dict(cls, data: dict[str, Any]) -> "CronSchedule":
         return cls(
             kind=data["kind"],
-            at_ms=_get_camel_snake(data, "atMs", "at_ms"),
-            every_ms=_get_camel_snake(data, "everyMs", "every_ms"),
+            at_ms=_store_int(_get_camel_snake(data, "atMs", "at_ms"), None),
+            every_ms=_store_int(_get_camel_snake(data, "everyMs", "every_ms"), None),
             expr=data.get("expr"),
             tz=data.get("tz"),
         )
@@ -98,21 +98,34 @@ class CronJobState:
     last_status: Literal["ok", "error", "skipped"] | None = None
     last_error: str | None = None
     run_history: list[CronRunRecord] = field(default_factory=list)
+    running_token: str | None = None
+    running_at_ms: int | None = None
 
     @classmethod
     def from_store_dict(cls, data: dict[str, Any]) -> "CronJobState":
         history = _get_camel_snake(data, "runHistory", "run_history", []) or []
+        run_history: list[CronRunRecord] = []
+        if isinstance(history, list):
+            for record in history:
+                if isinstance(record, CronRunRecord):
+                    run_history.append(record)
+                elif isinstance(record, dict):
+                    try:
+                        run_history.append(CronRunRecord.from_store_dict(record))
+                    except (KeyError, TypeError, ValueError):
+                        continue
         return cls(
-            next_run_at_ms=_get_camel_snake(data, "nextRunAtMs", "next_run_at_ms"),
-            last_run_at_ms=_get_camel_snake(data, "lastRunAtMs", "last_run_at_ms"),
+            next_run_at_ms=_store_int(
+                _get_camel_snake(data, "nextRunAtMs", "next_run_at_ms"), None
+            ),
+            last_run_at_ms=_store_int(
+                _get_camel_snake(data, "lastRunAtMs", "last_run_at_ms"), None
+            ),
             last_status=_get_camel_snake(data, "lastStatus", "last_status"),
             last_error=_get_camel_snake(data, "lastError", "last_error"),
-            run_history=[
-                record
-                if isinstance(record, CronRunRecord)
-                else CronRunRecord.from_store_dict(record)
-                for record in history
-            ],
+            run_history=run_history,
+            running_token=_get_camel_snake(data, "runningToken", "running_token"),
+            running_at_ms=_store_int(_get_camel_snake(data, "runningAtMs", "running_at_ms"), None),
         )
 
 

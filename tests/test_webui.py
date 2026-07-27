@@ -64,6 +64,9 @@ class _FakeCron:
         self.jobs.append(kwargs)
         return SimpleNamespace(id="job1")
 
+    async def run_store_io(self, operation, /, *args, **kwargs):
+        return operation(*args, **kwargs)
+
 
 def _make_app(
     tmp_path: Path,
@@ -575,6 +578,53 @@ async def test_webui_ws_stream_end_includes_media(tmp_path: Path, client_factory
             break
     await ws.close()
     assert end["media"] == ["/app/media/image_gen/pic.png"]
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_refresh_renders_persisted_media(tmp_path: Path, client_factory) -> None:
+    workspace = tmp_path / "workspace"
+    image = workspace / "out" / "image_gen" / "saved image.png"
+    document = workspace / "out" / "reports" / "result.pdf"
+    outside = workspace / "secret.png"
+    image.parent.mkdir(parents=True)
+    document.parent.mkdir(parents=True)
+    image.write_bytes(b"img")
+    document.write_bytes(b"pdf")
+    outside.write_bytes(b"secret")
+
+    # Proactive/message-tool deliveries persist media on assistant messages. A
+    # media-only row must survive the same refresh path as a row with text.
+    sm = SessionManager(workspace)
+    session = sm.get_or_create("webui:default")
+    session.add_message(
+        "assistant",
+        "",
+        media=[
+            str(image),
+            str(document),
+            "https://cdn.example.com/remote.webp?sig=1",
+            "https://cdn.example.com/archive.zip",
+            str(outside),
+            "javascript:alert(1)",
+        ],
+    )
+    sm.save(session)
+
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent())
+    client = await client_factory(app)
+    resp = await client.get("/app", cookies=_auth_cookies())
+    assert resp.status == 200
+    body = await resp.text()
+
+    assert 'src="/app/media/image_gen/saved%20image.png"' in body
+    assert 'src="https://cdn.example.com/remote.webp?sig=1"' in body
+    assert 'href="/app/media/reports/result.pdf"' in body
+    assert ">result.pdf</a>" in body
+    assert 'href="https://cdn.example.com/archive.zip"' in body
+    assert ">archive.zip</a>" in body
+    assert "secret.png" not in body
+    assert "javascript:alert" not in body
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")

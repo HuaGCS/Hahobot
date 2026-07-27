@@ -6,6 +6,7 @@ import base64
 import time
 import uuid
 from dataclasses import dataclass
+from math import gcd
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,21 @@ from hahobot.utils.helpers import detect_image_mime, ensure_dir
 
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 _OPENAI_SIZE_DEFAULT = "1024x1024"
+_GEMINI_DEFAULT_ASPECT_RATIO = "1:1"
+_GEMINI_DEFAULT_IMAGE_SIZE = "2K"
+# Aspect ratios documented for every Gemini image model using generateContent.
+_GEMINI_COMMON_ASPECT_RATIOS = frozenset(
+    {"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
+)
+# Gemini 3.1 Flash and Flash Lite additionally accept extreme aspect ratios.
+_GEMINI_31_FLASH_ASPECT_RATIOS = frozenset(
+    {*_GEMINI_COMMON_ASPECT_RATIOS, "1:4", "4:1", "1:8", "8:1"}
+)
+# Gemini 3 Pro image models accept these sizes. Gemini 3.1 Flash adds 512,
+# while Gemini 3.1 Flash Lite supports only 1K.
+_GEMINI_3_IMAGE_SIZES = frozenset({"1K", "2K", "4K"})
+_GEMINI_31_FLASH_IMAGE_SIZES = frozenset({"512", *_GEMINI_3_IMAGE_SIZES})
+_GEMINI_31_FLASH_LITE_IMAGE_SIZES = frozenset({"1K"})
 _MIME_EXTENSIONS = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -31,6 +47,82 @@ _SUFFIX_MIME = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+
+
+def _gemini_supported_aspect_ratios(model: str) -> frozenset[str]:
+    """Return the documented aspect ratios for a generateContent image model."""
+    normalized = model.lower()
+    if "gemini-3.1-flash-lite-image" in normalized or "gemini-3.1-flash-image" in normalized:
+        return _GEMINI_31_FLASH_ASPECT_RATIOS
+    if "gemini-" in normalized and "image" in normalized:
+        return _GEMINI_COMMON_ASPECT_RATIOS
+    return frozenset()
+
+
+def _gemini_supported_image_sizes(model: str) -> frozenset[str]:
+    """Return the documented image-size tokens for a generateContent image model."""
+    normalized = model.lower()
+    if "gemini-3.1-flash-lite-image" in normalized:
+        return _GEMINI_31_FLASH_LITE_IMAGE_SIZES
+    if "gemini-3.1-flash-image" in normalized:
+        return _GEMINI_31_FLASH_IMAGE_SIZES
+    if "gemini-3-pro-image" in normalized:
+        return _GEMINI_3_IMAGE_SIZES
+    return frozenset()
+
+
+def _gemini_image_config(
+    model: str,
+    aspect_ratio: str | None,
+    image_size: str | None,
+) -> dict[str, str]:
+    """Build the model-scoped ``responseFormat.image`` request payload."""
+    config: dict[str, str] = {}
+    if aspect_ratio and aspect_ratio in _gemini_supported_aspect_ratios(model):
+        config["aspectRatio"] = aspect_ratio
+    if image_size:
+        normalized_size = image_size.strip().upper()
+        if normalized_size in _gemini_supported_image_sizes(model):
+            config["imageSize"] = normalized_size
+    return config
+
+
+def _gemini_hints_from_size(size: str | None) -> tuple[str, str]:
+    """Translate the tool's WxH size into Gemini aspect-ratio and size tokens."""
+    if not size:
+        return _GEMINI_DEFAULT_ASPECT_RATIO, _GEMINI_DEFAULT_IMAGE_SIZE
+
+    parts = size.lower().split("x", 1)
+    if len(parts) != 2:
+        return _GEMINI_DEFAULT_ASPECT_RATIO, _GEMINI_DEFAULT_IMAGE_SIZE
+    try:
+        width, height = (int(part.strip()) for part in parts)
+    except ValueError:
+        return _GEMINI_DEFAULT_ASPECT_RATIO, _GEMINI_DEFAULT_IMAGE_SIZE
+    if width <= 0 or height <= 0:
+        return _GEMINI_DEFAULT_ASPECT_RATIO, _GEMINI_DEFAULT_IMAGE_SIZE
+
+    divisor = gcd(width, height)
+    exact_ratio = f"{width // divisor}:{height // divisor}"
+    if exact_ratio in _GEMINI_31_FLASH_ASPECT_RATIOS:
+        aspect_ratio = exact_ratio
+    elif width == height:
+        aspect_ratio = "1:1"
+    elif width > height:
+        aspect_ratio = "16:9" if width / height >= 1.7 else "4:3"
+    else:
+        aspect_ratio = "9:16" if height / width >= 1.7 else "3:4"
+
+    longest_side = max(width, height)
+    if longest_side <= 512:
+        image_size = "512"
+    elif longest_side <= 1024:
+        image_size = "1K"
+    elif longest_side <= 2048:
+        image_size = "2K"
+    else:
+        image_size = "4K"
+    return aspect_ratio, image_size
 
 
 @dataclass(frozen=True)
@@ -338,24 +430,7 @@ class ImageGenTool(Tool):
         size: str | None,
         ref_images: list[_ReferenceImage],
     ) -> str:
-        aspect_ratio = "1:1"
-        image_size = "2K"
-        if size:
-            parts = size.lower().split("x")
-            if len(parts) == 2:
-                try:
-                    width, height = int(parts[0]), int(parts[1])
-                    if width == height:
-                        aspect_ratio = "1:1"
-                    elif width > height:
-                        aspect_ratio = "16:9" if width / height >= 1.7 else "4:3"
-                    else:
-                        aspect_ratio = "9:16" if height / width >= 1.7 else "3:4"
-                    image_size = "1K" if max(width, height) <= 1024 else "2K"
-                    if max(width, height) > 2048:
-                        image_size = "4K"
-                except ValueError:
-                    pass
+        aspect_ratio, image_size = _gemini_hints_from_size(size)
 
         body_parts: list[dict[str, Any]] = []
         for ref in ref_images:
@@ -368,15 +443,14 @@ class ImageGenTool(Tool):
                 }
             )
         body_parts.append({"text": prompt})
+        generation_config: dict[str, Any] = {"responseModalities": ["IMAGE"]}
+        image_config = _gemini_image_config(self.model, aspect_ratio, image_size)
+        if image_config:
+            generation_config["responseFormat"] = {"image": image_config}
+
         body = {
             "contents": [{"parts": body_parts}],
-            "generationConfig": {
-                "responseModalities": ["IMAGE"],
-                "imageConfig": {
-                    "aspectRatio": aspect_ratio,
-                    "image_size": image_size,
-                },
-            },
+            "generationConfig": generation_config,
         }
         url = f"{self.base_url}/v1beta/models/{self.model}:generateContent"
         headers = {

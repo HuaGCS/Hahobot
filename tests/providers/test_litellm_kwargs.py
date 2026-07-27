@@ -625,6 +625,27 @@ def test_dashscope_no_extra_body_when_reasoning_effort_none() -> None:
     assert "extra_body" not in kw
 
 
+def test_qwen_thinking_enabled_through_openrouter_model_mapping() -> None:
+    kw = _build_kwargs_for("openrouter", "qwen/qwen3.6-flash", reasoning_effort="medium")
+
+    assert kw["reasoning_effort"] == "medium"
+    assert kw["extra_body"] == {"enable_thinking": True}
+
+
+def test_qwen_thinking_disabled_through_custom_model_mapping() -> None:
+    kw = _build_kwargs_for("custom", "qwen3.5-flash", reasoning_effort="none")
+
+    assert "reasoning_effort" not in kw
+    assert kw["extra_body"] == {"enable_thinking": False}
+
+
+def test_qwen_model_mapping_preserves_provider_default_when_effort_omitted() -> None:
+    kw = _build_kwargs_for("openrouter", "qwen/qwen3.7-plus", reasoning_effort=None)
+
+    assert "reasoning_effort" not in kw
+    assert "extra_body" not in kw
+
+
 def test_volcengine_thinking_enabled() -> None:
     kw = _build_kwargs_for("volcengine", "doubao-seed-2-0-pro", reasoning_effort="high")
     assert kw["extra_body"] == {"thinking": {"type": "enabled"}}

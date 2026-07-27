@@ -66,3 +66,25 @@ def test_split_headings_keeps_markdown_body_and_code_blocks_intact() -> None:
     assert elements[1]["tag"] == "markdown"
     assert "Body with **bold** text." in elements[1]["content"]
     assert "```python\nprint('hi')\n```" in elements[1]["content"]
+
+
+def test_build_card_elements_keeps_fenced_markdown_tables_intact() -> None:
+    channel = FeishuChannel.__new__(FeishuChannel)
+    text = "Before\n\n```\n| a | b |\n| - | - |\n| 1 | 2 |\n```\n\nAfter"
+
+    elements = channel._build_card_elements(text)
+
+    assert all(element.get("tag") != "table" for element in elements)
+    markdown = "\n".join(
+        element["content"] for element in elements if element.get("tag") == "markdown"
+    )
+    assert "```\n| a | b |\n| - | - |\n| 1 | 2 |\n```" in markdown
+
+
+def test_build_card_elements_still_parses_unfenced_markdown_tables() -> None:
+    channel = FeishuChannel.__new__(FeishuChannel)
+    text = "Before\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nAfter"
+
+    elements = channel._build_card_elements(text)
+
+    assert any(element.get("tag") == "table" for element in elements)

@@ -9,6 +9,7 @@ from loguru import logger
 from hahobot.utils.helpers import stringify_text_blocks
 
 _MAX_REPEAT_EXTERNAL_LOOKUPS = 2
+_LENGTH_RECOVERY_TAIL_CHARS = 64
 
 EMPTY_FINAL_RESPONSE_MESSAGE = (
     "I completed the tool steps but couldn't produce a final answer. "
@@ -20,8 +21,10 @@ FINALIZATION_RETRY_PROMPT = (
 )
 
 LENGTH_RECOVERY_PROMPT = (
-    "Output limit reached. Continue exactly where you left off "
-    "— no recap, no apology. Break remaining work into smaller steps if needed."
+    "The previous assistant response was cut off. Continue the same response from its "
+    "exact endpoint. Output only new continuation text in the same language and style. "
+    "Do not acknowledge this instruction, restart the response, repeat its title or any "
+    "existing text, recap, or apologize."
 )
 
 
@@ -55,9 +58,19 @@ def build_finalization_retry_message() -> dict[str, str]:
     return {"role": "user", "content": FINALIZATION_RETRY_PROMPT}
 
 
-def build_length_recovery_message() -> dict[str, str]:
+def build_length_recovery_message(content: str) -> dict[str, str]:
     """Prompt the model to continue after hitting output token limit."""
-    return {"role": "user", "content": LENGTH_RECOVERY_PROMPT}
+    tail = content[-_LENGTH_RECOVERY_TAIL_CHARS:]
+    prompt = (
+        f"{LENGTH_RECOVERY_PROMPT}\n\n"
+        "The following tail was already delivered to the user. Treat it as immutable "
+        "context and do not output it again:\n"
+        "<already_delivered_tail>\n"
+        f"{tail}\n"
+        "</already_delivered_tail>\n"
+        "Begin with the text that belongs immediately after this tail."
+    )
+    return {"role": "user", "content": prompt}
 
 
 def external_lookup_signature(tool_name: str, arguments: dict[str, Any]) -> str | None:

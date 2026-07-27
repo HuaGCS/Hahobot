@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from hahobot.session.manager import SessionManager
+from hahobot.session.manager import Session, SessionManager
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -180,6 +180,35 @@ def test_load_repairs_corrupt_session_and_rewrites_clean_file(tmp_path: Path) ->
     lines = _read_jsonl(path)
     assert sum(1 for line in lines if line.get("_type") == "metadata") == 1
     assert [line["content"] for line in lines if line.get("role")] == ["hello", "fixed"]
+
+
+def test_session_normalizes_null_metadata() -> None:
+    session = Session(key="cli:null", metadata=None)  # type: ignore[arg-type]
+
+    assert session.metadata == {}
+
+
+def test_load_normalizes_null_metadata_and_repairs_scalar_lines(tmp_path: Path) -> None:
+    manager = SessionManager(tmp_path)
+    path = manager._get_session_path("cli:scalar")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"_type": "metadata", "key": "cli:scalar", "metadata": None}),
+                "null",
+                json.dumps({"role": "user", "content": "kept"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    session = manager.get_or_create("cli:scalar")
+
+    assert session.metadata == {}
+    assert session.messages == [{"role": "user", "content": "kept"}]
+    assert session._requires_full_save is True
 
 
 def test_list_sessions_recovers_corrupt_first_line(tmp_path: Path) -> None:

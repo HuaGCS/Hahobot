@@ -122,6 +122,28 @@ class TestDreamRun:
         await dream.run()
         assert store.get_last_dream_cursor() == 2
 
+    async def test_incomplete_runner_keeps_batch_retryable(
+        self, dream, mock_provider, mock_runner, store
+    ):
+        store.append_history("retry me")
+        mock_provider.chat_with_retry.return_value = MagicMock(content="New fact")
+        mock_runner.run = AsyncMock(return_value=_make_run_result(stop_reason="max_iterations"))
+
+        assert await dream.run() is True
+        assert store.get_last_dream_cursor() == 0
+        assert [entry["content"] for entry in store.read_unprocessed_history(0)] == ["retry me"]
+
+    async def test_runner_exception_keeps_batch_retryable(
+        self, dream, mock_provider, mock_runner, store
+    ):
+        store.append_history("retry after exception")
+        mock_provider.chat_with_retry.return_value = MagicMock(content="New fact")
+        mock_runner.run = AsyncMock(side_effect=RuntimeError("boom"))
+
+        assert await dream.run() is True
+        assert store.get_last_dream_cursor() == 0
+        assert len(store.read_unprocessed_history(0)) == 1
+
     async def test_compacts_processed_history(self, dream, mock_provider, mock_runner, store):
         """Dream should compact history after processing."""
         store.append_history("event 1")

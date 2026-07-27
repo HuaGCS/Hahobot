@@ -51,6 +51,17 @@ _COMPACTABLE_TOOLS = frozenset(
 _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 
 
+def _restore_outer_whitespace(content: str, original: str | None) -> str:
+    """Restore boundary whitespace removed while cleaning a recovered segment."""
+    if not content or not original:
+        return content
+    leading_size = len(original) - len(original.lstrip())
+    trailing_size = len(original) - len(original.rstrip())
+    leading = original[:leading_size] if leading_size and not content[0].isspace() else ""
+    trailing = original[-trailing_size:] if trailing_size and not content[-1].isspace() else ""
+    return f"{leading}{content}{trailing}"
+
+
 @dataclass(slots=True)
 class AgentRunSpec:
     """Configuration for a single agent execution."""
@@ -109,7 +120,9 @@ class AgentRunner:
         tool_events: list[dict[str, str]] = []
         external_lookup_counts: dict[str, int] = {}
         empty_content_retries = 0
-        length_recovery_count = 0
+        # Segments from one uninterrupted length-recovery chain. Tool work
+        # starts a new logical answer and clears the chain.
+        length_recovery_parts: list[str] = []
 
         for iteration in range(spec.max_iterations):
             try:
@@ -140,6 +153,7 @@ class AgentRunner:
             response = await self._request_model(spec, request_messages, hook, context)
 
             raw_usage = response.usage or {}
+            original_content = response.content
             context.response = response
             context.usage = dict(raw_usage)
             # Drop degenerate tool calls (name=None/"") before they are persisted or
@@ -230,7 +244,7 @@ class AgentRunner:
                     },
                 )
                 empty_content_retries = 0
-                length_recovery_count = 0
+                length_recovery_parts.clear()
                 await hook.after_iteration(context)
                 continue
 
@@ -248,7 +262,11 @@ class AgentRunner:
                         _MAX_EMPTY_RETRIES,
                     )
                     if hook.wants_streaming():
-                        await hook.on_stream_end(context, resuming=False)
+                        if length_recovery_parts:
+                            context.stream_continues_current_message = True
+                            await hook.on_stream_end(context, resuming=True)
+                        else:
+                            await hook.on_stream_end(context, resuming=False)
                     await hook.after_iteration(context)
                     continue
                 logger.warning(
@@ -258,8 +276,12 @@ class AgentRunner:
                     empty_content_retries,
                 )
                 if hook.wants_streaming():
-                    await hook.on_stream_end(context, resuming=False)
-                    stream_closed = True
+                    if length_recovery_parts:
+                        context.stream_continues_current_message = True
+                        await hook.on_stream_end(context, resuming=True)
+                    else:
+                        await hook.on_stream_end(context, resuming=False)
+                        stream_closed = True
                 response = await self._request_finalization_retry(spec, messages_for_model)
                 retry_usage = self._usage_dict(response.usage)
                 self._accumulate_usage(usage, retry_usage)
@@ -267,20 +289,27 @@ class AgentRunner:
                 context.response = response
                 context.usage = dict(raw_usage)
                 context.tool_calls = list(response.tool_calls)
+                original_content = response.content
                 normalized = hook.normalize_content(context, response.content)
                 clean = hook.finalize_content(context, normalized)
 
+            if not is_blank_text(clean):
+                empty_content_retries = 0
+
             if response.finish_reason == "length" and not is_blank_text(clean):
-                length_recovery_count += 1
-                if length_recovery_count <= _MAX_LENGTH_RECOVERIES:
+                if len(length_recovery_parts) < _MAX_LENGTH_RECOVERIES:
+                    recovered_segment = _restore_outer_whitespace(clean, original_content)
+                    length_recovery_parts.append(recovered_segment)
                     logger.info(
                         "Output truncated on turn {} for {} ({}/{}); continuing",
                         iteration,
                         spec.session_key or "default",
-                        length_recovery_count,
+                        len(length_recovery_parts),
                         _MAX_LENGTH_RECOVERIES,
                     )
                     if hook.wants_streaming() and not stream_closed:
+                        await self._supplement_stream(hook, context, recovered_segment)
+                        context.stream_continues_current_message = True
                         await hook.on_stream_end(context, resuming=True)
                     messages.append(
                         build_assistant_message(
@@ -289,11 +318,27 @@ class AgentRunner:
                             thinking_blocks=response.thinking_blocks,
                         )
                     )
-                    messages.append(build_length_recovery_message())
+                    messages.append(build_length_recovery_message(clean))
                     context.final_content = clean
                     context.stop_reason = "length_recovery"
                     await hook.after_iteration(context)
                     continue
+
+            terminal_segment = (
+                _restore_outer_whitespace(clean, original_content)
+                if not is_blank_text(clean)
+                else ""
+            )
+            if (
+                hook.wants_streaming()
+                and not stream_closed
+                and response.finish_reason != "error"
+                and terminal_segment
+            ):
+                # Providers may omit all deltas, emit only hidden reasoning, or
+                # stop their delta stream before the returned response is complete.
+                # Add only the user-visible suffix that has not already arrived.
+                await self._supplement_stream(hook, context, terminal_segment)
 
             if hook.wants_streaming() and not stream_closed:
                 await hook.on_stream_end(context, resuming=False)
@@ -335,7 +380,10 @@ class AgentRunner:
                     "pending_tool_calls": [],
                 },
             )
-            final_content = clean
+            if length_recovery_parts:
+                final_content = ("".join(length_recovery_parts) + terminal_segment).strip()
+            else:
+                final_content = clean
             context.final_content = final_content
             context.stop_reason = stop_reason
             await hook.after_iteration(context)
@@ -343,16 +391,22 @@ class AgentRunner:
         else:
             stop_reason = "max_iterations"
             if spec.max_iterations_message:
-                final_content = spec.max_iterations_message.format(
+                terminal_content = spec.max_iterations_message.format(
                     max_iterations=spec.max_iterations,
                 )
             else:
-                final_content = render_template(
+                terminal_content = render_template(
                     "agent/max_iterations_message.md",
                     strip=True,
                     max_iterations=spec.max_iterations,
                 )
-            self._append_final_message(messages, final_content)
+            terminal_tail = ""
+            if length_recovery_parts:
+                terminal_tail = f"\n\n{terminal_content.lstrip()}"
+                final_content = ("".join(length_recovery_parts).rstrip() + terminal_tail).strip()
+            else:
+                final_content = terminal_content
+            self._append_final_message(messages, terminal_content)
             context = AgentHookContext(
                 iteration=spec.max_iterations,
                 messages=messages,
@@ -361,6 +415,9 @@ class AgentRunner:
                 model=spec.model,
                 persona=spec.persona,
             )
+            if length_recovery_parts and hook.wants_streaming():
+                await self._supplement_stream(hook, context, terminal_tail)
+                await hook.on_stream_end(context, resuming=False)
             context.final_content = final_content
             context.stop_reason = stop_reason
             await hook.after_iteration(context)
@@ -414,6 +471,9 @@ class AgentRunner:
 
             async def _stream(delta: str) -> None:
                 await hook.on_stream(context, delta)
+                if delta and not hook.manages_stream_output():
+                    context.streamed_content = True
+                    context.streamed_text += delta
 
             coro = self.provider.chat_stream_with_retry(
                 **kwargs,
@@ -425,6 +485,24 @@ class AgentRunner:
             coro,
             self._request_timeout_s(spec, streaming=wants_streaming),
         )
+
+    @staticmethod
+    async def _supplement_stream(
+        hook: AgentHook,
+        context: AgentHookContext,
+        expected: str,
+    ) -> None:
+        """Stream the expected visible suffix that provider deltas did not deliver."""
+        delivered = context.streamed_text
+        if delivered and not expected.startswith(delivered):
+            return
+        missing = expected[len(delivered) :]
+        if not missing:
+            return
+        await hook.on_stream_supplement(context, missing)
+        if not hook.manages_stream_output():
+            context.streamed_content = True
+            context.streamed_text += missing
 
     async def _request_finalization_retry(
         self,

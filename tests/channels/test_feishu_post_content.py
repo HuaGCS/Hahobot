@@ -11,7 +11,7 @@ if not FEISHU_AVAILABLE:
 
     pytest.skip("Feishu dependencies not installed (lark-oapi)", allow_module_level=True)
 
-from hahobot.channels.feishu import FeishuChannel, _extract_post_content
+from hahobot.channels.feishu import FeishuChannel, _extract_element_content, _extract_post_content
 
 
 def test_extract_post_content_supports_post_wrapper_shape() -> None:
@@ -51,6 +51,41 @@ def test_extract_post_content_keeps_direct_shape_behavior() -> None:
 
     assert text == "Daily report"
     assert image_keys == ["img_a", "img_b"]
+
+
+def test_extract_post_content_tolerates_null_text_fields() -> None:
+    text, image_keys = _extract_post_content(
+        {
+            "title": "T",
+            "content": [
+                [
+                    {"tag": "text", "text": None},
+                    {"tag": "a", "text": None},
+                    {"tag": "at", "user_name": None},
+                    {"tag": "text", "text": "ok"},
+                    {"tag": "code_block", "language": None, "text": None},
+                ]
+            ],
+        }
+    )
+
+    assert "@user" in text
+    assert "ok" in text
+    assert image_keys == []
+
+
+def test_extract_element_content_tolerates_null_lists_and_multi_url() -> None:
+    assert _extract_element_content({"tag": "div", "text": {"content": "hi"}, "fields": None}) == [
+        "hi"
+    ]
+    assert _extract_element_content(
+        {"tag": "button", "text": {"content": "Go"}, "multi_url": None}
+    ) == ["Go"]
+    assert _extract_element_content({"tag": "note", "elements": None}) == []
+    assert _extract_element_content({"tag": "column_set", "columns": None}) == []
+    assert (
+        _extract_element_content({"tag": "column_set", "columns": [None, {"elements": None}]}) == []
+    )
 
 
 def test_register_optional_event_keeps_builder_when_method_missing() -> None:

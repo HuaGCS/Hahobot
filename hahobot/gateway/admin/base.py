@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import secrets
 import time
 from datetime import datetime
@@ -32,6 +31,7 @@ from hahobot.gateway.admin.constants import (
     _LEGACY_ADMIN_COOKIE,
     _LEGACY_ADMIN_LANG_COOKIE,
 )
+from hahobot.utils.helpers import _write_text_atomic
 from hahobot.utils.html_templates import render_html_template
 
 
@@ -60,19 +60,8 @@ def _load_raw_config_data(request: web.Request) -> dict[str, Any]:
 def _save_raw_config_data(request: web.Request, data: dict[str, Any]) -> None:
     path = _current_config_path(request)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Atomic write: write to a temp file then rename, so a crash mid-write
-    # cannot leave a truncated/corrupt config.json.
-    import tempfile
-
     content = _pretty_json(data) + "\n"
-    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(content)
-        Path(tmp_path).replace(path)
-    except BaseException:
-        Path(tmp_path).unlink(missing_ok=True)
-        raise
+    _write_text_atomic(path, content)
 
 
 def _admin_enabled(request: web.Request) -> bool:

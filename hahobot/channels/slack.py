@@ -271,7 +271,19 @@ class SlackChannel(BaseChannel):
         """Convert Markdown to Slack mrkdwn, including tables."""
         if not text:
             return ""
+        code_blocks: list[str] = []
+
+        def _save_fence(match: re.Match) -> str:
+            code_blocks.append(match.group(0))
+            return f"\x00CB{len(code_blocks) - 1}\x00"
+
+        # Table conversion must never interpret example Markdown inside a code
+        # fence as a real table. Protect fences before the table pass; the later
+        # mrkdwn fixup protects them again while rewriting surrounding Markdown.
+        text = cls._CODE_FENCE_RE.sub(_save_fence, text)
         text = cls._TABLE_RE.sub(cls._convert_table, text)
+        for index, block in enumerate(code_blocks):
+            text = text.replace(f"\x00CB{index}\x00", block)
         return cls._fixup_mrkdwn(slackify_markdown(text))
 
     @classmethod

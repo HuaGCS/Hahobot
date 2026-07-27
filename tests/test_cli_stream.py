@@ -92,3 +92,24 @@ async def test_resuming_stream_defers_rate_until_final_segment(monkeypatch):
 
     assert printed_lines == ["⚡ ≈10.0 tok/s · ≈30 tok · 3.0s"]
     assert renderer.rate_metrics() == (30, 3.0)
+
+
+async def test_merge_next_keeps_one_interactive_visible_buffer(monkeypatch):
+    rendered: list[str] = []
+
+    async def fake_response(text: str, **_kwargs) -> None:
+        rendered.append(text)
+
+    monkeypatch.setattr(interactive, "_print_interactive_response", fake_response)
+
+    renderer = StreamRenderer(render_markdown=True, interactive=True, show_spinner=False)
+    await renderer.on_delta("first ")
+    await renderer.on_end(resuming=True, merge_next=True)
+
+    assert renderer._buf == "first "
+    assert rendered == []
+
+    await renderer.on_delta("second")
+    await renderer.on_end()
+
+    assert rendered == ["first second"]

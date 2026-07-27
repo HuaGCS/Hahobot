@@ -85,6 +85,7 @@ class ReadFileTool(_FsTool):
     """Read file contents with optional line-based pagination."""
 
     _MAX_CHARS = 128_000
+    _MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
     _DEFAULT_LIMIT = 2000
 
     @property
@@ -116,6 +117,14 @@ class ReadFileTool(_FsTool):
                 return f"Error: File not found: {path}"
             if not fp.is_file():
                 return f"Error: Not a file: {path}"
+
+            file_size = fp.stat().st_size
+            if file_size > self._MAX_FILE_SIZE_BYTES:
+                size_mib = file_size / (1024 * 1024)
+                max_mib = self._MAX_FILE_SIZE_BYTES // (1024 * 1024)
+                return (
+                    f"Error: File too large to read ({size_mib:.1f} MiB). Maximum is {max_mib} MiB."
+                )
 
             raw = fp.read_bytes()
             if not raw:

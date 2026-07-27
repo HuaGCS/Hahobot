@@ -122,21 +122,32 @@ def _list_webui_sessions(request: web.Request) -> list[dict[str, Any]]:
     return items
 
 
-def _conversation_messages(request: web.Request, session_key: str) -> list[dict[str, str]]:
+def _conversation_messages(request: web.Request, session_key: str) -> list[dict[str, Any]]:
     sm = _session_manager(request)
     if sm is None:
         return []
     session = sm.get_or_create(session_key)
-    out: list[dict[str, str]] = []
+    media_root = _media_root(request)
+    out: list[dict[str, Any]] = []
     for message in session.messages:
+        if not isinstance(message, dict):
+            continue
         role = message.get("role")
         if role not in ("user", "assistant"):
             continue
-        content = (message.get("content") or "").strip()
-        if not content:
+        raw_content = message.get("content")
+        content = raw_content.strip() if isinstance(raw_content, str) else ""
+        raw_media = message.get("media")
+        media = _media_view_items(raw_media if isinstance(raw_media, list) else None, media_root)
+        if not content and not media:
             continue
         out.append(
-            {"role": role, "content": content, "timestamp": str(message.get("timestamp") or "")}
+            {
+                "role": role,
+                "content": content,
+                "timestamp": str(message.get("timestamp") or ""),
+                "media": media,
+            }
         )
     return out
 
@@ -193,6 +204,28 @@ def _media_urls(media: list[str] | None, root: Path) -> list[str]:
         if url:
             urls.append(url)
     return urls
+
+
+_IMAGE_MEDIA_RE = re.compile(r"\.(?:png|jpe?g|gif|webp|bmp|svg)$", re.IGNORECASE)
+
+
+def _media_view_items(media: list[str] | None, root: Path) -> list[dict[str, Any]]:
+    """Prepare persisted media for the initial server-rendered conversation.
+
+    URL filtering stays centralized in :func:`_media_urls`; the image/file split
+    intentionally mirrors the live WebUI's ``renderMedia`` implementation.
+    """
+    items: list[dict[str, Any]] = []
+    for url in _media_urls(media, root):
+        path_without_query = url.split("?", 1)[0]
+        items.append(
+            {
+                "url": url,
+                "is_image": bool(_IMAGE_MEDIA_RE.search(path_without_query)),
+                "label": url.rsplit("/", 1)[-1],
+            }
+        )
+    return items
 
 
 async def webui_media(request: web.Request) -> web.StreamResponse:
@@ -496,7 +529,8 @@ async def webui_schedule(request: web.Request) -> web.Response:
         from hahobot.cron.types import CronSchedule
 
         at_ms = int(time.time() * 1000) + int(delay_min * 60_000)
-        cron.add_job(
+        await cron.run_store_io(
+            cron.add_job,
             name="webui-reminder",
             schedule=CronSchedule(kind="at", at_ms=at_ms),
             message=message,

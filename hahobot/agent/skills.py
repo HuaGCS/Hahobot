@@ -394,8 +394,8 @@ class SkillsLoader:
     def _get_missing_requirements(self, skill_meta: dict) -> str:
         """Get a description of missing requirements."""
         requires = skill_meta.get("requires", {})
-        required_bins = requires.get("bins", [])
-        required_env_vars = requires.get("env", [])
+        required_bins = self._requirement_names(requires, "bins")
+        required_env_vars = self._requirement_names(requires, "env")
         return ", ".join(
             [
                 f"CLI: {command_name}"
@@ -404,6 +404,16 @@ class SkillsLoader:
             ]
             + [f"ENV: {env_name}" for env_name in required_env_vars if not os.environ.get(env_name)]
         )
+
+    @staticmethod
+    def _requirement_names(requires: Any, key: str) -> list[str]:
+        """Return clean string entries from a persisted skill requirement list."""
+        if not isinstance(requires, dict):
+            return []
+        values = requires.get(key)
+        if not isinstance(values, list):
+            return []
+        return [value.strip() for value in values if isinstance(value, str) and value.strip()]
 
     def _get_skill_description(self, name: str) -> str:
         """Get the description of a skill from its frontmatter."""
@@ -490,8 +500,8 @@ class SkillsLoader:
     def _check_requirements(self, skill_meta: dict) -> bool:
         """Check if skill requirements are met (bins, env vars)."""
         requires = skill_meta.get("requires", {})
-        required_bins = requires.get("bins", [])
-        required_env_vars = requires.get("env", [])
+        required_bins = self._requirement_names(requires, "bins")
+        required_env_vars = self._requirement_names(requires, "env")
         return all(shutil.which(cmd) for cmd in required_bins) and all(
             os.environ.get(var) for var in required_env_vars
         )

@@ -318,6 +318,19 @@ class ChannelManager:
     @staticmethod
     async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
+        if msg.metadata.get("_stream_end") and msg.metadata.get("_merge_next"):
+            # A length-recovery boundary keeps the current channel buffer open.
+            # If coalescing attached content to the boundary, deliver it as an
+            # ordinary delta; a pure boundary requires no channel mutation.
+            if not msg.content:
+                return
+            metadata = dict(msg.metadata)
+            metadata["_stream_delta"] = True
+            metadata.pop("_stream_end", None)
+            metadata.pop("_merge_next", None)
+            metadata.pop("_resuming", None)
+            await channel.send_delta(msg.chat_id, msg.content, metadata)
+            return
         if msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):
             await channel.send_delta(msg.chat_id, msg.content, msg.metadata)
         elif not msg.metadata.get("_streamed"):
@@ -357,7 +370,7 @@ class ChannelManager:
                 combined_content += next_msg.content
                 # If we see _stream_end, remember it and stop coalescing this stream
                 if is_end:
-                    final_metadata["_stream_end"] = True
+                    final_metadata.update(next_msg.metadata or {})
                     # Stream ended - stop coalescing this stream
                     break
             else:

@@ -120,7 +120,9 @@ class BaseChannel(ABC):
 
         Streaming contract: ``_stream_delta`` is a chunk, ``_stream_end`` ends
         the current segment, and stateful implementations must key buffers by
-        ``_stream_id`` rather than only by ``chat_id``.
+        ``_stream_id`` rather than only by ``chat_id``. ``_merge_next`` marks a
+        recovery boundary whose next segment continues the same visible message;
+        the channel manager keeps that buffer open.
         """
 
     @property

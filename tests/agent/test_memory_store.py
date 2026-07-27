@@ -170,6 +170,14 @@ class TestHistoryWithCursor:
         cursor = store.append_history("event 3")
         assert cursor == 3
 
+    @pytest.mark.parametrize("malformed", [None, [], ["truthy"], "text", 7])
+    def test_next_cursor_survives_non_object_tail_entry(self, store, malformed):
+        store.append_history("event 1")
+        with open(store.history_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(malformed) + "\n")
+
+        assert store.append_history("event 2") == 2
+
     def test_read_entries_drops_negative_cursor(self, store):
         store.append_history("good 1")
         with open(store.history_file, "a", encoding="utf-8") as f:

@@ -10,6 +10,7 @@ import pydantic
 from loguru import logger
 
 from hahobot.config.schema import Config
+from hahobot.utils.helpers import _write_text_atomic
 
 DEFAULT_CONFIG_DIR = Path.home() / ".hahobot"
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.json"
@@ -105,8 +106,7 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
 
     data = config.model_dump(mode="json", by_alias=True)
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    _write_text_atomic(path, json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def resolve_config_env_vars(config: Config) -> Config:

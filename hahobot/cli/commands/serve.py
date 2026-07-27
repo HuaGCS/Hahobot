@@ -292,7 +292,7 @@ def gateway(
         """Force-reload runtime-configurable state after admin config saves."""
         reloaded = load_config(runtime_config_path)
         runtime.sync_workspace_templates(reloaded.workspace_path, silent=True)
-        cron.rebind_store(reloaded.workspace_path / "cron" / "jobs.json")
+        await cron.rebind_store_async(reloaded.workspace_path / "cron" / "jobs.json")
         cron.apply_runtime_config(reloaded.gateway.cron.max_sleep_ms)
         await agent.reload_runtime_config(reloaded)
         runtime_status_tracker.set_model(agent.model)
