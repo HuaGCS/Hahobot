@@ -53,6 +53,7 @@ from nanobot.config.schema import Base
 
 class WebhookConfig(Base):
     """Webhook channel configuration."""
+
     enabled: bool = False
     port: int = 9000
     allow_from: list[str] = Field(default_factory=list)
@@ -114,7 +115,7 @@ class WebhookChannel(BaseChannel):
         sender = body.get("sender", "unknown")
         chat_id = body.get("chat_id", sender)
         text = body.get("text", "")
-        media = body.get("media", [])       # list of URLs
+        media = body.get("media", [])  # list of URLs
 
         # This is the key call: validates allowFrom, then puts the
         # message onto the bus for the agent to process.
@@ -247,12 +248,12 @@ nanobot channels login <channel_name> --force  # re-authenticate
 ```python
 @dataclass
 class OutboundMessage:
-    channel: str        # your channel name
-    chat_id: str        # recipient (same value you passed to _handle_message)
-    content: str        # markdown text — convert to platform format as needed
-    media: list[str]    # local file paths to attach (images, audio, docs)
-    metadata: dict      # may contain: "_progress" (bool) for streaming chunks,
-                        #              "message_id" for reply threading
+    channel: str  # your channel name
+    chat_id: str  # recipient (same value you passed to _handle_message)
+    content: str  # markdown text — convert to platform format as needed
+    media: list[str]  # local file paths to attach (images, audio, docs)
+    metadata: dict  # may contain: "_progress" (bool) for streaming chunks,
+    #              "message_id" for reply threading
 ```
 
 ## Streaming Support
@@ -273,7 +274,9 @@ If either is missing, the agent falls back to the normal one-shot `send()` path.
 Override `send_delta` to handle two types of calls:
 
 ```python
-async def send_delta(self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None) -> None:
+async def send_delta(
+    self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
+) -> None:
     meta = metadata or {}
 
     if meta.get("_stream_end"):
@@ -305,7 +308,9 @@ class WebhookChannel(BaseChannel):
         super().__init__(config, bus)
         self._buffers: dict[str, str] = {}
 
-    async def send_delta(self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None) -> None:
+    async def send_delta(
+        self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
+    ) -> None:
         meta = metadata or {}
         if meta.get("_stream_end"):
             text = self._buffers.pop(chat_id, "")
@@ -364,8 +369,10 @@ Built-in channels use Pydantic config models (subclassing `Base` from `nanobot.c
 from pydantic import Field
 from nanobot.config.schema import Base
 
+
 class WebhookConfig(Base):
     """Webhook channel configuration."""
+
     enabled: bool = False
     port: int = 9000
     allow_from: list[str] = Field(default_factory=list)
@@ -378,6 +385,7 @@ class WebhookConfig(Base):
 ```python
 from typing import Any
 from nanobot.bus.queue import MessageBus
+
 
 class WebhookChannel(BaseChannel):
     def __init__(self, config: Any, bus: MessageBus):

@@ -10,10 +10,12 @@ Use nanobot programmatically — load config, run the agent, get results.
 import asyncio
 from nanobot import Nanobot
 
+
 async def main():
     bot = Nanobot.from_config()
     result = await bot.run("What time is it in Tokyo?")
     print(result.content)
+
 
 asyncio.run(main())
 ```
@@ -75,6 +77,7 @@ Subclass `AgentHook` and override any method:
 ```python
 from nanobot.agent import AgentHook, AgentHookContext
 
+
 class AuditHook(AgentHook):
     def __init__(self):
         self.calls = []
@@ -83,6 +86,7 @@ class AuditHook(AgentHook):
         for tc in ctx.tool_calls:
             self.calls.append(tc.name)
             print(f"[audit] {tc.name}({tc.arguments})")
+
 
 hook = AuditHook()
 result = await bot.run("List files in /tmp", hooks=[hook])
@@ -116,15 +120,19 @@ import asyncio
 from nanobot import Nanobot
 from nanobot.agent import AgentHook, AgentHookContext
 
+
 class TimingHook(AgentHook):
     async def before_iteration(self, ctx: AgentHookContext) -> None:
         import time
+
         ctx.metadata["_t0"] = time.time()
 
     async def after_iteration(self, ctx, response) -> None:
         import time
+
         elapsed = time.time() - ctx.metadata.get("_t0", 0)
         print(f"[timing] iteration took {elapsed:.2f}s")
+
 
 async def main():
     bot = Nanobot.from_config(workspace="/my/project")
@@ -133,6 +141,7 @@ async def main():
         hooks=[TimingHook()],
     )
     print(result.content)
+
 
 asyncio.run(main())
 ```

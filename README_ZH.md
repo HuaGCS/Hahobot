@@ -1803,11 +1803,7 @@ import requests
 
 resp = requests.post(
     "http://127.0.0.1:8900/v1/chat/completions",
-    json={
-        "messages": [
-            {"role": "user", "content": "hi"}
-        ]
-    },
+    json={"messages": [{"role": "user", "content": "hi"}]},
     timeout=120,
 )
 resp.raise_for_status()
