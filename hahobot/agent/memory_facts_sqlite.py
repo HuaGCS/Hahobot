@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 import re
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +22,8 @@ _LEGACY_TAG = "legacy"
 _UNKNOWN_SRC = "unknown"
 
 
-def _connect(db_path: Path) -> sqlite3.Connection:
+@contextmanager
+def _connect(db_path: Path, *, read_only: bool = False) -> Iterator[sqlite3.Connection]:
     """Open a SQLite connection with concurrency-friendly pragmas.
 
     This is a derived, rebuildable cache that the gateway, CLI, and Dream may
@@ -28,11 +31,26 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     under that concurrency. Ported as a nocturne_memory idea (``52b47f4d``) onto
     hahobot's file-first surfaces.
     """
-    conn = sqlite3.connect(db_path, timeout=5.0)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
+    if read_only:
+        conn = sqlite3.connect(
+            f"{db_path.resolve().as_uri()}?mode=ro",
+            uri=True,
+            timeout=5.0,
+        )
+    else:
+        conn = sqlite3.connect(db_path, timeout=5.0)
+
+    try:
+        conn.execute("PRAGMA busy_timeout=5000")
+        if not read_only:
+            journal_mode = conn.execute("PRAGMA journal_mode").fetchone()
+            if journal_mode is None or str(journal_mode[0]).casefold() != "wal":
+                conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def extract_fragment_header(line: str) -> dict[str, str] | None:
@@ -149,7 +167,7 @@ class MemoryFactsSQLiteIndex:
             ORDER BY bm25(facts_fts), f.ts DESC
             LIMIT ?
         """
-        with _connect(self.db_path) as conn:
+        with _connect(self.db_path, read_only=True) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
@@ -173,7 +191,7 @@ class MemoryFactsSQLiteIndex:
             ORDER BY ts DESC, fragment_order DESC
             LIMIT ?
         """
-        with _connect(self.db_path) as conn:
+        with _connect(self.db_path, read_only=True) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
