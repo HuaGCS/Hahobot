@@ -46,7 +46,7 @@ oriented built-in skills.
 | --- | --- | --- |
 | `HKUDS/nanobot` | Small, readable agent runtime; channel/provider/tool layering; gateway and CLI spirit | `hahobot agent`, `hahobot gateway`, `hahobot serve`, provider registry, channel manager, OpenAI-compatible API, WhatsApp bridge, `nanobot` compatibility entrypoints |
 | `shenmintao/NanoMate` | SillyTavern character workflow and companion orientation | Persona import commands, `STYLE.md` / `LORE.md`, persona-local `VOICE.json`, reference-image manifests, built-in `living-together` and `emotional-companion` skills |
-| Hermes Agent docs | Context-file driven memory, persistent long-term memory, reflective maintenance over time | Split memory files (`SOUL.md`, `USER.md`, `PROFILE.md`, `INSIGHTS.md`, `memory/MEMORY.md`), history archive, Dream phase 1/2 reflection, embedded SQLite-FTS top-K retrieval backend with file fallback |
+| Hermes Agent docs | Context-file driven memory, persistent long-term memory, reflective maintenance over time | Split memory files (`SOUL.md`, `USER.md`, `PROFILE.md`, `INSIGHTS.md`, `memory/MEMORY.md`), history archive, Dream phase 1/2 reflection, embedded SQLite-FTS top-K retrieval backend with file fallback, and optional Mem0 cross-device sharing |
 
 ## What Hahobot Ships
 
@@ -68,6 +68,8 @@ Core capabilities:
 - Structured archived history for lossless recall via `history_search` / `history_expand`.
 - Top-K BM25 retrieval over the persona's `MEMORY.md` via an embedded SQLite-FTS5
   derived index, with whole-file injection kept as a conservative fallback.
+- Optional Mem0 augmentation for sharing selected memories across Hahobot projects, devices, and
+  Hermes while the complete local memory path remains available offline.
 - Built-in tools for web, files, shell, image generation, notebook editing, history recall, cron,
   messaging, runtime self-inspection, and MCP.
 - OpenAI-compatible HTTP API for embedding the runtime behind other local systems.
@@ -480,6 +482,101 @@ Tunable under `memory.user.sqlite`:
 The `file` backend remains a one-line switch (`memory.user.backend: "file"`) and is
 also used automatically as a fallback when the SQLite backend returns empty or raises.
 
+### Optional shared memory: Mem0
+
+`memory.shared` adds a cross-device Mem0 layer without replacing any local memory behavior. The
+Markdown files, local SQLite-FTS index, consolidation, and archive remain enabled and authoritative;
+Mem0 search results are an additional prompt block, and completed turns are shadow-written to Mem0.
+This means a Mem0 outage never prevents a local turn or local memory update.
+
+Example for a self-hosted Mem0 REST service:
+
+```json
+{
+  "memory": {
+    "shared": {
+      "enabled": true,
+      "provider": "mem0",
+      "baseUrl": "https://mem0.example.ts.net",
+      "apiKey": "replace-with-a-real-key",
+      "userId": "hua-global-v1",
+      "agentId": "hahobot",
+      "projectId": "hahobot-main",
+      "deviceId": "laptop",
+      "personaEnabled": true,
+      "personaUserIdPrefix": "hua-global-v1::hahobot-persona",
+      "globalWriteMode": "user_only",
+      "readEnabled": true,
+      "writeEnabled": true,
+      "topK": 8,
+      "maxContextChars": 4000,
+      "timeoutSeconds": 5,
+      "snapshotRefreshSeconds": 3600
+    }
+  }
+}
+```
+
+`userId` is the shared identity boundary: use one stable, non-default value on every Hahobot
+installation and in Hermes to recall the same memories across projects and devices. `agentId`
+records which runtime produced a memory, while `projectId` and `deviceId` are metadata only; they do
+not narrow recall. You can independently disable reads or writes with `readEnabled` and
+`writeEnabled`. Hahobot deliberately does not upload channel, session, chat, or sender identifiers
+as Mem0 metadata. When `apiKey` is non-empty, Hahobot sends it as `X-API-Key`.
+
+With `personaEnabled: true`, Hahobot recalls two namespaces on every turn: the public `userId` above
+and `<personaUserIdPrefix>::<persona>` for the active persona. Full user/assistant turns go to the
+persona-private namespace. `globalWriteMode: "user_only"` sends only user-side content to the public
+namespace, so Mem0 can extract cross-persona user facts without copying persona responses into the
+Hermes-visible layer; `user_only` is also the safe default. Use `full` for full-turn public behavior
+or `off` to make the public namespace read-only. The same public-write policy applies when persona
+mode is disabled. If `personaUserIdPrefix` is empty, Hahobot derives
+`<userId>::hahobot-persona`; keep the prefix and persona names stable across Hahobot devices.
+Hahobot rejects a persona-private ID that equals the public `userId` (case-insensitively); choose a
+different prefix instead of allowing that misconfiguration to expose private memories to Hermes.
+
+`topK` applies to each queried namespace. Persona mode can therefore merge up to `2 × topK`
+candidates before the combined shared block is bounded by `maxContextChars`.
+
+Visibility markers are explicit. `<persona-private>...</persona-private>` is persisted in the
+current persona's local memory and sent only to that persona's private Mem0 namespace, so it follows
+the same persona across Hahobot devices without becoming visible to Hermes. The wrapper itself is
+removed before persistence. `<private>...</private>` keeps its stricter existing meaning: its body
+is removed from sessions, archives, local long-term memory, and every Mem0 namespace. Use the latter
+only for credentials or other details that must not be remembered anywhere.
+
+This split does not require a Hermes extension. Hermes continues to use the public `userId`, while
+Hahobot merges public facts with its current persona's private facts. Persona/source metadata remains
+provenance rather than a security boundary inside either namespace. With `personaEnabled: false`,
+Hahobot uses only the public namespace. A fully isolated Hermes agent or deployment should still use
+a different public `userId`.
+
+Configure the NAS-hosted service in Hermes with the same endpoint and key:
+
+```bash
+hermes memory setup mem0 --mode selfhosted \
+  --host https://mem0.example.ts.net \
+  --api-key "$MEM0_API_KEY" \
+  --user-id hua-global-v1
+```
+
+Set `--user-id` to the exact same value as Hahobot's `userId`. Hermes can keep its own agent/source
+identity; Hahobot searches by the shared user identity so memories written by either side remain
+discoverable.
+
+Shared delivery state is deliberately outside the workspace. It lives beside the active config at
+`shared-memory/<endpoint-and-user-hash>/shared.sqlite` (normally
+`~/.hahobot/shared-memory/<hash>/shared.sqlite`), so projects that reuse the same Hahobot config
+directory, endpoint, and namespace user id share one durable outbox and snapshot. Persona mode gives
+the public namespace and each installed persona their own state database. If Mem0 is unavailable,
+recall falls back to those snapshots and writes remain queued for background retry; the local
+Markdown and SQLite memory path continues normally throughout.
+
+For a NAS deployment, prefer HTTPS over a private Tailscale address (or another authenticated
+private network), keep the API key out of the repository, and do not expose an unauthenticated Mem0
+service directly to the public internet. Shared recall is external, untrusted context; local files
+remain the inspectable source of truth.
+
 ### Structured fragment headers
 
 Consolidator-written fragments carry a server-controlled provenance header so the
@@ -644,6 +741,8 @@ Notable gateway features:
   `agents.defaults.toolHintMaxLength`, and the common
   Telegram/Discord single-instance extras (`channels.telegram.streamEditInterval`,
   `channels.telegram.inlineKeyboards`, Discord streaming/emoji/proxy fields)
+- visual config coverage for local `memory.user.*` settings and the optional, hot-reloadable
+  `memory.shared.*` Mem0 layer
 - restart-aware config saves: the admin page compares restart-required fields against the values
   used when the current process started, lists the exact changed paths, and offers a one-click
   restart for the current gateway. `api.*` / `a2a.*` changes are kept separate and show the
@@ -858,17 +957,20 @@ from hahobot import ExternalHookBridge, Hahobot
 
 
 async def main() -> None:
-    bot = Hahobot.from_config()
     hook = ExternalHookBridge(
         ["python", "scripts/audit_hook.py"],
         events=["before_iteration", "before_execute_tools", "after_iteration"],
     )
-    result = await bot.run("Summarize the repo", hooks=[hook])
-    print(result.content)
+    async with Hahobot.from_config() as bot:
+        result = await bot.run("Summarize the repo", hooks=[hook])
+        print(result.content)
 
 
 asyncio.run(main())
 ```
+
+The async context closes MCP connections and shared-memory retry workers deterministically. If you
+manage the lifecycle manually, call `await bot.close()` before discarding the SDK instance.
 
 The command receives one JSON object on stdin with `schema_version`, `event`, and `context`
 fields. By default the bridge stays non-streaming; add `on_stream` or `on_stream_end` explicitly

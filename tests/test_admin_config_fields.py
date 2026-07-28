@@ -109,6 +109,60 @@ def test_auto_derive_matches_bool_kind() -> None:
             assert isinstance(values[field.name], bool), field.name
 
 
+def test_shared_memory_fields_are_registered_as_hot_reloadable() -> None:
+    expected = {
+        "memory_shared_enabled": (("memory", "shared", "enabled"), "bool"),
+        "memory_shared_provider": (("memory", "shared", "provider"), "select"),
+        "memory_shared_base_url": (("memory", "shared", "baseUrl"), "text"),
+        "memory_shared_api_key": (("memory", "shared", "apiKey"), "text"),
+        "memory_shared_user_id": (("memory", "shared", "userId"), "text"),
+        "memory_shared_agent_id": (("memory", "shared", "agentId"), "text"),
+        "memory_shared_project_id": (("memory", "shared", "projectId"), "text"),
+        "memory_shared_device_id": (("memory", "shared", "deviceId"), "text"),
+        "memory_shared_persona_enabled": (
+            ("memory", "shared", "personaEnabled"),
+            "bool",
+        ),
+        "memory_shared_persona_user_id_prefix": (
+            ("memory", "shared", "personaUserIdPrefix"),
+            "text",
+        ),
+        "memory_shared_global_write_mode": (
+            ("memory", "shared", "globalWriteMode"),
+            "select",
+        ),
+        "memory_shared_read_enabled": (("memory", "shared", "readEnabled"), "bool"),
+        "memory_shared_write_enabled": (("memory", "shared", "writeEnabled"), "bool"),
+        "memory_shared_top_k": (("memory", "shared", "topK"), "int"),
+        "memory_shared_max_context_chars": (
+            ("memory", "shared", "maxContextChars"),
+            "int",
+        ),
+        "memory_shared_timeout_seconds": (
+            ("memory", "shared", "timeoutSeconds"),
+            "float",
+        ),
+        "memory_shared_snapshot_refresh_seconds": (
+            ("memory", "shared", "snapshotRefreshSeconds"),
+            "int",
+        ),
+    }
+    fields = {field.name: field for field in _CONFIG_FIELDS}
+    for name, (path, kind) in expected.items():
+        field = fields[name]
+        assert field.path == path
+        assert field.kind == kind
+        assert field.restart_required is False
+        assert field.hint_key == f"admin_config_{name}_tooltip"
+
+    shared_section = next(
+        names
+        for title, _desc, names in _CONFIG_SECTIONS
+        if title == "admin_config_section_shared_memory_title"
+    )
+    assert tuple(expected) == shared_section
+
+
 def test_validate_admin_config_specs_passes() -> None:
     # Must not raise for the shipped specs/locales (gateway startup guard).
     validate_admin_config_specs()

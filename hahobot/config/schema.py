@@ -976,6 +976,28 @@ class UserMemoryConfig(Base):
     sqlite: SQLiteUserMemoryConfig = Field(default_factory=SQLiteUserMemoryConfig)
 
 
+class SharedMemoryConfig(Base):
+    """Optional cross-device memory layer that augments local user memory."""
+
+    enabled: bool = False
+    provider: Literal["mem0"] = "mem0"
+    base_url: str = ""
+    api_key: str = ""
+    user_id: str = ""
+    agent_id: str = "hahobot"
+    project_id: str = ""
+    device_id: str = ""
+    persona_enabled: bool = False
+    persona_user_id_prefix: str = ""
+    global_write_mode: Literal["full", "user_only", "off"] = "user_only"
+    read_enabled: bool = True
+    write_enabled: bool = True
+    top_k: int = Field(default=8, ge=1, le=50)
+    max_context_chars: int = Field(default=4_000, ge=0)
+    timeout_seconds: float = Field(default=5.0, gt=0, le=60)
+    snapshot_refresh_seconds: int = Field(default=3_600, ge=0)
+
+
 class ArchiveMemoryConfig(Base):
     """Structured history archive search/index settings."""
 
@@ -986,6 +1008,7 @@ class MemoryConfig(Base):
     """Long-term memory configuration."""
 
     user: UserMemoryConfig = Field(default_factory=UserMemoryConfig)
+    shared: SharedMemoryConfig = Field(default_factory=SharedMemoryConfig)
     archive: ArchiveMemoryConfig = Field(default_factory=ArchiveMemoryConfig)
 
 

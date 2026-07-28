@@ -127,6 +127,18 @@ class TestHistoryWithCursor:
         entries = store.read_unprocessed_history(since_cursor=0)
         assert entries[0]["content"] == "visible [private redacted]"
 
+    def test_append_history_keeps_persona_private_content_without_marker(self, store):
+        store.append_history("visible <persona-private>persona-only memory</persona-private>")
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert entries[0]["content"] == "visible persona-only memory"
+
+    def test_unclosed_privacy_tags_fail_closed(self, store):
+        store.append_history("visible <private>never persist")
+        store.append_history("visible <persona-private>persona memory")
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert entries[0]["content"] == "visible [private redacted]"
+        assert entries[1]["content"] == "visible persona memory"
+
     def test_raw_archive_caps_formatted_messages(self, store):
         store.raw_archive(
             [

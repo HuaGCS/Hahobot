@@ -79,6 +79,11 @@ class RuntimeConfigManager:
 
     def configure_memory_router(self) -> None:
         """Build the current memory router from runtime config."""
+        current = getattr(self.loop, "memory_router", None)
+        if current is not None and self.loop._memory_runtime.config == self.loop.memory_config:
+            return
+        if current is not None:
+            current.request_retirement()
         self.loop._memory_runtime.update_runtime(self.loop.memory_config)
         self.loop.memory_router = self.loop._memory_runtime.build_router()
 
@@ -191,6 +196,7 @@ class RuntimeConfigManager:
                 self.loop._runtime_config_mtime_ns = self.loop.config_path.stat().st_mtime_ns
             if self.apply_runtime_config(config):
                 await self.loop._reset_mcp_connections()
+            await self.loop.memory_router.start()
             return
         await self.reload_runtime_config_if_needed(force=force)
 
@@ -219,6 +225,7 @@ class RuntimeConfigManager:
         reloaded = load_config(self.loop.config_path)
         if self.apply_runtime_config(reloaded):
             await self.loop._reset_mcp_connections()
+        await self.loop.memory_router.start()
 
     async def reload_mcp_servers_if_needed(self, *, force: bool = False) -> None:
         """Backward-compatible wrapper for runtime config reloads."""
@@ -232,4 +239,5 @@ class RuntimeConfigManager:
     async def connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
         await self.reload_mcp_servers_if_needed()
+        await self.loop.memory_router.start()
         await self.loop._mcp_runtime.connect()

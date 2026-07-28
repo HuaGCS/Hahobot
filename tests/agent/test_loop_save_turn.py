@@ -118,6 +118,24 @@ def test_save_turn_keeps_tool_results_under_16k() -> None:
     assert session.messages[0]["content"] == content
 
 
+def test_save_turn_keeps_persona_private_content_without_marker() -> None:
+    loop = _mk_loop()
+    session = Session(key="test:persona-private")
+
+    loop._save_turn(
+        session,
+        [
+            {
+                "role": "user",
+                "content": ("Remember <persona-private>call me captain</persona-private>"),
+            }
+        ],
+        skip=0,
+    )
+
+    assert session.messages[0]["content"] == "Remember call me captain"
+
+
 def test_restore_runtime_checkpoint_rehydrates_completed_and_pending_tools() -> None:
     loop = _mk_loop()
     session = Session(

@@ -27,6 +27,7 @@ class ResolvedMemoryContext:
 
     block: str = ""
     source: str = "file"
+    external_block: str = ""
 
 
 @dataclass(frozen=True, slots=True)

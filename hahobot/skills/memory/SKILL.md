@@ -34,6 +34,8 @@ Prefer structured archive tools first. Fall back to targeted command-line search
 
 Content inside `<private>...</private>` is stripped before session, archive, and long-term memory persistence. Use it for secrets, one-off credentials, or details that should not become long-term memory.
 
+Content inside `<persona-private>...</persona-private>` remains in the current persona's local memory and, when layered Mem0 is enabled, syncs through only that persona's private Mem0 namespace. The wrapper is removed before persistence. Use it for cross-device memories that must not enter the public Hermes-visible namespace.
+
 ## When to Update MEMORY.md
 
 Write important facts immediately using `edit_file` or `write_file`:

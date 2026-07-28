@@ -26,14 +26,26 @@ class Hahobot:
 
     Usage::
 
-        bot = Hahobot.from_config()
-        result = await bot.run("Summarize this repo", hooks=[MyHook()])
-        print(result.content)
+        async with Hahobot.from_config() as bot:
+            result = await bot.run("Summarize this repo", hooks=[MyHook()])
+            print(result.content)
     """
 
     def __init__(self, loop: AgentLoop) -> None:
         self._loop = loop
         self._run_lock = asyncio.Lock()
+
+    async def __aenter__(self) -> Hahobot:
+        """Enter an SDK lifecycle that closes background services on exit."""
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback) -> None:
+        """Close MCP and memory background services when leaving the context."""
+        await self.close()
+
+    async def close(self) -> None:
+        """Close MCP connections and durable-memory background workers."""
+        await self._loop.close_mcp()
 
     @classmethod
     def from_config(

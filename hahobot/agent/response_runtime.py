@@ -46,6 +46,8 @@ class ResponseRuntimeManager:
         messages: list[dict[str, Any]],
         title: str,
         content: str,
+        *,
+        banner: str | None = None,
     ) -> None:
         """Append untrusted MCP output as data so it cannot masquerade as system instructions."""
         if not content or not messages:
@@ -55,7 +57,7 @@ class ResponseRuntimeManager:
             return
         payload = self.indented_system_data_block(content)
         system["content"] += (
-            f"\n\n---\n\n# {title}\n\n{self.loop._UNTRUSTED_MCP_BANNER}\n\n{payload}"
+            f"\n\n---\n\n# {title}\n\n{banner or self.loop._UNTRUSTED_MCP_BANNER}\n\n{payload}"
         )
 
     @staticmethod

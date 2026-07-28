@@ -403,6 +403,26 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert 'name="memory_user_sqlite_top_k"' in config_page.text
     assert 'name="memory_user_sqlite_max_context_chars"' in config_page.text
     assert 'name="memory_user_sqlite_max_fragment_chars"' in config_page.text
+    for field_name in (
+        "memory_shared_enabled",
+        "memory_shared_provider",
+        "memory_shared_base_url",
+        "memory_shared_api_key",
+        "memory_shared_user_id",
+        "memory_shared_agent_id",
+        "memory_shared_project_id",
+        "memory_shared_device_id",
+        "memory_shared_persona_enabled",
+        "memory_shared_persona_user_id_prefix",
+        "memory_shared_global_write_mode",
+        "memory_shared_read_enabled",
+        "memory_shared_write_enabled",
+        "memory_shared_top_k",
+        "memory_shared_max_context_chars",
+        "memory_shared_timeout_seconds",
+        "memory_shared_snapshot_refresh_seconds",
+    ):
+        assert f'name="{field_name}"' in config_page.text
     assert 'action="/admin/memory/migrate-legacy"' in config_page.text
     assert "立即迁移旧片段" in config_page.text
     assert 'name="channels_transcription_provider"' in config_page.text
@@ -410,6 +430,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert "默认工作区路径" in config_page.text
     assert "工具调用提示的最大显示长度" in config_page.text
     assert "用户记忆" in config_page.text
+    assert "共享记忆（Mem0）" in config_page.text
     assert "Memorix MCP" in config_page.text
     assert "Star Office 推送" in config_page.text
     assert "Shell 执行" in config_page.text
@@ -418,6 +439,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert (
         'agents.defaults.workspace</span><span class="pill hot">可热重载</span>' in config_page.text
     )
+    assert 'memory.shared.enabled</span><span class="pill hot">可热重载</span>' in config_page.text
     assert (
         'agents.defaults.provider</span><span class="pill restart">需重启</span>'
         in config_page.text
@@ -461,6 +483,10 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
             ("__bool_fields", "channels_discord_streaming"),
             ("__bool_fields", "channels_weixin_enabled"),
             ("__bool_fields", "tools_exec_enable"),
+            ("__bool_fields", "memory_shared_enabled"),
+            ("__bool_fields", "memory_shared_persona_enabled"),
+            ("__bool_fields", "memory_shared_read_enabled"),
+            ("__bool_fields", "memory_shared_write_enabled"),
             ("gateway_status_enabled", "1"),
             ("gateway_status_auth_key", "status-secret"),
             ("gateway_status_push_enabled", "1"),
@@ -514,6 +540,22 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
             ("tools_exec_path_append", "/usr/local/bin:/usr/sbin"),
             ("tools_exec_allowed_env_keys", "JAVA_HOME, GOPATH"),
             ("tools_exec_sandbox", "bwrap"),
+            ("memory_shared_enabled", "1"),
+            ("memory_shared_provider", "mem0"),
+            ("memory_shared_base_url", "https://mem0.home.example"),
+            ("memory_shared_api_key", "mem0-admin-key"),
+            ("memory_shared_user_id", "hua-global-v1"),
+            ("memory_shared_agent_id", "hahobot"),
+            ("memory_shared_project_id", "HuaGCS/Hahobot"),
+            ("memory_shared_device_id", "workstation"),
+            ("memory_shared_persona_enabled", "1"),
+            ("memory_shared_persona_user_id_prefix", "hua-private"),
+            ("memory_shared_global_write_mode", "user_only"),
+            ("memory_shared_read_enabled", "1"),
+            ("memory_shared_top_k", "12"),
+            ("memory_shared_max_context_chars", "6000"),
+            ("memory_shared_timeout_seconds", "7.5"),
+            ("memory_shared_snapshot_refresh_seconds", "1800"),
             ("channels_voice_reply_provider", "sovits"),
             ("channels_voice_reply_sovits_api_url", "http://127.0.0.1:9880"),
             ("gateway_admin_auth_key", "secret-key"),
@@ -564,6 +606,25 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert saved["tools"]["exec"]["pathAppend"] == "/usr/local/bin:/usr/sbin"
     assert saved["tools"]["exec"]["allowedEnvKeys"] == ["JAVA_HOME", "GOPATH"]
     assert saved["tools"]["exec"]["sandbox"] == "bwrap"
+    assert saved["memory"]["shared"] == {
+        "enabled": True,
+        "provider": "mem0",
+        "baseUrl": "https://mem0.home.example",
+        "apiKey": "mem0-admin-key",
+        "userId": "hua-global-v1",
+        "agentId": "hahobot",
+        "projectId": "HuaGCS/Hahobot",
+        "deviceId": "workstation",
+        "personaEnabled": True,
+        "personaUserIdPrefix": "hua-private",
+        "globalWriteMode": "user_only",
+        "readEnabled": True,
+        "writeEnabled": False,
+        "topK": 12,
+        "maxContextChars": 6000,
+        "timeoutSeconds": 7.5,
+        "snapshotRefreshSeconds": 1800,
+    }
     assert saved["tools"]["mcpServers"]["memorix"]["args"] == ["serve"]
     assert saved["tools"]["mcpServers"]["memorix"]["url"] == "http://127.0.0.1:3211/mcp"
     assert saved["tools"]["mcpServers"]["memorix"]["toolTimeout"] == 75

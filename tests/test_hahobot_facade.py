@@ -68,6 +68,18 @@ async def test_run_returns_result(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_async_context_closes_background_services(tmp_path):
+    config_path = _write_config(tmp_path)
+    bot = Hahobot.from_config(config_path, workspace=tmp_path)
+    bot._loop.close_mcp = AsyncMock()
+
+    async with bot as active:
+        assert active is bot
+
+    bot._loop.close_mcp.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_run_with_hooks(tmp_path):
     from hahobot.agent.hook import AgentHook, AgentHookContext
     from hahobot.bus.events import OutboundMessage

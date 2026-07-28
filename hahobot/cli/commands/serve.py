@@ -40,6 +40,7 @@ def serve(
     from hahobot.agent.loop import AgentLoop
     from hahobot.api.server import create_app
     from hahobot.bus.queue import MessageBus
+    from hahobot.config.loader import get_config_path
     from hahobot.session.manager import SessionManager
 
     if verbose:
@@ -48,6 +49,7 @@ def serve(
         logger.disable("hahobot")
 
     runtime_config = runtime._load_runtime_config(config, workspace)
+    runtime_config_path = Path(config).expanduser().resolve() if config else get_config_path()
     api_cfg = runtime_config.api
     host = host if host is not None else api_cfg.host
     port = port if port is not None else api_cfg.port
@@ -60,6 +62,7 @@ def serve(
         bus=bus,
         provider=provider,
         workspace=runtime_config.workspace_path,
+        config_path=runtime_config_path,
         model=runtime_config.agents.defaults.model,
         max_iterations=runtime_config.agents.defaults.max_tool_iterations,
         context_window_tokens=runtime_config.agents.defaults.context_window_tokens,
@@ -69,6 +72,7 @@ def serve(
         tool_hint_max_length=runtime_config.agents.defaults.tool_hint_max_length,
         web_config=runtime_config.tools.web,
         exec_config=runtime_config.tools.exec,
+        memory_config=runtime_config.memory,
         restrict_to_workspace=runtime_config.tools.restrict_to_workspace,
         session_manager=session_manager,
         mcp_servers=runtime_config.tools.mcp_servers,

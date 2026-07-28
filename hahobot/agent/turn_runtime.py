@@ -15,7 +15,7 @@ from hahobot.bus.events import OutboundMessage
 from hahobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 if TYPE_CHECKING:
-    from hahobot.agent.loop import AgentLoop
+    from hahobot.agent.loop import AgentLoop, _PreparedTurnContext
     from hahobot.bus.events import InboundMessage
 
 
@@ -65,6 +65,17 @@ class TurnRuntimeManager:
         if msg.sender_id == "subagent" and self._persist_subagent_followup(state.session, msg):
             self.loop.sessions.save(state.session)
         turn = await self.loop._prepare_turn_context(msg, state, history=None)
+        try:
+            return await self._run_prepared_system_message(msg, turn)
+        finally:
+            turn.memory_router.release_turn()
+
+    async def _run_prepared_system_message(
+        self,
+        msg: InboundMessage,
+        turn: _PreparedTurnContext,
+    ) -> OutboundMessage | None:
+        """Run one system turn while its prepared memory-router generation is leased."""
         current_role = "assistant" if msg.sender_id == "subagent" else "user"
         messages = self.loop._build_turn_messages(
             msg,
@@ -91,6 +102,7 @@ class TurnRuntimeManager:
             inbound_content=None if msg.sender_id == "subagent" else msg.content,
             outbound_content=final_content,
             persisted_messages=persisted_messages,
+            router=turn.memory_router,
         )
         self.loop._ensure_background_token_consolidation(turn.state.session)
         return await self.loop._maybe_attach_voice_reply(
@@ -131,6 +143,29 @@ class TurnRuntimeManager:
         history = turn_state.session.get_history(max_messages=0, include_timestamps=True)
         user_persisted_early = self._persist_user_message_early(turn_state.session, msg)
         turn = await self.loop._prepare_turn_context(msg, turn_state, history=history)
+        try:
+            return await self._run_prepared_chat_message(
+                msg,
+                turn,
+                user_persisted_early=user_persisted_early,
+                on_progress=on_progress,
+                on_stream=on_stream,
+                on_stream_end=on_stream_end,
+            )
+        finally:
+            turn.memory_router.release_turn()
+
+    async def _run_prepared_chat_message(
+        self,
+        msg: InboundMessage,
+        turn: _PreparedTurnContext,
+        *,
+        user_persisted_early: bool,
+        on_progress: Callable[[str], Awaitable[None]] | None,
+        on_stream: Callable[[str], Awaitable[None]] | None,
+        on_stream_end: Callable[..., Awaitable[None]] | None,
+    ) -> OutboundMessage | None:
+        """Run one chat turn while its prepared memory-router generation is leased."""
         initial_messages = self.loop._build_turn_messages(
             msg,
             turn,
@@ -163,6 +198,7 @@ class TurnRuntimeManager:
             inbound_content=msg.content,
             outbound_content=final_content,
             persisted_messages=persisted_messages,
+            router=turn.memory_router,
         )
         self.loop._ensure_background_token_consolidation(turn.state.session)
 

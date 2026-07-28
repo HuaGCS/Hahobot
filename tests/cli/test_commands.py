@@ -1076,6 +1076,8 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
     class _FakeAgentLoop:
         def __init__(self, **kwargs) -> None:
             seen["workspace"] = kwargs["workspace"]
+            seen["config_path"] = kwargs["config_path"]
+            seen["memory_config"] = kwargs["memory_config"]
 
         async def _connect_mcp(self) -> None:
             return None
@@ -1702,6 +1704,8 @@ def test_serve_uses_api_config_defaults_and_workspace_override(monkeypatch, tmp_
 
     assert result.exit_code == 0
     assert seen["workspace"] == override_workspace
+    assert seen["config_path"] == config_file.resolve()
+    assert seen["memory_config"] is config.memory
     assert seen["host"] == "127.0.0.2"
     assert seen["port"] == 18900
     assert seen["request_timeout"] == 45.0

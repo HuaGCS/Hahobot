@@ -59,12 +59,20 @@ class TurnDataRuntimeManager:
             language=state.language,
             query=msg.content,
         )
-        resolved_memory = await self.loop.memory_router.prepare_context(memory_scope)
+        memory_router = self.loop.memory_router
+        memory_router.acquire_turn()
+        try:
+            resolved_memory = await memory_router.prepare_context(memory_scope)
+        except BaseException:
+            memory_router.release_turn()
+            raise
         return self.loop._prepared_turn_context_type()(
             state=state,
             history=turn_history,
             memory_scope=memory_scope,
+            memory_router=memory_router,
             memory_context=resolved_memory.block,
+            shared_memory_context=resolved_memory.external_block,
             memorix_context=memorix_context,
         )
 
@@ -108,6 +116,12 @@ class TurnDataRuntimeManager:
                 memory_context=turn.memory_context,
                 query=msg.content,
             )
+        self.loop._append_untrusted_system_section(
+            messages,
+            "Shared Memory (Mem0)",
+            turn.shared_memory_context,
+            banner=self.loop._UNTRUSTED_SHARED_MEMORY_BANNER,
+        )
         self.loop._append_untrusted_system_section(
             messages,
             "Workspace Memory (Memorix)",

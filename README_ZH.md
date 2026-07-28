@@ -53,6 +53,7 @@
 - 易扩展：provider、tool、channel、persona、skill 结构清晰
 - 多渠道：Telegram、Discord、WhatsApp、QQ、Slack、Feishu、Matrix、Email、Weixin、Wecom、Mochat、WebSocket
 - 本地优先：支持本地 workspace、私有部署、工作区技能和本地文件交付
+- 可选 Mem0 共享增强：在不同设备、不同项目和 Hermes 之间同步记忆，同时保留完整本地记忆作为离线保底
 - 当前仓库已增强：SillyTavern 资产导入、persona 参考图、生图、语音回复、自定义声线、陪伴技能，以及 Hermes 风格的 gateway admin/status 页面
 
 ## 安装
@@ -1273,6 +1274,93 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。只有�
 
 如果你使用内置 admin 页面,可以直接在可视化配置里编辑 `用户记忆` 分区,包括 `memory.user.backend` 和三个 SQLite 调节项。
 
+### 可选共享记忆：Mem0
+
+`memory.shared` 是叠加在本地记忆之上的跨设备共享层，不会接管或关闭 hahobot 原有的
+Markdown、SQLite-FTS、consolidation 和 archive 链路。本地文件始终是权威来源和离线保底；
+Mem0 的检索结果只作为额外上下文注入，每轮完成后再把对应对话 shadow-write 到 Mem0。
+因此，即使 NAS 或 Mem0 临时不可用，本地对话和本地记忆更新也会照常完成。
+
+自托管 Mem0 REST 配置示例：
+
+```json
+{
+  "memory": {
+    "shared": {
+      "enabled": true,
+      "provider": "mem0",
+      "baseUrl": "https://mem0.example.ts.net",
+      "apiKey": "replace-with-a-real-key",
+      "userId": "hua-global-v1",
+      "agentId": "hahobot",
+      "projectId": "hahobot-main",
+      "deviceId": "laptop",
+      "personaEnabled": true,
+      "personaUserIdPrefix": "hua-global-v1::hahobot-persona",
+      "globalWriteMode": "user_only",
+      "readEnabled": true,
+      "writeEnabled": true,
+      "topK": 8,
+      "maxContextChars": 4000,
+      "timeoutSeconds": 5,
+      "snapshotRefreshSeconds": 3600
+    }
+  }
+}
+```
+
+`userId` 是跨端共享身份边界：在每个 hahobot 实例和 Hermes 中使用同一个稳定、非默认值，
+即可跨项目、跨设备召回同一组记忆。`agentId` 用来标记记忆来源；`projectId` / `deviceId`
+只作为 metadata 保存，不会缩小召回范围。`readEnabled` 和 `writeEnabled` 可以分别关闭；
+Hahobot 不会把 channel、session、chat 或 sender 标识作为 Mem0 metadata 上传。`apiKey` 非空时，
+hahobot 会通过 `X-API-Key` 请求头发送它。
+
+开启 `personaEnabled: true` 后，Hahobot 每轮会同时召回两个命名空间：上面的公共 `userId`，以及
+当前人格对应的 `<personaUserIdPrefix>::<persona>`。完整的用户/assistant 轮次写入人格私有层；
+`globalWriteMode: "user_only"` 只把用户侧内容送到公共层，让 Mem0 提炼跨人格用户事实，同时避免
+把人格回复复制进 Hermes 可见范围；`user_only` 也是安全默认值。`full` 启用完整轮次公共写入，
+`off` 则把公共层设为只读。关闭人格模式时，同一公共写入策略仍然生效。
+`personaUserIdPrefix` 留空时自动派生 `<userId>::hahobot-persona`；不同 Hahobot 设备必须保持前缀和
+persona 名稳定。如果生成的人格私有 ID 与公共 `userId` 相同（不区分大小写），Hahobot 会拒绝该
+配置，而不是冒险让 Hermes 看到人格私有记忆；此时应换一个私有前缀。
+
+`topK` 对每个被查询的命名空间分别生效，因此人格模式最多会合并 `2 × topK` 个候选，再由
+`maxContextChars` 限制最终共享记忆区块的总长度。
+
+可见性标记采用明确的三级语义：`<persona-private>...</persona-private>` 会保存进当前人格的本地
+记忆，并且只发送到该人格的私有 Mem0 命名空间，因此能够跟随同一人格跨 Hahobot 设备同步，Hermes
+不可见；保存前会移除标记外壳。原有 `<private>...</private>` 保持更严格的含义，其正文不会进入
+session、archive、本地长期记忆或任何 Mem0 命名空间，只应用于密码、验证码等不应被任何地方记住的
+内容。
+
+这不需要扩展 Hermes：Hermes 继续只使用公共 `userId`，Hahobot 自己合并公共事实和当前人格私有
+事实。persona / 来源 agent metadata 在各自命名空间内仍只是溯源信息，不是安全隔离边界。关闭
+`personaEnabled` 时 Hahobot 只使用公共层；需要完全隔离的 Hermes agent 或部署仍应使用不同公共
+`userId`。
+
+在 NAS 上部署 Mem0 后，可这样让 Hermes 接入同一个服务：
+
+```bash
+hermes memory setup mem0 --mode selfhosted \
+  --host https://mem0.example.ts.net \
+  --api-key "$MEM0_API_KEY" \
+  --user-id hua-global-v1
+```
+
+把 `--user-id` 设成与 Hahobot `userId` 完全相同的值。Hermes 可以保留自己的 agent / 来源标识；
+hahobot 按共享用户身份检索，所以两边写入的记忆都能被对方发现。
+
+共享层的交付状态不会放进某个项目 workspace，而是保存在当前配置文件旁边的
+`shared-memory/<endpoint-and-user-hash>/shared.sqlite`（默认通常为
+`~/.hahobot/shared-memory/<hash>/shared.sqlite`）。复用同一 Hahobot 配置目录、endpoint 和
+命名空间 user id 的本地项目会共用持久 outbox 与 snapshot。人格模式下，公共层和每个已安装
+persona 分别拥有自己的状态数据库。远端不可用时，召回会退回对应 snapshot，待写内容会排队并在
+后台重试；本地 Markdown 和 SQLite 记忆链路在整个过程中不受影响。
+
+NAS 场景建议通过 Tailscale 私网地址配合 HTTPS 暴露服务（或使用其他经过认证的私有网络），
+不要把 API key 写进仓库，也不要把无认证的 Mem0 服务直接暴露到公网。共享召回属于外部、不可信
+上下文；本地文件仍是可检查、可维护的事实来源。
+
 ### 安全
 
 生产环境建议：
@@ -1362,6 +1450,7 @@ Dream 反思阶段也认识同样格式,新增片段时写 `src:dream`。只有�
 - 可视化编辑渠道运行时分区和工具提示长度，例如 `channels.sendProgress`、`channels.sendToolHints`、`channels.sendMaxRetries`、`channels.transcriptionProvider`、`agents.defaults.toolHintMaxLength` 和 `channels.voiceReply.*`
 - 可视化编辑专门的 `Memorix MCP` 分区，对应 `tools.mcpServers.memorix`
 - 可视化编辑 `用户记忆` 分区,对应 `memory.user.backend` 和 `memory.user.sqlite.{topK,maxContextChars,maxFragmentChars}`
+- 可视化编辑可热重载的 `Mem0 共享记忆` 分区，对应 `memory.shared.*`，且不会关闭本地用户记忆
 - 独立的命令总览页，展示所有聊天 slash 命令、别名和用法
 - 每个可视化配置项都带悬浮说明，鼠标移动到字段名即可查看详细解释
 - 每个可视化配置项都会直接标注“可热重载”或“需重启”
@@ -1729,17 +1818,20 @@ from hahobot import ExternalHookBridge, Hahobot
 
 
 async def main() -> None:
-    bot = Hahobot.from_config()
     hook = ExternalHookBridge(
         ["python", "scripts/audit_hook.py"],
         events=["before_iteration", "before_execute_tools", "after_iteration"],
     )
-    result = await bot.run("总结一下这个仓库", hooks=[hook])
-    print(result.content)
+    async with Hahobot.from_config() as bot:
+        result = await bot.run("总结一下这个仓库", hooks=[hook])
+        print(result.content)
 
 
 asyncio.run(main())
 ```
+
+异步上下文会确定性关闭 MCP 连接和共享记忆重试 worker；如果手动管理生命周期，请在丢弃 SDK
+实例前调用 `await bot.close()`。
 
 外部命令会从 stdin 收到一个 JSON 对象，包含 `schema_version`、`event` 和 `context`。默认不会强制
 开启 streaming；只有你显式把 `on_stream` 或 `on_stream_end` 放进 `events` 时，bridge 才会要求

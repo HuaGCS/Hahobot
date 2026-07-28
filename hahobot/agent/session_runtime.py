@@ -11,6 +11,7 @@ from hahobot.agent.memory_models import MemoryCommitRequest, MemoryScope
 
 if TYPE_CHECKING:
     from hahobot.agent.loop import AgentLoop, _SessionTurnState
+    from hahobot.agent.memory_router import MemoryRouter
     from hahobot.session.manager import Session
 
 
@@ -74,10 +75,12 @@ class SessionRuntimeManager:
         inbound_content: Any | None,
         outbound_content: str | None,
         persisted_messages: list[dict[str, Any]],
+        router: MemoryRouter | None = None,
     ) -> None:
         """Forward a completed turn to the memory router without blocking replies on failures."""
         try:
-            await self.loop.memory_router.commit_turn(
+            active_router = router or self.loop.memory_router
+            await active_router.commit_turn(
                 MemoryCommitRequest(
                     scope=scope,
                     inbound_content=inbound_content,

@@ -22,10 +22,12 @@ class MemoryRuntimeManager:
         file_backend_factory: Callable[[], UserMemoryBackend],
         sqlite_backend_factory: Callable[..., UserMemoryBackend],
         memory_router_factory: Callable[..., MemoryRouter],
+        shared_backend_factory: Callable[..., UserMemoryBackend] | None = None,
     ) -> None:
         self.config = config
         self._file_backend_factory = file_backend_factory
         self._sqlite_backend_factory = sqlite_backend_factory
+        self._shared_backend_factory = shared_backend_factory
         self._memory_router_factory = memory_router_factory
 
     def update_runtime(self, config: MemoryConfig | None = None) -> None:
@@ -64,14 +66,29 @@ class MemoryRuntimeManager:
         """No shadow backends configured."""
         return []
 
+    def build_shared_backend(self, config: MemoryConfig | None = None) -> UserMemoryBackend | None:
+        """Create the optional cross-device shared-memory backend."""
+        resolved = config or self.config
+        shared = resolved.shared
+        if not shared.enabled or self._shared_backend_factory is None:
+            return None
+        return self._shared_backend_factory(shared)
+
     def build_router(self, config: MemoryConfig | None = None):
         """Construct the runtime memory router for the active config."""
         resolved = config or self.config
         user_backend = self.build_user_backend(resolved)
         fallback_backend = self.build_fallback_backend(resolved, user_backend)
         shadow_backends = self.build_shadow_backends(resolved, user_backend)
+        shared_backend = self.build_shared_backend(resolved)
+        augment_backends = (
+            [shared_backend] if shared_backend is not None and resolved.shared.read_enabled else []
+        )
+        if shared_backend is not None and resolved.shared.write_enabled:
+            shadow_backends.append(shared_backend)
         return self._memory_router_factory(
             user_backend=user_backend,
             fallback_backend=fallback_backend,
+            augment_backends=augment_backends,
             shadow_backends=shadow_backends,
         )

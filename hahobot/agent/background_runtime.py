@@ -20,10 +20,13 @@ class BackgroundRuntimeManager:
 
     async def close_mcp(self) -> None:
         """Drain pending background archives, then close MCP connections."""
+        memory_router = self.loop.memory_router
+        memory_router.retire()
         if self.loop._background_tasks:
             await asyncio.gather(*list(self.loop._background_tasks), return_exceptions=True)
             self.loop._background_tasks.clear()
         self.loop._token_consolidation_tasks.clear()
+        await memory_router.close()
         await self.loop._reset_mcp_connections()
 
     def track_background_task(self, task: asyncio.Task) -> asyncio.Task:
