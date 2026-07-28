@@ -32,7 +32,8 @@ Prefer this sequence:
 Use the repository itself as the wiki index:
 
 - `README.md`, `README_ZH.md`, and `AGENTS.md` for user-facing behavior and contributor rules
-- `UPSTREAM_PARITY.md` for sync state, intentional divergences, and local extensions
+- `UPSTREAM_PARITY.md` for the current sync state, intentional divergences, and active watchlist;
+  use `docs/upstream-parity/` only when source-specific rationale or dated audit history is needed
 - `hahobot/config/` for config schema and defaults
 - `hahobot/agent/`, `hahobot/channels/`, `hahobot/providers/`, and `hahobot/gateway/` for runtime truth
 - `hahobot/locales/` for user-visible wording

@@ -916,10 +916,13 @@ This lets existing `nanobot` automation keep running while new installs converge
 
 ## Upstream Parity
 
-`[UPSTREAM_PARITY.md](./UPSTREAM_PARITY.md)` is the living ledger for upstream sync status.
+[UPSTREAM_PARITY.md](./UPSTREAM_PARITY.md) is the concise current ledger for upstream sync status.
 
 Use it when manually porting changes from `HKUDS/nanobot`: it records what is already matched
 locally, what is intentionally different, and which areas should be re-audited on the next sync.
+Source-specific mappings and the complete dated record live under
+[`docs/upstream-parity/`](./docs/upstream-parity/), so routine context does not load the full audit
+history.
 
 ## Repository Layout
 

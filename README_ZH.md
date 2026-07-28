@@ -1941,10 +1941,11 @@ loginctl enable-linger $USER
 
 ## 上游同步台账
 
-[`UPSTREAM_PARITY.md`](./UPSTREAM_PARITY.md) 是当前本地 fork 的上游同步台账。
+[`UPSTREAM_PARITY.md`](./UPSTREAM_PARITY.md) 是当前本地 fork 的精简上游同步台账。
 
 以后手工同步 `HKUDS/nanobot` 时，优先看这里：它会记录哪些能力已经本地对齐、哪些是明确的本地分叉，
-以及下次同步时还需要重点复核哪些区域。
+以及下次同步时还需要重点复核哪些区域。各上游的详细映射和完整日期审计记录位于
+[`docs/upstream-parity/`](./docs/upstream-parity/)，避免日常上下文重复载入整段历史。
 
 ## 项目结构
 
