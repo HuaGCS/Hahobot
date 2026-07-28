@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-07-28
+
+### Added
+- **Explicit Mem0 backfill:** preview and migrate eligible pre-Mem0 local memory
+  with `hahobot memory shared backfill`, including `--dry-run`, `--persona`,
+  `--json`, and explicit `--force` resend support.
+- **Durable migration receipts:** queue every candidate before delivery, retain
+  offline work in the existing SQLite outbox, and skip unchanged acknowledged
+  content on ordinary reruns.
+
+### Security
+- **Conservative memory routing:** send only the default user profile to the
+  Hermes-visible public namespace; keep collaboration insights and long-term
+  memory persona-private, remove `<private>` content, and reject source-file
+  symlinks that escape the active workspace.
+
 ## [0.1.7] - 2026-07-28
 
 ### Fixed
@@ -93,6 +109,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Initial tagged release of Hahobot, the workspace-first local agent runtime
   (CLI agent, multi-channel gateway, OpenAI-compatible API).
 
+[0.1.8]: https://github.com/HuaGCS/Hahobot/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/HuaGCS/Hahobot/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/HuaGCS/Hahobot/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/HuaGCS/Hahobot/compare/v0.1.4...v0.1.5
