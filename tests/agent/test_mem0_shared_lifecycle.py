@@ -6,6 +6,7 @@ import asyncio
 import json
 import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -17,7 +18,11 @@ from hahobot.agent.memory_backends.file_backend import FileUserMemoryBackend
 from hahobot.agent.memory_backends.mem0_backend import Mem0SharedMemoryBackend
 from hahobot.agent.memory_models import MemoryCommitRequest, MemoryScope
 from hahobot.agent.memory_router import MemoryRouter
-from hahobot.agent.memory_shared_sqlite import _connect
+from hahobot.agent.memory_shared_sqlite import (
+    SharedMemorySQLiteState,
+    _connect,
+    _ensure_wal_mode,
+)
 from hahobot.bus.queue import MessageBus
 from hahobot.config.schema import Config, SharedMemoryConfig
 from hahobot.providers.base import GenerationSettings
@@ -442,6 +447,95 @@ def test_shared_sqlite_connection_context_closes_descriptor(tmp_path: Path) -> N
         conn.execute("CREATE TABLE sample(value TEXT)")
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         conn.execute("SELECT 1")
+
+
+def test_shared_sqlite_connection_closes_when_wal_setup_fails(tmp_path: Path) -> None:
+    conn = MagicMock()
+    conn.execute.side_effect = [None, sqlite3.OperationalError("disk I/O error")]
+
+    with (
+        patch("hahobot.agent.memory_shared_sqlite.sqlite3.connect", return_value=conn),
+        pytest.raises(sqlite3.OperationalError, match="disk I/O error"),
+    ):
+        with _connect(tmp_path / "state" / "shared.sqlite"):
+            pass
+
+    conn.close.assert_called_once_with()
+
+
+def test_shared_sqlite_wal_setup_retries_lock_upgrade() -> None:
+    delete_cursor = MagicMock()
+    delete_cursor.fetchone.return_value = ("delete",)
+    wal_cursor = MagicMock()
+    wal_cursor.fetchone.return_value = ("wal",)
+    conn = MagicMock()
+    conn.execute.side_effect = [
+        delete_cursor,
+        sqlite3.OperationalError("database is locked"),
+        wal_cursor,
+    ]
+
+    with patch("hahobot.agent.memory_shared_sqlite.time.sleep") as sleep:
+        _ensure_wal_mode(conn)
+
+    sleep.assert_called_once()
+    assert conn.execute.call_count == 3
+
+
+def test_shared_sqlite_concurrent_first_use_retries_wal_lock(tmp_path: Path) -> None:
+    real_connect = sqlite3.connect
+    state = SharedMemorySQLiteState(tmp_path / "state")
+    barrier = threading.Barrier(2)
+    guard = threading.Lock()
+    journal_reads = 0
+    wal_attempts = 0
+    injected = 0
+
+    class CoordinatedConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=(), /):
+            nonlocal injected, journal_reads, wal_attempts
+            statement = " ".join(sql.split()).casefold()
+            if statement == "pragma journal_mode":
+                cursor = super().execute(sql, parameters)
+                with guard:
+                    journal_reads += 1
+                    synchronize = journal_reads <= 2
+                if synchronize:
+                    barrier.wait(timeout=10)
+                return cursor
+            if statement == "pragma journal_mode=wal":
+                with guard:
+                    wal_attempts += 1
+                    fail = injected == 0
+                    injected += int(fail)
+                if fail:
+                    exc = sqlite3.OperationalError("database is locked")
+                    exc.sqlite_errorcode = sqlite3.SQLITE_BUSY
+                    raise exc
+            return super().execute(sql, parameters)
+
+    def controlled_connect(*args, **kwargs):
+        return real_connect(*args, factory=CoordinatedConnection, **kwargs)
+
+    with (
+        patch("hahobot.agent.memory_shared_sqlite.sqlite3.connect", controlled_connect),
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        snapshot_future = executor.submit(state.snapshot_items)
+        claim_future = executor.submit(state.claim_snapshot_refresh, 3_600)
+        assert snapshot_future.result(timeout=10) == []
+        claim = claim_future.result(timeout=10)
+
+    assert claim is not None
+    assert injected == 1
+    assert journal_reads >= 2
+    assert wal_attempts >= 2
+    check = real_connect(state.db_path)
+    try:
+        assert check.execute("PRAGMA journal_mode").fetchone()[0].casefold() == "wal"
+    finally:
+        check.close()
+    state.abort_snapshot_refresh(claim[0])
 
 
 def test_shared_sqlite_first_use_waits_for_journal_lock(tmp_path: Path) -> None:

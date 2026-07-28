@@ -14,6 +14,46 @@ from typing import Any
 from loguru import logger
 
 _CLAIM_LEASE_SECONDS = 120.0
+_CONNECT_TIMEOUT_SECONDS = 5.0
+_WAL_RETRY_INITIAL_SECONDS = 0.005
+_WAL_RETRY_MAX_SECONDS = 0.05
+
+
+def _is_sqlite_lock_error(exc: sqlite3.OperationalError) -> bool:
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int) and (code & 0xFF) in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+        return True
+    message = str(exc).casefold()
+    return "locked" in message or "busy" in message
+
+
+def _ensure_wal_mode(conn: sqlite3.Connection) -> None:
+    """Enable WAL with bounded retries for concurrent first-use lock upgrades."""
+    deadline = time.monotonic() + _CONNECT_TIMEOUT_SECONDS
+    delay = _WAL_RETRY_INITIAL_SECONDS
+    last_error: sqlite3.OperationalError | None = None
+
+    while True:
+        try:
+            journal_mode = conn.execute("PRAGMA journal_mode").fetchone()
+            if journal_mode is not None and str(journal_mode[0]).casefold() == "wal":
+                return
+            journal_mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+            if journal_mode is not None and str(journal_mode[0]).casefold() == "wal":
+                return
+            last_error = None
+        except sqlite3.OperationalError as exc:
+            if not _is_sqlite_lock_error(exc):
+                raise
+            last_error = exc
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if last_error is not None:
+                raise last_error
+            raise sqlite3.OperationalError("failed to enable SQLite WAL journal mode")
+        time.sleep(min(delay, remaining))
+        delay = min(delay * 2, _WAL_RETRY_MAX_SECONDS)
 
 
 @contextmanager
@@ -24,23 +64,21 @@ def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
         db_path.parent.chmod(0o700)
     except OSError:
         pass
-    conn = sqlite3.connect(db_path, timeout=5.0)
-    conn.row_factory = sqlite3.Row
-    # Install the lock wait before the first connection attempts to switch the
-    # database into WAL mode. Snapshot read + refresh can open concurrently on
-    # first use, and journal_mode itself otherwise fails fast with SQLITE_BUSY.
-    conn.execute("PRAGMA busy_timeout=5000")
-    journal_mode = conn.execute("PRAGMA journal_mode").fetchone()
-    if journal_mode is None or str(journal_mode[0]).casefold() != "wal":
-        conn.execute("PRAGMA journal_mode=WAL")
-    # The snapshot is rebuildable, but the same database also owns the write
-    # outbox. FULL keeps an acknowledged local enqueue durable across power loss.
-    conn.execute("PRAGMA synchronous=FULL")
+    conn = sqlite3.connect(db_path, timeout=_CONNECT_TIMEOUT_SECONDS)
     try:
-        db_path.chmod(0o600)
-    except OSError:
-        pass
-    try:
+        conn.row_factory = sqlite3.Row
+        # journal_mode lock upgrades can return SQLITE_BUSY immediately when two
+        # fresh connections both hold a read lock, so busy_timeout alone is not
+        # sufficient. Re-read the mode with bounded backoff until one wins.
+        conn.execute(f"PRAGMA busy_timeout={int(_CONNECT_TIMEOUT_SECONDS * 1_000)}")
+        _ensure_wal_mode(conn)
+        # The snapshot is rebuildable, but the same database also owns the write
+        # outbox. FULL keeps an acknowledged local enqueue durable across power loss.
+        conn.execute("PRAGMA synchronous=FULL")
+        try:
+            db_path.chmod(0o600)
+        except OSError:
+            pass
         with conn:
             yield conn
     finally:

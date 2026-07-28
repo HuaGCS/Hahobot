@@ -108,8 +108,11 @@ class Mem0SharedMemoryBackend(UserMemoryBackend):
 
         query = self._sanitize_text(scope.query or "")
         if not query:
-            self._schedule_snapshot_refresh()
             cached = await self._snapshot_search(query="")
+            # Initialize/read the local state before the background refresh opens
+            # a second connection. This removes the common same-process first-use
+            # WAL race while _connect also protects cross-process initialization.
+            self._schedule_snapshot_refresh()
             return ResolvedMemoryContext(
                 block=self._format_context(cached),
                 source="mem0-cache" if cached else "mem0",
