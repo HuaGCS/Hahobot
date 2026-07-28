@@ -110,6 +110,11 @@ class SharedMemorySQLiteState:
             CREATE INDEX IF NOT EXISTS idx_outbox_due
                 ON outbox(next_attempt_at, claimed_at);
 
+            CREATE TABLE IF NOT EXISTS backfill_receipts (
+                event_id TEXT PRIMARY KEY,
+                delivered_at REAL NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS snapshot (
                 memory_id TEXT PRIMARY KEY,
                 memory TEXT NOT NULL,
@@ -146,13 +151,59 @@ class SharedMemorySQLiteState:
                 ),
             )
 
+    def enqueue_backfill(self, event: dict[str, Any], *, force: bool = False) -> str:
+        """Atomically queue one backfill event unless it is pending or delivered."""
+        event_id = str(event["id"])
+        with _connect(self.db_path) as conn:
+            self._ensure_schema(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            pending = conn.execute(
+                "SELECT 1 FROM outbox WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            if pending is not None:
+                conn.commit()
+                return "pending"
+
+            delivered = conn.execute(
+                "SELECT 1 FROM backfill_receipts WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            if delivered is not None and not force:
+                conn.commit()
+                return "delivered"
+            if delivered is not None:
+                conn.execute("DELETE FROM backfill_receipts WHERE event_id = ?", (event_id,))
+
+            conn.execute(
+                """
+                INSERT INTO outbox(
+                    event_id, created_at, messages_json, metadata_json,
+                    attempts, next_attempt_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event_id,
+                    str(event["created_at"]),
+                    json.dumps(event.get("messages") or [], ensure_ascii=False),
+                    json.dumps(event.get("metadata") or {}, ensure_ascii=False),
+                    int(event.get("attempts", 0) or 0),
+                    float(event.get("next_attempt_at", 0) or 0),
+                ),
+            )
+            conn.commit()
+            return "enqueued"
+
     def claim_due(
         self,
         *,
         force: bool,
         limit: int,
+        event_ids: set[str] | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         token = uuid.uuid4().hex
+        if event_ids is not None and not event_ids:
+            return token, []
         now = time.time()
         stale_before = now - _CLAIM_LEASE_SECONDS
         events: list[dict[str, Any]] = []
@@ -164,6 +215,15 @@ class SharedMemorySQLiteState:
             if not force:
                 where += " AND next_attempt_at <= ?"
                 params.append(now)
+            if event_ids is not None:
+                conn.execute(
+                    "CREATE TEMP TABLE claim_event_ids(event_id TEXT PRIMARY KEY) WITHOUT ROWID"
+                )
+                conn.executemany(
+                    "INSERT INTO claim_event_ids(event_id) VALUES (?)",
+                    [(event_id,) for event_id in event_ids],
+                )
+                where += " AND event_id IN (SELECT event_id FROM claim_event_ids)"
             # Look past a handful of corrupt rows so one externally damaged
             # record cannot prevent healthy events from draining forever.
             params.append(max(25, max(1, limit) * 4))
@@ -233,10 +293,39 @@ class SharedMemorySQLiteState:
             self._ensure_schema(conn)
             conn.execute("BEGIN IMMEDIATE")
             if succeeded:
-                conn.executemany(
-                    "DELETE FROM outbox WHERE event_id = ? AND claim_token = ?",
-                    [(event_id, token) for event_id in succeeded],
-                )
+                delivered_at = time.time()
+                for event_id in succeeded:
+                    row = conn.execute(
+                        """
+                        SELECT metadata_json
+                        FROM outbox
+                        WHERE event_id = ? AND claim_token = ?
+                        """,
+                        (event_id, token),
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    try:
+                        metadata = json.loads(row["metadata_json"])
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+                    if (
+                        isinstance(metadata, dict)
+                        and metadata.get("event_kind") == "memory_backfill"
+                    ):
+                        conn.execute(
+                            """
+                            INSERT INTO backfill_receipts(event_id, delivered_at)
+                            VALUES (?, ?)
+                            ON CONFLICT(event_id) DO UPDATE SET
+                                delivered_at = excluded.delivered_at
+                            """,
+                            (event_id, delivered_at),
+                        )
+                    conn.execute(
+                        "DELETE FROM outbox WHERE event_id = ? AND claim_token = ?",
+                        (event_id, token),
+                    )
             for event_id, (attempts, next_attempt_at) in failed.items():
                 conn.execute(
                     """
@@ -251,6 +340,40 @@ class SharedMemorySQLiteState:
                 (token,),
             )
             conn.commit()
+
+    def backfill_statuses(self, event_ids: set[str]) -> dict[str, str]:
+        """Return the durable state for the requested deterministic backfill ids."""
+        if not event_ids:
+            return {}
+        statuses = dict.fromkeys(event_ids, "missing")
+        with _connect(self.db_path) as conn:
+            self._ensure_schema(conn)
+            conn.execute(
+                "CREATE TEMP TABLE backfill_status_ids(event_id TEXT PRIMARY KEY) WITHOUT ROWID"
+            )
+            conn.executemany(
+                "INSERT INTO backfill_status_ids(event_id) VALUES (?)",
+                [(event_id,) for event_id in event_ids],
+            )
+            pending = conn.execute(
+                """
+                SELECT event_id
+                FROM outbox
+                WHERE event_id IN (SELECT event_id FROM backfill_status_ids)
+                """
+            ).fetchall()
+            delivered = conn.execute(
+                """
+                SELECT event_id
+                FROM backfill_receipts
+                WHERE event_id IN (SELECT event_id FROM backfill_status_ids)
+                """
+            ).fetchall()
+        for row in pending:
+            statuses[str(row["event_id"])] = "pending"
+        for row in delivered:
+            statuses[str(row["event_id"])] = "delivered"
+        return statuses
 
     def release_claim(self, token: str) -> None:
         with _connect(self.db_path) as conn:

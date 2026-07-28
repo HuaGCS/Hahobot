@@ -1333,6 +1333,32 @@ persona 名稳定。如果生成的人格私有 ID 与公共 `userId` 相同（�
 session、archive、本地长期记忆或任何 Mem0 命名空间，只应用于密码、验证码等不应被任何地方记住的
 内容。
 
+仅仅启用 Mem0 不会自动上传旧本地记忆。请先预览一次性 backfill：
+
+```bash
+hahobot memory shared backfill --dry-run
+# 只预览一个 persona，并输出便于脚本处理的报告：
+hahobot memory shared backfill --dry-run --persona NAME --json
+```
+
+预览不会发出网络请求，也不会写入交付状态。检查报告中的来源、目标命名空间和跳过项后，去掉
+`--dry-run` 即可按同一计划入队并发送。backfill 会保存持久内容回执，重复运行时会跳过内容未变化且
+已经交付的条目；只有显式加 `--force` 才会重传。Mem0 离线时，已接受的条目会留在现有持久 outbox
+中等待重试。该命令不会修改或删除任何本地文件，本地文件始终是权威来源。
+
+backfill 采用刻意收窄的路由规则：
+
+- default/root persona 的 `PROFILE.md` 进入公共 `userId`；其中显式 `<persona-private>` 区块只进入
+  default 的人格私有命名空间。
+- default/root `INSIGHTS.md` 与每个 persona 的 `memory/MEMORY.md` 进入对应人格私有命名空间；
+  custom persona 下显式存在的 `PROFILE.md` / `INSIGHTS.md` 也只进入该人格私有命名空间。
+- `<private>` 内容永不上传；不会扫描 `SOUL.md`、`USER.md`、history 或 archive。
+- `personaEnabled: false` 时，私有候选只会在报告中标为跳过，不会降级到公共层；
+  `globalWriteMode: "off"` 时，公共候选同样跳过。
+
+部分旧本地记忆在持久化时可能已经移除了 `<persona-private>` 外壳，backfill 无法复原这类历史标记。
+因此，特别是对长期使用的 workspace，执行前必须检查 dry-run 报告及对应源文件。
+
 这不需要扩展 Hermes：Hermes 继续只使用公共 `userId`，Hahobot 自己合并公共事实和当前人格私有
 事实。persona / 来源 agent metadata 在各自命名空间内仍只是溯源信息，不是安全隔离边界。关闭
 `personaEnabled` 时 Hahobot 只使用公共层；需要完全隔离的 Hermes agent 或部署仍应使用不同公共

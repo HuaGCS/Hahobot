@@ -16,6 +16,7 @@ from hahobot.cli.commands._app import (
     channels_app,
     companion_app,
     memory_index_app,
+    memory_shared_app,
     persona_app,
     plugins_app,
     provider_app,
@@ -231,6 +232,86 @@ def memory_index_rebuild(
     console.print(f"Persona: {payload['persona']}")
     console.print(f"Entries: {count}")
     console.print(f"Index: {payload['indexPath']}")
+
+
+@memory_shared_app.command("backfill")
+def memory_shared_backfill(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    persona: str | None = typer.Option(None, "--persona", help="Only import one persona"),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview sanitized routing without network or state writes",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Submit candidates again even if an import receipt already exists",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Backfill existing local memory files into configured shared Mem0."""
+    import json
+
+    from hahobot.agent.memory_shared_backfill import (
+        build_shared_memory_backfill_plan,
+        execute_shared_memory_backfill,
+        validate_backfill_config,
+    )
+    from hahobot.agent.personas import resolve_persona_name
+    from hahobot.cli.memory_shared_backfill import render_shared_memory_backfill_text
+    from hahobot.config.loader import get_config_path
+
+    try:
+        loaded = runtime._load_runtime_config(config, workspace, quiet=json_output)
+        shared = loaded.memory.shared
+        validate_backfill_config(shared)
+        selected: list[str] | None = None
+        if persona is not None:
+            resolved = resolve_persona_name(loaded.workspace_path, persona)
+            if resolved is None:
+                raise ValueError(f"unknown persona: {persona}")
+            selected = [resolved]
+        plan = build_shared_memory_backfill_plan(
+            loaded.workspace_path,
+            shared,
+            personas=selected,
+        )
+        if dry_run:
+            payload = plan.to_dict(mode="dry_run", force=force)
+        else:
+            active_config_path = (
+                (loaded._config_path or get_config_path()).expanduser().resolve(strict=False)
+            )
+            mode, statuses = asyncio.run(
+                execute_shared_memory_backfill(
+                    plan,
+                    shared,
+                    state_root=active_config_path.parent / "shared-memory",
+                    force=force,
+                )
+            )
+            payload = plan.to_dict(mode=mode, statuses=statuses, force=force)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        if json_output:
+            typer.echo(
+                json.dumps(
+                    {"status": "error", "error": str(exc)},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1) from None
+
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    console.print(render_shared_memory_backfill_text(payload))
 
 
 @repo_app.command("status")

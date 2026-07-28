@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -33,10 +33,41 @@ _SNAPSHOT_LIMIT = 1_000
 _DRAIN_BATCH_SIZE = 1
 _MAX_MEMORY_ITEM_CHARS = 500
 _TOKEN_RE = re.compile(r"[a-z0-9_]{2,}|[\u3400-\u9fff]", re.IGNORECASE)
+_BACKFILL_METADATA_KEYS = frozenset(
+    {
+        "backfill_schema",
+        "confidence",
+        "content_sha256",
+        "fragment_src",
+        "fragment_tag",
+        "fragment_ts",
+        "memory_layer",
+        "last_verified",
+        "persona",
+        "section",
+        "source_file",
+        "source_persona",
+    }
+)
 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def persona_mem0_user_id(config: SharedMemoryConfig, persona: str | None) -> str:
+    """Return the stable Mem0 user id for one Hahobot persona."""
+    normalized = normalize_persona_name(persona) or DEFAULT_PERSONA
+    prefix = config.persona_user_id_prefix.strip().rstrip(":")
+    if not prefix:
+        prefix = f"{config.user_id.strip()}::hahobot-persona"
+    private_user_id = f"{prefix}::{normalized.casefold()}"
+    if private_user_id.casefold() == config.user_id.strip().casefold():
+        raise ValueError(
+            "memory.shared persona namespace collides with the public userId for "
+            f"persona {normalized!r}; choose a different personaUserIdPrefix"
+        )
+    return private_user_id
 
 
 class Mem0SharedMemoryBackend(UserMemoryBackend):
@@ -153,6 +184,58 @@ class Mem0SharedMemoryBackend(UserMemoryBackend):
             self._schedule_outbox_drain()
             raise
         self._schedule_outbox_drain()
+
+    async def enqueue_backfill(
+        self,
+        *,
+        event_id: str,
+        content: str,
+        metadata: dict[str, Any],
+        force: bool = False,
+    ) -> str:
+        """Durably enqueue one deterministic, user-role backfill memory."""
+        if not self.write_enabled:
+            raise RuntimeError("Mem0 shared-memory writes are disabled")
+        if not self.configured:
+            raise RuntimeError("Mem0 shared-memory is not configured")
+        if not event_id or event_id != event_id.strip():
+            raise ValueError("backfill event_id must be a non-empty trimmed string")
+        cleaned = self._sanitize_text(content)
+        if not cleaned:
+            raise ValueError("backfill content is empty after privacy filtering")
+
+        event = {
+            "id": event_id,
+            "created_at": _utc_now(),
+            "attempts": 0,
+            "next_attempt_at": 0.0,
+            "messages": [{"role": "user", "content": cleaned}],
+            "metadata": self._build_backfill_metadata(event_id, metadata),
+        }
+        enqueue_task = asyncio.create_task(
+            asyncio.to_thread(self._state.enqueue_backfill, event, force=force)
+        )
+        try:
+            return await asyncio.shield(enqueue_task)
+        except asyncio.CancelledError:
+            await enqueue_task
+            raise
+
+    async def backfill_statuses(self, event_ids: set[str]) -> dict[str, str]:
+        """Read local pending/delivered state without contacting Mem0."""
+        return await asyncio.to_thread(self._state.backfill_statuses, set(event_ids))
+
+    async def drain_backfill(self, event_ids: set[str]) -> dict[str, str]:
+        """Attempt each requested queued event once and return its durable status."""
+        targets = {event_id for event_id in event_ids if event_id}
+        if not targets:
+            return {}
+        if not self.write_enabled:
+            raise RuntimeError("Mem0 shared-memory writes are disabled")
+        if not self.configured:
+            raise RuntimeError("Mem0 shared-memory is not configured")
+        await self._drain_outbox(force=True, event_ids=targets)
+        return await self.backfill_statuses(targets)
 
     async def flush_session(self, scope: MemoryScope) -> None:
         if self.write_enabled and self.configured and not self._retired:
@@ -369,23 +452,78 @@ class Mem0SharedMemoryBackend(UserMemoryBackend):
             "metadata": metadata,
         }
 
-    async def _drain_outbox(self, *, force: bool = False) -> None:
+    def _build_backfill_metadata(
+        self,
+        event_id: str,
+        supplied: dict[str, Any],
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "schema_version": _STATE_VERSION,
+            "event_kind": "memory_backfill",
+            "memory_namespace": self._namespace,
+            "source_agent": self._config.agent_id.strip() or "hahobot",
+            "hahobot_backfill_id": event_id,
+        }
+        for key in _BACKFILL_METADATA_KEYS:
+            if key not in supplied:
+                continue
+            value = supplied[key]
+            if value is not None and not isinstance(value, (str, int, float, bool)):
+                raise TypeError(f"backfill metadata {key!r} must be a scalar value")
+            if key == "source_file" and isinstance(value, str):
+                self._validate_backfill_source_file(value)
+            metadata[key] = value
+        if self._config.project_id.strip():
+            metadata["project_id"] = self._config.project_id.strip()
+        if self._config.device_id.strip():
+            metadata["device_id"] = self._config.device_id.strip()
+        return metadata
+
+    @staticmethod
+    def _validate_backfill_source_file(value: str) -> None:
+        posix = PurePosixPath(value)
+        windows = PureWindowsPath(value)
+        if (
+            not value
+            or posix.is_absolute()
+            or windows.is_absolute()
+            or bool(windows.drive)
+            or ".." in posix.parts
+            or ".." in windows.parts
+        ):
+            raise ValueError("backfill source_file must be a relative logical path")
+
+    async def _drain_outbox(
+        self,
+        *,
+        force: bool = False,
+        event_ids: set[str] | None = None,
+    ) -> None:
         if self._retired or self._closed:
             return
+        remaining_event_ids = set(event_ids) if event_ids is not None else None
         token = ""
         claim_task: asyncio.Task[tuple[str, list[dict[str, Any]]]] | None = None
         try:
             while True:
+                claim_kwargs: dict[str, Any] = {
+                    "force": force,
+                    "limit": _DRAIN_BATCH_SIZE,
+                }
+                # Keep the ordinary call shape unchanged for tests and runtime
+                # adapters that monkeypatch the historical two-keyword method.
+                if remaining_event_ids is not None:
+                    claim_kwargs["event_ids"] = remaining_event_ids
                 claim_task = asyncio.create_task(
                     asyncio.to_thread(
                         self._state.claim_due,
-                        force=force,
-                        limit=_DRAIN_BATCH_SIZE,
+                        **claim_kwargs,
                     )
                 )
                 token, events = await asyncio.shield(claim_task)
                 if not events:
-                    await self._arm_retry()
+                    if remaining_event_ids is None:
+                        await self._arm_retry()
                     return
 
                 succeeded: set[str] = set()
@@ -407,6 +545,16 @@ class Mem0SharedMemoryBackend(UserMemoryBackend):
                     failed=failed,
                 )
                 token = ""
+                if remaining_event_ids is not None:
+                    remaining_event_ids.difference_update(succeeded)
+                    # A transport outage would otherwise consume one full HTTP
+                    # timeout per imported item. Leave every untouched target in
+                    # the durable outbox and let a later command retry the batch.
+                    if failed:
+                        return
+                    if remaining_event_ids:
+                        continue
+                    return
                 if not self._retire_after_drain or failed:
                     await self._arm_retry()
                     return
@@ -601,17 +749,7 @@ class LayeredMem0SharedMemoryBackend(UserMemoryBackend):
 
     def persona_user_id(self, persona: str | None) -> str:
         """Return the stable Mem0 user id for one Hahobot persona."""
-        normalized = normalize_persona_name(persona) or DEFAULT_PERSONA
-        prefix = self._config.persona_user_id_prefix.strip().rstrip(":")
-        if not prefix:
-            prefix = f"{self._config.user_id.strip()}::hahobot-persona"
-        private_user_id = f"{prefix}::{normalized.casefold()}"
-        if private_user_id.casefold() == self._config.user_id.strip().casefold():
-            raise ValueError(
-                "memory.shared persona namespace collides with the public userId for "
-                f"persona {normalized!r}; choose a different personaUserIdPrefix"
-            )
-        return private_user_id
+        return persona_mem0_user_id(self._config, persona)
 
     def _persona_backend(self, persona: str | None) -> Mem0SharedMemoryBackend:
         normalized = normalize_persona_name(persona) or DEFAULT_PERSONA

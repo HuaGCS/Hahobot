@@ -20,12 +20,17 @@ _PERSONA_PRIVATE_UNCLOSED_RE = re.compile(
 _REDACTION = "[private redacted]"
 
 
-def strip_private_text(text: str) -> str:
-    """Remove ephemeral secrets and unwrap content intended for persona persistence."""
+def strip_private_text(text: str, *, replacement: str = _REDACTION) -> str:
+    """Remove ephemeral secrets and unwrap content intended for persona persistence.
+
+    ``replacement`` defaults to the visible persistence marker used by live turns.
+    Export-style callers may pass an empty string when even the marker would be
+    meaningless outside the local transcript.
+    """
     if not text:
         return text
-    redacted = _PRIVATE_BLOCK_RE.sub(_REDACTION, text)
-    redacted = _PRIVATE_UNCLOSED_RE.sub(_REDACTION, redacted)
+    redacted = _PRIVATE_BLOCK_RE.sub(replacement, text)
+    redacted = _PRIVATE_UNCLOSED_RE.sub(replacement, redacted)
     redacted = _PERSONA_PRIVATE_BLOCK_RE.sub(lambda match: match.group(1), redacted)
     redacted = _PERSONA_PRIVATE_UNCLOSED_RE.sub(lambda match: match.group(1), redacted)
     lines = [line for line in redacted.splitlines() if not _PRIVATE_LINE_RE.match(line)]
@@ -38,6 +43,22 @@ def strip_persona_private_text(text: str) -> str:
         return text
     public = _PERSONA_PRIVATE_BLOCK_RE.sub("", text)
     return _PERSONA_PRIVATE_UNCLOSED_RE.sub("", public).strip()
+
+
+def extract_persona_private_text(text: str) -> str:
+    """Return only persona-private block bodies, failing closed through EOF.
+
+    Ephemeral ``<private>`` content inside a persona-private block is removed as
+    part of extraction. This helper is intended for explicit namespace routing;
+    it cannot reconstruct wrappers already removed by earlier persistence.
+    """
+    if not text:
+        return ""
+    blocks = [match.group(1) for match in _PERSONA_PRIVATE_BLOCK_RE.finditer(text)]
+    closed_removed = _PERSONA_PRIVATE_BLOCK_RE.sub("", text)
+    if match := _PERSONA_PRIVATE_UNCLOSED_RE.search(closed_removed):
+        blocks.append(match.group(1))
+    return strip_private_text("\n\n".join(blocks), replacement="")
 
 
 def strip_private_content(value: Any) -> Any:

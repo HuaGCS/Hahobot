@@ -545,6 +545,34 @@ removed before persistence. `<private>...</private>` keeps its stricter existing
 is removed from sessions, archives, local long-term memory, and every Mem0 namespace. Use the latter
 only for credentials or other details that must not be remembered anywhere.
 
+Existing local memory is not uploaded merely by enabling Mem0. Preview the one-time backfill first:
+
+```bash
+hahobot memory shared backfill --dry-run
+# Limit the preview to one persona and make the report machine-readable:
+hahobot memory shared backfill --dry-run --persona NAME --json
+```
+
+The preview performs no network requests and writes no delivery state. After reviewing the source,
+destination, and skipped-item report, remove `--dry-run` to enqueue and deliver the same plan. The
+backfill keeps durable content receipts, so rerunning it skips unchanged, already-delivered items;
+`--force` explicitly resends them. If Mem0 is offline, accepted items remain in the existing durable
+outbox for retry. The command never edits or deletes the local files, which remain authoritative.
+
+Backfill uses a deliberately narrow routing policy:
+
+- The default/root persona's `PROFILE.md` goes to the public `userId`, except explicit
+  `<persona-private>` blocks, which go only to the default persona-private namespace.
+- The default/root `INSIGHTS.md` and each persona's `memory/MEMORY.md` go to that persona's private
+  namespace. Explicit `PROFILE.md` / `INSIGHTS.md` files under a custom persona are private too.
+- `<private>` content is never uploaded. `SOUL.md`, `USER.md`, history, and archives are not scanned.
+- With `personaEnabled: false`, private candidates are reported as skipped rather than downgraded to
+  public. With `globalWriteMode: "off"`, public candidates are likewise skipped.
+
+Some older local memory may already have had its `<persona-private>` wrapper removed during
+persistence. A backfill cannot reconstruct that historical annotation, so always inspect the
+dry-run report and the source files before executing, especially on a long-lived workspace.
+
 This split does not require a Hermes extension. Hermes continues to use the public `userId`, while
 Hahobot merges public facts with its current persona's private facts. Persona/source metadata remains
 provenance rather than a security boundary inside either namespace. With `personaEnabled: false`,
