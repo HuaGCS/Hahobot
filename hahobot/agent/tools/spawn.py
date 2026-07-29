@@ -1,5 +1,6 @@
 """Spawn tool for creating background subagents."""
 
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
 from hahobot.agent.tools.base import Tool, tool_parameters
@@ -30,15 +31,27 @@ class SpawnTool(Tool):
 
     def __init__(self, manager: "SubagentManager"):
         self._manager = manager
-        self._origin_channel = "cli"
-        self._origin_chat_id = "direct"
-        self._session_key = "cli:direct"
+        self._context: ContextVar[tuple[str, str, str, str]] = ContextVar(
+            f"spawn_context_{id(self)}",
+            default=("cli", "direct", "cli:direct", "user"),
+        )
 
-    def set_context(self, channel: str, chat_id: str, session_key: str | None = None) -> None:
+    def set_context(
+        self,
+        channel: str,
+        chat_id: str,
+        session_key: str | None = None,
+        sender_id: str | None = None,
+    ) -> None:
         """Set the origin context for subagent announcements."""
-        self._origin_channel = channel
-        self._origin_chat_id = chat_id
-        self._session_key = session_key or f"{channel}:{chat_id}"
+        self._context.set(
+            (
+                channel,
+                chat_id,
+                session_key or f"{channel}:{chat_id}",
+                sender_id or "user",
+            )
+        )
 
     @property
     def name(self) -> str:
@@ -68,12 +81,18 @@ class SpawnTool(Tool):
         **kwargs: Any,
     ) -> str:
         """Spawn a subagent to execute the given task."""
+        origin_channel, origin_chat_id, session_key, sender_id = self._context.get()
+        spawn_kwargs: dict[str, Any] = {
+            "task": task,
+            "label": label,
+            "mode": mode or "implement",
+            "origin_channel": origin_channel,
+            "origin_chat_id": origin_chat_id,
+            "session_key": session_key,
+            "model": model,
+        }
+        if sender_id != "user":
+            spawn_kwargs["sender_id"] = sender_id
         return await self._manager.spawn(
-            task=task,
-            label=label,
-            mode=mode or "implement",
-            origin_channel=self._origin_channel,
-            origin_chat_id=self._origin_chat_id,
-            session_key=self._session_key,
-            model=model,
+            **spawn_kwargs,
         )

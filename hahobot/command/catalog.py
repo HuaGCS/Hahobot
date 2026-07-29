@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
+
+SHARED_MEMORY_BACKFILL_CAPABILITY = "shared_memory_backfill"
 
 
 @dataclass(frozen=True)
@@ -16,6 +19,7 @@ class CommandSpec:
     aliases: tuple[str, ...] = ()
     note_key: str | None = None
     completion_subcommands: tuple[str, ...] = ()
+    required_capability: str | None = None
     agent_enabled: bool = True
     help_enabled: bool = True
     admin_enabled: bool = True
@@ -160,6 +164,32 @@ _COMMAND_SPECS: tuple[CommandSpec, ...] = (
         admin_rank=100,
         interactive_rank=100,
         telegram_rank=90,
+    ),
+    CommandSpec(
+        command="/memory",
+        description_keys=("cmd_memory",),
+        usage_lines=(
+            "/memory backfill preview [persona]",
+            "/memory backfill confirm <token>",
+        ),
+        completion_subcommands=("backfill",),
+        required_capability=SHARED_MEMORY_BACKFILL_CAPABILITY,
+        prefix_match=True,
+        help_rank=85,
+        admin_rank=105,
+        interactive_rank=105,
+        telegram_rank=95,
+    ),
+    CommandSpec(
+        command="/approve",
+        description_keys=("cmd_approve",),
+        usage_lines=("/approve", "/approve all"),
+        completion_subcommands=("all",),
+        prefix_match=True,
+        help_rank=87,
+        admin_rank=107,
+        interactive_rank=107,
+        telegram_rank=97,
     ),
     CommandSpec(
         command="/stop",
@@ -373,9 +403,25 @@ def agent_command_specs() -> tuple[CommandSpec, ...]:
     return tuple(spec for spec in _COMMAND_SPECS if spec.agent_enabled)
 
 
-def help_command_specs() -> tuple[CommandSpec, ...]:
+def _has_required_capability(
+    spec: CommandSpec,
+    capabilities: Collection[str] | None,
+) -> bool:
+    """Filter optional commands only when a runtime supplied capabilities."""
+    return (
+        spec.required_capability is None
+        or capabilities is None
+        or spec.required_capability in capabilities
+    )
+
+
+def help_command_specs(*, capabilities: Collection[str] | None = None) -> tuple[CommandSpec, ...]:
     """Return commands shown in user help text."""
-    specs = [spec for spec in _COMMAND_SPECS if spec.help_enabled]
+    specs = [
+        spec
+        for spec in _COMMAND_SPECS
+        if spec.help_enabled and _has_required_capability(spec, capabilities)
+    ]
     return tuple(sorted(specs, key=lambda spec: spec.help_rank))
 
 
@@ -385,30 +431,42 @@ def admin_command_specs() -> tuple[CommandSpec, ...]:
     return tuple(sorted(specs, key=lambda spec: spec.admin_rank))
 
 
-def interactive_command_specs() -> tuple[CommandSpec, ...]:
+def interactive_command_specs(
+    *, capabilities: Collection[str] | None = None
+) -> tuple[CommandSpec, ...]:
     """Return commands visible to the local interactive CLI."""
-    specs = [spec for spec in _COMMAND_SPECS if spec.interactive_enabled]
+    specs = [
+        spec
+        for spec in _COMMAND_SPECS
+        if spec.interactive_enabled and _has_required_capability(spec, capabilities)
+    ]
     return tuple(sorted(specs, key=lambda spec: spec.interactive_rank))
 
 
-def telegram_menu_specs() -> tuple[CommandSpec, ...]:
+def telegram_menu_specs(*, capabilities: Collection[str] | None = None) -> tuple[CommandSpec, ...]:
     """Return commands exposed in Telegram's native command menu."""
-    specs = [spec for spec in _COMMAND_SPECS if spec.telegram_menu_enabled]
+    specs = [
+        spec
+        for spec in _COMMAND_SPECS
+        if spec.telegram_menu_enabled and _has_required_capability(spec, capabilities)
+    ]
     return tuple(sorted(specs, key=lambda spec: spec.telegram_rank))
 
 
-def interactive_command_names() -> tuple[str, ...]:
+def interactive_command_names(*, capabilities: Collection[str] | None = None) -> tuple[str, ...]:
     """Return canonical and alias command names for local CLI completion."""
     names: list[str] = []
-    for spec in interactive_command_specs():
+    for spec in interactive_command_specs(capabilities=capabilities):
         names.extend(spec.forms())
     return tuple(names)
 
 
-def interactive_subcommands() -> dict[str, tuple[str, ...]]:
+def interactive_subcommands(
+    *, capabilities: Collection[str] | None = None
+) -> dict[str, tuple[str, ...]]:
     """Return static subcommand completions keyed by command form."""
     mapping: dict[str, tuple[str, ...]] = {}
-    for spec in interactive_command_specs():
+    for spec in interactive_command_specs(capabilities=capabilities):
         if not spec.completion_subcommands:
             continue
         for form in spec.forms():

@@ -338,6 +338,84 @@ def test_interactive_slash_completer_matches_language_codes():
     assert [completion.text for completion in completions] == ["zh"]
 
 
+def test_interactive_memory_backfill_completion_is_capability_gated(tmp_path):
+    disabled = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/mem", cursor_position=len("/mem")),
+            None,
+        )
+    )
+    assert disabled == []
+
+    (tmp_path / "personas" / "Coder").mkdir(parents=True)
+    commands._set_interactive_completion_context(
+        workspace=tmp_path,
+        session_manager=None,
+        current_session_id=None,
+        shared_memory_backfill_enabled=True,
+    )
+
+    top_level = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/mem", cursor_position=len("/mem")),
+            None,
+        )
+    )
+    action = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(
+                text="/memory backfill p",
+                cursor_position=len("/memory backfill p"),
+            ),
+            None,
+        )
+    )
+    persona = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(
+                text="/memory backfill preview C",
+                cursor_position=len("/memory backfill preview C"),
+            ),
+            None,
+        )
+    )
+
+    assert [completion.text for completion in top_level] == ["/memory"]
+    assert [completion.text for completion in action] == ["preview"]
+    assert [completion.text for completion in persona] == ["Coder"]
+
+
+def test_interactive_memory_backfill_completion_reads_live_capability(tmp_path):
+    enabled = False
+
+    def current_capability() -> bool:
+        return enabled
+
+    commands._set_interactive_completion_context(
+        workspace=tmp_path,
+        session_manager=None,
+        current_session_id=None,
+        shared_memory_backfill_enabled=current_capability,
+    )
+    before = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/mem", cursor_position=len("/mem")),
+            None,
+        )
+    )
+
+    enabled = True
+    after = list(
+        commands._INTERACTIVE_SLASH_COMPLETER.get_completions(
+            Document(text="/mem", cursor_position=len("/mem")),
+            None,
+        )
+    )
+
+    assert before == []
+    assert [completion.text for completion in after] == ["/memory"]
+
+
 def test_interactive_slash_completer_ignores_plain_text():
     completions = list(
         commands._INTERACTIVE_SLASH_COMPLETER.get_completions(

@@ -91,6 +91,7 @@ class TurnRuntimeManager:
             chat_id=turn.state.chat_id,
             message_id=msg.metadata.get("message_id"),
             persona=turn.state.persona,
+            sender_id=self.loop._exec_approval_sender_id(msg),
         )
         persisted_messages = self.loop._save_turn(
             turn.state.session, all_msgs, 1 + len(turn.history)
@@ -182,6 +183,7 @@ class TurnRuntimeManager:
             chat_id=turn.state.chat_id,
             message_id=msg.metadata.get("message_id"),
             persona=turn.state.persona,
+            sender_id=msg.sender_id,
         )
 
         final_content = self._normalized_final_content(final_content)

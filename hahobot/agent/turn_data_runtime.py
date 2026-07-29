@@ -43,6 +43,8 @@ class TurnDataRuntimeManager:
             msg.metadata.get("message_id"),
             persona=state.persona,
             session_key=state.key,
+            sender_id=self.loop._exec_approval_sender_id(msg),
+            refresh_exec_approval=True,
         )
         turn_history = (
             history

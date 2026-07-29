@@ -463,6 +463,9 @@ async def webui_session_clear(request: web.Request) -> web.Response:
     _require_webui_auth(request)
     form = await request.post()
     key = _normalize_session_key(str(form.get("session", "")))
+    agent = _agent(request)
+    if approval_store := getattr(agent, "exec_approval_store", None):
+        approval_store.clear_session(key)
     sm = _session_manager(request)
     if sm is not None:
         session = sm.get_or_create(key)
@@ -477,6 +480,9 @@ async def webui_session_delete(request: web.Request) -> web.Response:
     form = await request.post()
     key = _normalize_session_key(str(form.get("session", "")))
     current = _normalize_session_key(str(form.get("current", "")))
+    agent = _agent(request)
+    if approval_store := getattr(agent, "exec_approval_store", None):
+        approval_store.clear_session(key)
     sm = _session_manager(request)
     if sm is not None:
         sm.delete_session(key)

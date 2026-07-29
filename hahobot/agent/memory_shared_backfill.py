@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -159,6 +160,61 @@ def validate_backfill_config(config: SharedMemoryConfig) -> None:
         raise ValueError("memory.shared.userId is required before backfill")
     if not config.write_enabled:
         raise ValueError("memory.shared.writeEnabled must be true before backfill")
+
+
+def shared_memory_backfill_plan_fingerprint(
+    plan: SharedMemoryBackfillPlan,
+    config: SharedMemoryConfig,
+) -> str:
+    """Return a stable, secret-free digest for a previewed backfill plan.
+
+    Confirmation surfaces rebuild the plan immediately before execution and
+    compare this digest.  It intentionally covers both candidate content
+    digests and destination-routing settings, while excluding the API key.
+    """
+    payload = {
+        "schema": _BACKFILL_SCHEMA,
+        "workspace": str(plan.workspace.resolve(strict=False)),
+        "selected_personas": sorted(plan.selected_personas, key=str.casefold),
+        "items": sorted(
+            (
+                {
+                    "event_id": item.event_id,
+                    "persona": item.persona,
+                    "source_file": item.source_file,
+                    "layer": item.layer,
+                    "user_id": item.user_id,
+                    "content_sha256": item.content_sha256,
+                    "metadata": item.metadata,
+                }
+                for item in plan.items
+            ),
+            key=lambda item: (
+                item["event_id"],
+                item["user_id"],
+                item["source_file"],
+            ),
+        ),
+        "routing": {
+            "provider": config.provider,
+            "base_url": config.base_url.strip().rstrip("/"),
+            "user_id": config.user_id.strip(),
+            "agent_id": config.agent_id.strip() or "hahobot",
+            "project_id": config.project_id.strip(),
+            "device_id": config.device_id.strip(),
+            "persona_enabled": config.persona_enabled,
+            "persona_user_id_prefix": config.persona_user_id_prefix.strip().rstrip(":"),
+            "global_write_mode": config.global_write_mode,
+            "write_enabled": config.write_enabled,
+        },
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def build_shared_memory_backfill_plan(

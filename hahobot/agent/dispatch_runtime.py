@@ -72,6 +72,7 @@ class DispatchRuntimeManager:
     async def handle_stop(self, msg: InboundMessage) -> None:
         """Cancel all active tasks and subagents for the session."""
         msg = self.loop._normalize_session_message(msg)
+        self.loop.exec_approval_store.clear_session(msg.session_key)
         tasks = self.loop._active_tasks.pop(msg.session_key, [])
         cancelled = sum(1 for task in tasks if not task.done() and task.cancel())
         for task in tasks:
@@ -80,6 +81,9 @@ class DispatchRuntimeManager:
             except (asyncio.CancelledError, Exception):
                 pass
         sub_cancelled = await self.loop.subagents.cancel_by_session(msg.session_key)
+        # A cancelled producer may have raced the first clear. Bump the session
+        # generation again only after every owned task/subagent has stopped.
+        self.loop.exec_approval_store.clear_session(msg.session_key)
         total = cancelled + sub_cancelled
         session = self.loop.sessions.get_or_create(msg.session_key)
         language = self.loop._get_session_language(session)

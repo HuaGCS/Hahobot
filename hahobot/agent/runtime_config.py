@@ -133,6 +133,7 @@ class RuntimeConfigManager:
         self.loop.context_window_tokens = defaults.context_window_tokens
         self.loop.context_block_limit = defaults.context_block_limit
         self.loop.max_tool_result_chars = defaults.max_tool_result_chars
+        self.loop.exec_approval_store.set_result_budget(self.loop.max_tool_result_chars)
         self.loop.provider_retry_mode = defaults.provider_retry_mode
         self.loop.tool_hint_max_length = defaults.tool_hint_max_length
         self.loop.auto_compact.set_session_ttl_minutes(defaults.session_ttl_minutes)

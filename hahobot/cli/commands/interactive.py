@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import select
 import sys
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
@@ -76,6 +77,7 @@ class _InteractiveCompletionContext:
     workspace: Path | None = None
     session_manager: Any | None = None
     current_session_id: str | None = None
+    shared_memory_backfill_enabled: bool | Callable[[], bool] = False
 
 
 _INTERACTIVE_COMPLETION_CONTEXT = _InteractiveCompletionContext()
@@ -102,7 +104,7 @@ class _InteractiveSlashCompleter(Completer):
             if has_trailing_space:
                 yield from self._complete_options(self._second_token_options(parts[0]), prefix="")
                 return
-            yield from self._complete_options(_INTERACTIVE_SLASH_COMMANDS, prefix=parts[0])
+            yield from self._complete_options(self._visible_commands(), prefix=parts[0])
             return
 
         if len(parts) == 2:
@@ -115,13 +117,30 @@ class _InteractiveSlashCompleter(Completer):
             yield from self._complete_options(self._second_token_options(parts[0]), prefix=parts[1])
             return
 
-        if len(parts) != 3 or has_trailing_space:
+        if len(parts) == 3:
+            if has_trailing_space:
+                yield from self._complete_options(
+                    self._fourth_token_options(parts[0], parts[1], parts[2]),
+                    prefix="",
+                )
+                return
+            yield from self._complete_options(
+                self._third_token_options(parts[0], parts[1]),
+                prefix=parts[2],
+            )
             return
 
-        yield from self._complete_options(
-            self._third_token_options(parts[0], parts[1]),
-            prefix=parts[2],
-        )
+        if len(parts) == 4 and not has_trailing_space:
+            yield from self._complete_options(
+                self._fourth_token_options(parts[0], parts[1], parts[2]),
+                prefix=parts[3],
+            )
+
+    @staticmethod
+    def _visible_commands() -> tuple[str, ...]:
+        if _InteractiveSlashCompleter._memory_backfill_enabled():
+            return _INTERACTIVE_SLASH_COMMANDS
+        return tuple(command for command in _INTERACTIVE_SLASH_COMMANDS if command != "/memory")
 
     @staticmethod
     def _complete_options(options: list[str] | tuple[str, ...], *, prefix: str):
@@ -132,6 +151,8 @@ class _InteractiveSlashCompleter(Completer):
             yield Completion(option, start_position=start_position)
 
     def _second_token_options(self, command: str) -> list[str]:
+        if command == "/memory" and not self._memory_backfill_enabled():
+            return []
         options = list(_INTERACTIVE_SLASH_SUBCOMMANDS.get(command, ()))
         if command == "/scene":
             options.extend(self._available_scene_names())
@@ -140,6 +161,8 @@ class _InteractiveSlashCompleter(Completer):
         return self._unique(options)
 
     def _third_token_options(self, command: str, subcommand: str) -> list[str]:
+        if command == "/memory" and subcommand == "backfill":
+            return ["preview", "confirm"] if self._memory_backfill_enabled() else []
         if command == "/skill" and subcommand == "supersede":
             return ["remove", "clear"]
         if command in {"/lang", "/language"} and subcommand == "set":
@@ -157,6 +180,31 @@ class _InteractiveSlashCompleter(Completer):
         if command == "/review":
             return ["staged"]
         return []
+
+    def _fourth_token_options(
+        self,
+        command: str,
+        subcommand: str,
+        action: str,
+    ) -> list[str]:
+        if (
+            command == "/memory"
+            and subcommand == "backfill"
+            and action == "preview"
+            and self._memory_backfill_enabled()
+        ):
+            return self._available_personas()
+        return []
+
+    @staticmethod
+    def _memory_backfill_enabled() -> bool:
+        enabled = _INTERACTIVE_COMPLETION_CONTEXT.shared_memory_backfill_enabled
+        if callable(enabled):
+            try:
+                return bool(enabled())
+            except Exception:
+                return False
+        return bool(enabled)
 
     def _available_languages(self) -> list[str]:
         from hahobot.agent.i18n import list_languages
@@ -232,11 +280,13 @@ def _set_interactive_completion_context(
     workspace: Path | None,
     session_manager: Any | None,
     current_session_id: str | None,
+    shared_memory_backfill_enabled: bool | Callable[[], bool] = False,
 ) -> None:
     """Bind workspace/session context used by interactive slash completion."""
     _INTERACTIVE_COMPLETION_CONTEXT.workspace = workspace
     _INTERACTIVE_COMPLETION_CONTEXT.session_manager = session_manager
     _INTERACTIVE_COMPLETION_CONTEXT.current_session_id = current_session_id
+    _INTERACTIVE_COMPLETION_CONTEXT.shared_memory_backfill_enabled = shared_memory_backfill_enabled
 
 
 def _update_interactive_completion_session(session_id: str) -> None:
@@ -250,6 +300,7 @@ def _clear_interactive_completion_context() -> None:
         workspace=None,
         session_manager=None,
         current_session_id=None,
+        shared_memory_backfill_enabled=False,
     )
 
 

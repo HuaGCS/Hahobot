@@ -11,6 +11,7 @@ from hahobot.agent.memory_metadata import (
     load_persona_memory_layer_status,
 )
 from hahobot.bus.events import InboundMessage, OutboundMessage
+from hahobot.command.catalog import SHARED_MEMORY_BACKFILL_CAPABILITY
 from hahobot.utils.helpers import build_status_content
 
 if TYPE_CHECKING:
@@ -39,14 +40,18 @@ class SystemCommandHandler:
         )
 
     def help(self, msg: InboundMessage, language: str) -> OutboundMessage:
+        capabilities = (
+            {SHARED_MEMORY_BACKFILL_CAPABILITY} if self.loop._memory_commands.available() else set()
+        )
         return self._response(
             msg,
-            "\n".join(help_lines(language)),
+            "\n".join(help_lines(language, capabilities=capabilities)),
             metadata={"render_as": "text"},
         )
 
     def new_session(self, msg: InboundMessage, session: Session, language: str) -> OutboundMessage:
         snapshot = session.messages[session.last_consolidated :]
+        self.loop.exec_approval_store.clear_session(session.key)
         session.clear()
         self.loop._clear_working_checkpoint(session)
         self.loop.sessions.save(session)

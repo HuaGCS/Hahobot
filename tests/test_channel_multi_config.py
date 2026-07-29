@@ -543,3 +543,39 @@ def test_channel_manager_skips_empty_multi_instance_channel(
 
     assert isinstance(config.channels.telegram, TelegramMultiConfig)
     assert manager.enabled_channels == []
+
+
+def test_channel_manager_hot_reload_updates_command_capabilities() -> None:
+    from hahobot.command.catalog import SHARED_MEMORY_BACKFILL_CAPABILITY
+
+    class _CapabilityChannel:
+        def __init__(self) -> None:
+            self.updates: list[set[str]] = []
+
+        def set_command_capabilities(self, capabilities: set[str]) -> None:
+            self.updates.append(set(capabilities))
+
+    manager = ChannelManager.__new__(ChannelManager)
+    channel = _CapabilityChannel()
+    manager.channels = {"telegram": channel}
+    manager.bus = MessageBus()
+    manager._dispatch_task = None
+
+    enabled = Config.model_validate(
+        {
+            "memory": {
+                "shared": {
+                    "enabled": True,
+                    "provider": "mem0",
+                    "baseUrl": "https://mem0.example.test",
+                    "userId": "shared-user",
+                    "writeEnabled": True,
+                }
+            }
+        }
+    )
+    manager.apply_runtime_config(enabled)
+    assert channel.updates == [{SHARED_MEMORY_BACKFILL_CAPABILITY}]
+
+    manager.apply_runtime_config(Config())
+    assert channel.updates[-1] == set()

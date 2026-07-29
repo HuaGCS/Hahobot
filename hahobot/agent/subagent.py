@@ -3,6 +3,7 @@
 import asyncio
 import json
 import uuid
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from loguru import logger
 from hahobot.agent.hook import AgentHook, AgentHookContext
 from hahobot.agent.runner import AgentRunner, AgentRunSpec
 from hahobot.agent.skills import BUILTIN_SKILLS_DIR
+from hahobot.agent.tools.exec_approval import ExecApprovalContext, ExecApprovalStore
 from hahobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from hahobot.agent.tools.notebook import NotebookEditTool
 from hahobot.agent.tools.policy import RuntimeToolPolicy
@@ -89,6 +91,7 @@ class SubagentManager:
         restrict_to_workspace: bool = False,
         disabled_skills: list[str] | None = None,
         model_roles: dict[str, str] | None = None,
+        approval_store: ExecApprovalStore | None = None,
     ):
         from hahobot.config.schema import ExecToolConfig
 
@@ -107,11 +110,13 @@ class SubagentManager:
         self.restrict_to_workspace = restrict_to_workspace
         self.disabled_skills = set(disabled_skills or [])
         self.model_roles = dict(model_roles or {})
+        self.approval_store = approval_store or ExecApprovalStore()
         self.runner = AgentRunner(provider)
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
         self._task_meta: dict[str, dict[str, str]] = {}
         self._injections: dict[str, list[str]] = {}
+        self._exec_tools: weakref.WeakSet[ExecTool] = weakref.WeakSet()
 
     def apply_runtime_config(
         self,
@@ -142,6 +147,14 @@ class SubagentManager:
         self.restrict_to_workspace = restrict_to_workspace
         self.disabled_skills = set(disabled_skills)
         self.model_roles = dict(model_roles or {})
+        for tool in list(self._exec_tools):
+            tool.working_dir = str(workspace)
+            tool.timeout = exec_config.timeout
+            tool.restrict_to_workspace = restrict_to_workspace
+            tool.sandbox = exec_config.sandbox
+            tool.path_append = exec_config.path_append
+            tool.allowed_env_keys = list(exec_config.allowed_env_keys)
+            tool.confirmation_mode = exec_config.confirmation_mode
 
     def resolve_model(self, hint: str | None) -> tuple[str, str | None]:
         """Resolve a spawn-time model hint into a concrete model identifier.
@@ -175,14 +188,35 @@ class SubagentManager:
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
+        sender_id: str = "user",
         model: str | None = None,
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
         task_id = str(uuid.uuid4())[:8]
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
-        origin = {"channel": origin_channel, "chat_id": origin_chat_id}
         normalized_mode = self._normalize_mode(mode)
         effective_session_key = session_key or f"{origin_channel}:{origin_chat_id}"
+        approval_context = self.approval_store.current_context()
+        if (
+            approval_context is None
+            or approval_context.session_key != effective_session_key
+            or approval_context.sender_id != sender_id
+            or approval_context.channel != origin_channel
+            or approval_context.chat_id != origin_chat_id
+        ):
+            approval_context = self.approval_store.make_context(
+                session_key=effective_session_key,
+                sender_id=sender_id,
+                channel=origin_channel,
+                chat_id=origin_chat_id,
+            )
+        origin = {
+            "channel": origin_channel,
+            "chat_id": origin_chat_id,
+            "session_key": effective_session_key,
+            "sender_id": sender_id,
+            "approval_context": approval_context,
+        }
         resolved_model, model_source = self.resolve_model(model)
         self._task_meta[task_id] = {
             "task_id": task_id,
@@ -191,6 +225,7 @@ class SubagentManager:
             "origin_channel": origin_channel,
             "origin_chat_id": origin_chat_id,
             "session_key": effective_session_key,
+            "sender_id": sender_id,
             "model": resolved_model,
             "model_source": model_source or "default",
         }
@@ -239,7 +274,7 @@ class SubagentManager:
         task: str,
         label: str,
         mode: str,
-        origin: dict[str, str],
+        origin: dict[str, Any],
         model: str | None = None,
     ) -> None:
         """Execute the subagent task and announce the result."""
@@ -253,7 +288,7 @@ class SubagentManager:
         )
 
         try:
-            tools = self._build_tools_for_mode(mode)
+            tools = self._build_tools_for_mode(mode, origin=origin)
             system_prompt = self._build_subagent_prompt(mode, task)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
@@ -311,7 +346,7 @@ class SubagentManager:
         label: str,
         task: str,
         result: str,
-        origin: dict[str, str],
+        origin: dict[str, Any],
         status: str,
     ) -> None:
         """Announce the subagent result to the main agent via the message bus."""
@@ -336,6 +371,7 @@ class SubagentManager:
                 "subagent_task_id": task_id,
                 "subagent_status": status,
                 "subagent_label": label,
+                "origin_sender_id": origin.get("sender_id") or "user",
             },
         )
 
@@ -372,7 +408,12 @@ class SubagentManager:
             return normalized
         return "implement"
 
-    def _build_tools_for_mode(self, mode: str) -> ToolRegistry:
+    def _build_tools_for_mode(
+        self,
+        mode: str,
+        *,
+        origin: dict[str, Any] | None = None,
+    ) -> ToolRegistry:
         """Build one subagent tool registry for the selected mode."""
         tools = ToolRegistry()
         from hahobot.config.schema import ImageGenConfig, WebSearchConfig, WebToolsConfig
@@ -415,16 +456,32 @@ class SubagentManager:
             tools.register(NotebookEditTool(workspace=self.workspace, allowed_dir=allowed_dir))
 
         if mode in {"implement", "verify"} and policy.exec().enabled:
-            tools.register(
-                ExecTool(
-                    working_dir=str(self.workspace),
-                    timeout=self.exec_config.timeout,
-                    restrict_to_workspace=self.restrict_to_workspace,
-                    sandbox=self.exec_config.sandbox,
-                    path_append=self.exec_config.path_append,
-                    allowed_env_keys=self.exec_config.allowed_env_keys,
-                )
+            exec_tool = ExecTool(
+                working_dir=str(self.workspace),
+                timeout=self.exec_config.timeout,
+                restrict_to_workspace=self.restrict_to_workspace,
+                sandbox=self.exec_config.sandbox,
+                path_append=self.exec_config.path_append,
+                allowed_env_keys=self.exec_config.allowed_env_keys,
+                confirmation_mode=self.exec_config.confirmation_mode,
+                approval_store=self.approval_store,
             )
+            if origin is not None:
+                origin_channel = origin.get("channel") or "cli"
+                origin_chat_id = origin.get("chat_id") or "direct"
+                approval_context = origin.get("approval_context")
+                if isinstance(approval_context, ExecApprovalContext):
+                    exec_tool.bind_approval_context(approval_context)
+                else:
+                    exec_tool.set_context(
+                        origin_channel,
+                        origin_chat_id,
+                        origin.get("session_key") or f"{origin_channel}:{origin_chat_id}",
+                        origin.get("sender_id") or "user",
+                        refresh=True,
+                    )
+            self._exec_tools.add(exec_tool)
+            tools.register(exec_tool)
 
         if policy.web().enabled:
             tools.register(

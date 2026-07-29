@@ -60,6 +60,7 @@ def test_apply_runtime_tool_config_updates_existing_tool_instances(tmp_path) -> 
             ),
             exec_config=ExecToolConfig(
                 enable=True,
+                confirmation_mode="always",
                 timeout=30,
                 sandbox="sandbox-a",
                 path_append="/opt/a",
@@ -73,6 +74,7 @@ def test_apply_runtime_tool_config_updates_existing_tool_instances(tmp_path) -> 
 
     loop.exec_config = ExecToolConfig(
         enable=True,
+        confirmation_mode="allow",
         timeout=45,
         sandbox="sandbox-b",
         path_append="/opt/b",
@@ -89,6 +91,8 @@ def test_apply_runtime_tool_config_updates_existing_tool_instances(tmp_path) -> 
     assert loop.tools.get("exec") is exec_tool
     assert exec_tool is not None
     assert exec_tool.timeout == 45
+    assert exec_tool.confirmation_mode == "allow"
+    assert exec_tool.approval_store is loop.exec_approval_store
     assert exec_tool.sandbox == "sandbox-b"
     assert exec_tool.path_append == "/opt/b"
     assert exec_tool.allowed_env_keys == ["GOPATH"]

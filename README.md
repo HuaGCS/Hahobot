@@ -553,6 +553,26 @@ hahobot memory shared backfill --dry-run
 hahobot memory shared backfill --dry-run --persona NAME --json
 ```
 
+When Mem0 is enabled, fully configured, and writable, the same review-first flow is available from
+`hahobot agent` and every gateway-backed chat channel:
+
+```text
+/memory backfill preview
+/memory backfill preview NAME
+/memory backfill confirm <token>
+```
+
+The command is hidden from dynamic help/completion while shared Mem0 writes are unavailable. A
+preview creates no Mem0 request or shared-delivery state; confirmation is bound to the same chat,
+sender, session, and exact plan for ten minutes. Any eligible candidate-content, candidate-metadata,
+or destination-routing change invalidates the token and requires a fresh preview. The preview also
+surfaces content-free privacy warnings that need human review.
+
+The authenticated Admin UI exposes the same two-step operation at `/admin/memory/shared`, linked
+from the Shared Memory (Mem0) config section: **Preview migration** first shows content-free public
+and persona-private counts/routes, then **Confirm sync** executes only that unchanged plan. The
+Admin and chat flows deliberately omit the CLI's expert-only `--force` resend switch.
+
 The preview performs no network requests and writes no delivery state. After reviewing the source,
 destination, and skipped-item report, remove `--dry-run` to enqueue and deliver the same plan. The
 backfill keeps durable content receipts, so rerunning it skips unchanged, already-delivered items;
@@ -718,6 +738,11 @@ Recent upstream nanobot syncs already included here:
   surfaces.
 - `tools.exec.allowedEnvKeys` lets you pass specific parent environment variables such as
   `JAVA_HOME` or `GOPATH` into shell tool subprocesses without exposing the whole parent env.
+- `tools.exec.confirmationMode` controls shell approval and defaults to `model`: `always` pauses
+  every command, `model` follows the model's per-command `requires_confirmation` risk decision
+  (missing decisions fail closed), and `allow` runs without an approval prompt. When paused, send
+  `/approve` for the next pending command or `/approve all` for the current pending queue; `all`
+  does not permanently change the configured mode.
 - Workspace-restricted shell commands also inspect assignment-form paths such as
   `--output=/tmp/result`, closing the whitespace-only path-check gap.
 - `agents.defaults.toolHintMaxLength` controls how much of each tool-call hint is shown when
@@ -869,6 +894,14 @@ The runtime can expose:
 Workspace restrictions for shell/file tools can be enforced through config.
 The shell tool can also forward a narrow allowlist of environment variables through
 `tools.exec.allowedEnvKeys`.
+Shell execution uses `tools.exec.confirmationMode: "model"` by default. Commands selected for
+review are held without spawning a process; `/approve` executes the next command for the same
+chat, session, and sender, while `/approve all` consumes only that origin's current pending queue.
+The approval prompt shows the exact escaped command and resolved working directory. Use
+`always` when every step needs confirmation or `allow` when this trusted instance may execute
+without prompts. Pending approvals are short-lived and process-local. Approval never bypasses the
+existing deny patterns, optional allowlist, SSRF checks, workspace boundary, timeout, or sandbox;
+all guards are checked again immediately before execution.
 `web_search` supports `brave`, `searxng`, and `duckduckgo`; DuckDuckGo needs no extra
 credentials and is executed exclusively so concurrent tool turns do not batch multiple
 DuckDuckGo searches together.

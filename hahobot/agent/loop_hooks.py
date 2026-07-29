@@ -105,6 +105,8 @@ class LoopRunHook(AgentHook):
         "_on_stream_end_accepts_merge_next",
         "_persona",
         "_prepare_request_messages",
+        "_sender_id",
+        "_session_key",
         "_set_tool_context",
         "_stream_buf",
         "_strip_think",
@@ -123,7 +125,10 @@ class LoopRunHook(AgentHook):
         visible_response_text: Callable[[str | None, str | None], str],
         strip_think: Callable[[str | None], str | None],
         tool_hint: Callable[[list], str],
-        set_tool_context: Callable[[str, str, str | None, str | None], None],
+        set_tool_context: Callable[
+            [str, str, str | None, str | None, str | None, str | None],
+            None,
+        ],
         filter_persona_response: Callable[[str | None, str | None], str | None],
         update_working_checkpoint: Callable[[AgentHookContext], None] | None = None,
         on_progress: Callable[..., Awaitable[None]] | None = None,
@@ -133,6 +138,8 @@ class LoopRunHook(AgentHook):
         chat_id: str = "direct",
         message_id: str | None = None,
         persona: str | None = None,
+        session_key: str | None = None,
+        sender_id: str | None = None,
     ) -> None:
         super().__init__(reraise=True)
         self._prepare_request_messages = prepare_request_messages
@@ -153,6 +160,8 @@ class LoopRunHook(AgentHook):
         self._chat_id = chat_id
         self._message_id = message_id
         self._persona = persona
+        self._session_key = session_key
+        self._sender_id = sender_id
         self._merge_in_progress = False
         self._stream_buf = ""
 
@@ -215,7 +224,14 @@ class LoopRunHook(AgentHook):
         for tc in context.tool_calls:
             args_str = json.dumps(tc.arguments, ensure_ascii=False)
             logger.info("Tool call: {}({})", tc.name, args_str[:200])
-        self._set_tool_context(self._channel, self._chat_id, self._message_id, self._persona)
+        self._set_tool_context(
+            self._channel,
+            self._chat_id,
+            self._message_id,
+            self._persona,
+            self._session_key,
+            self._sender_id,
+        )
 
     def normalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
         return self._strip_think(content)

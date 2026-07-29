@@ -1284,6 +1284,25 @@ def _render_config_section(
             _render_config_field(request, _CONFIG_FIELD_MAP[field_name], values[field_name])
             for field_name in field_names
         )
+    memory_backfill_entry = ""
+    if title_key == "admin_config_section_shared_memory_title":
+        ready = (
+            bool(values.get("memory_shared_enabled"))
+            and bool(values.get("memory_shared_write_enabled"))
+            and str(values.get("memory_shared_provider") or "") == "mem0"
+            and bool(str(values.get("memory_shared_base_url") or "").strip())
+            and bool(str(values.get("memory_shared_user_id") or "").strip())
+        )
+        if ready:
+            memory_backfill_entry = (
+                '<div class="field full stack">'
+                f"<strong>{escape(_t(request, 'admin_config_shared_memory_backfill_title'))}</strong>"
+                f'<div class="muted">{_th(request, "admin_config_shared_memory_backfill_desc")}</div>'
+                '<div class="actions">'
+                '<a class="nav-link active" href="/admin/memory/shared">'
+                f"{escape(_t(request, 'admin_config_shared_memory_backfill_open'))}</a>"
+                "</div></div>"
+            )
     return (
         f'<section id="{section_id}" class="card stack section-card">'
         '<div class="section-topline">'
@@ -1293,7 +1312,7 @@ def _render_config_section(
         "</div>"
         f'<span class="section-index">{index:02d}</span>'
         "</div>"
-        f'<div class="field-grid">{fields}</div>'
+        f'<div class="field-grid">{fields}{memory_backfill_entry}</div>'
         "</section>"
     )
 

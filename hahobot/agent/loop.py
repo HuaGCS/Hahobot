@@ -17,8 +17,10 @@ from hahobot.agent.background_runtime import BackgroundRuntimeManager
 from hahobot.agent.checkpoint_runtime import CheckpointRuntimeManager
 from hahobot.agent.command_runtime import CommandRuntimeManager
 from hahobot.agent.commands import (
+    ExecApprovalCommandHandler,
     LanguageCommandHandler,
     MCPCommandHandler,
+    MemoryCommandHandler,
     PersonaCommandHandler,
     PresetCommandHandler,
     SceneCommandHandler,
@@ -49,6 +51,7 @@ from hahobot.agent.session_runtime import SessionRuntimeManager
 from hahobot.agent.skills import BUILTIN_SKILLS_DIR
 from hahobot.agent.subagent import SubagentManager
 from hahobot.agent.tool_runtime import ToolRuntimeManager
+from hahobot.agent.tools.exec_approval import ExecApprovalStore
 from hahobot.agent.tools.policy import RuntimeToolPolicy
 from hahobot.agent.tools.registry import ToolRegistry
 from hahobot.agent.turn_data_runtime import TurnDataRuntimeManager
@@ -294,6 +297,8 @@ class AgentLoop:
         self._clawhub_lock = asyncio.Lock()
         self._clawhub_npm_cache_dir = self._CLAWHUB_NPM_CACHE_DIR / str(os.getpid())
         self._language_commands = LanguageCommandHandler(self)
+        self._exec_approval_commands = ExecApprovalCommandHandler(self)
+        self._memory_commands = MemoryCommandHandler(self)
         self._mcp_commands = MCPCommandHandler(self)
         self._persona_commands = PersonaCommandHandler(self)
         self._preset_commands = PresetCommandHandler(self)
@@ -326,6 +331,9 @@ class AgentLoop:
         self.sessions = session_manager or SessionManager(workspace)
         self.runner = AgentRunner(provider)
         self.tools = ToolRegistry()
+        self.exec_approval_store = ExecApprovalStore(
+            max_result_chars=self.max_tool_result_chars,
+        )
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
@@ -342,6 +350,7 @@ class AgentLoop:
             restrict_to_workspace=restrict_to_workspace,
             disabled_skills=self._disabled_skills,
             model_roles=dict(self.subagent_config.models),
+            approval_store=self.exec_approval_store,
         )
         self._tool_runtime = ToolRuntimeManager(
             loop=self,
@@ -712,9 +721,32 @@ class AgentLoop:
         message_id: str | None = None,
         persona: str | None = None,
         session_key: str | None = None,
+        sender_id: str | None = None,
+        refresh_exec_approval: bool = False,
     ) -> None:
         """Update context for all tools that need routing info."""
-        self._tool_runtime.set_context(channel, chat_id, message_id, persona, session_key)
+        self._tool_runtime.set_context(
+            channel,
+            chat_id,
+            message_id,
+            persona,
+            session_key,
+            sender_id,
+            refresh_exec_approval,
+        )
+
+    @staticmethod
+    def _exec_approval_sender_id(msg: InboundMessage) -> str:
+        """Preserve the originating user only for trusted subagent-result events."""
+        if (
+            msg.channel == "system"
+            and msg.sender_id == "subagent"
+            and msg.metadata.get("injected_event") == "subagent_result"
+        ):
+            origin = msg.metadata.get("origin_sender_id")
+            if isinstance(origin, str) and origin:
+                return origin
+        return msg.sender_id
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -786,6 +818,7 @@ class AgentLoop:
         chat_id: str = "direct",
         message_id: str | None = None,
         persona: str | None = None,
+        sender_id: str | None = None,
     ) -> tuple[str | None, list[str], list[dict], str]:
         """Run the agent iteration loop.
 
@@ -804,6 +837,7 @@ class AgentLoop:
             chat_id=chat_id,
             message_id=message_id,
             persona=persona,
+            sender_id=sender_id,
         )
 
     run = _delegate_async_method(

@@ -172,6 +172,8 @@ class ToolRuntimeManager:
             "sandbox": self.exec_config.sandbox,
             "path_append": self.exec_config.path_append,
             "allowed_env_keys": list(self.exec_config.allowed_env_keys),
+            "confirmation_mode": self.exec_config.confirmation_mode,
+            "approval_store": self.loop.exec_approval_store,
         }
 
     def _create_exec_tool(self) -> ExecTool:
@@ -352,6 +354,8 @@ class ToolRuntimeManager:
         message_id: str | None = None,
         persona: str | None = None,
         session_key: str | None = None,
+        sender_id: str | None = None,
+        refresh_exec_approval: bool = False,
     ) -> None:
         """Update context for tools that need routing or persona info."""
         for name in (
@@ -362,6 +366,7 @@ class ToolRuntimeManager:
             "history_expand",
             "history_timeline",
             "self_inspect",
+            "exec",
         ):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
@@ -370,10 +375,21 @@ class ToolRuntimeManager:
                     elif name in ("history_search", "history_expand", "history_timeline"):
                         tool.set_context(channel, chat_id, persona)
                     elif name == "spawn":
-                        if session_key is None:
-                            tool.set_context(channel, chat_id)
+                        if sender_id is None:
+                            if session_key is None:
+                                tool.set_context(channel, chat_id)
+                            else:
+                                tool.set_context(channel, chat_id, session_key)
                         else:
-                            tool.set_context(channel, chat_id, session_key)
+                            tool.set_context(channel, chat_id, session_key, sender_id)
+                    elif name == "exec":
+                        tool.set_context(
+                            channel,
+                            chat_id,
+                            session_key,
+                            sender_id,
+                            refresh=refresh_exec_approval,
+                        )
                     elif name == "self_inspect":
                         tool.set_context(channel, chat_id, session_key, persona)
                     else:

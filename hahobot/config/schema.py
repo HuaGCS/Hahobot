@@ -916,6 +916,7 @@ class ExecToolConfig(Base):
     """Shell exec tool configuration."""
 
     enable: bool = True
+    confirmation_mode: Literal["always", "model", "allow"] = "model"
     timeout: int = 60
     path_append: str = ""
     allowed_env_keys: list[str] = Field(default_factory=list)

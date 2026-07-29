@@ -163,6 +163,28 @@ def test_shared_memory_fields_are_registered_as_hot_reloadable() -> None:
     assert tuple(expected) == shared_section
 
 
+def test_exec_confirmation_mode_is_registered_as_hot_reloadable_select() -> None:
+    fields = {field.name: field for field in _CONFIG_FIELDS}
+    field = fields["tools_exec_confirmation_mode"]
+    assert field.path == ("tools", "exec", "confirmationMode")
+    assert field.kind == "select"
+    assert field.options == ("always", "model", "allow")
+    assert field.restart_required is False
+    assert field.hint_key is None
+
+    exec_section = next(
+        names
+        for title, _desc, names in _CONFIG_SECTIONS
+        if title == "admin_config_section_exec_title"
+    )
+    assert "tools_exec_confirmation_mode" in exec_section
+    assert (
+        exec_section.index("tools_exec_confirmation_mode")
+        == exec_section.index("tools_exec_enable") + 1
+    )
+    assert _config_form_values(Config())["tools_exec_confirmation_mode"] == "model"
+
+
 def test_validate_admin_config_specs_passes() -> None:
     # Must not raise for the shipped specs/locales (gateway startup guard).
     validate_admin_config_specs()

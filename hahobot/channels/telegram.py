@@ -6,6 +6,7 @@ import asyncio
 import re
 import time
 import unicodedata
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -339,7 +340,13 @@ class TelegramChannel(BaseChannel):
     def default_config(cls) -> dict[str, object]:
         return TelegramConfig().model_dump(by_alias=True)
 
-    def __init__(self, config: Any, bus: MessageBus):
+    def __init__(
+        self,
+        config: Any,
+        bus: MessageBus,
+        *,
+        command_capabilities: Collection[str] | None = None,
+    ):
         if isinstance(config, dict):
             config = TelegramConfig.model_validate(config)
         super().__init__(config, bus)
@@ -353,6 +360,9 @@ class TelegramChannel(BaseChannel):
         self._bot_user_id: int | None = None
         self._bot_username: str | None = None
         self._stream_bufs: dict[str, _StreamBuf] = {}  # chat_id -> streaming state
+        self._command_capabilities = frozenset(command_capabilities or ())
+        self._command_menu_registered = False
+        self._command_refresh_task: asyncio.Task[None] | None = None
 
     def is_allowed(self, sender_id: str) -> bool:
         """Preserve Telegram's legacy id|username allowlist matching."""
@@ -379,15 +389,69 @@ class TelegramChannel(BaseChannel):
         return normalize_telegram_command_text(content)
 
     @classmethod
-    def _build_bot_commands(cls, language: str) -> list[BotCommand]:
+    def _build_bot_commands(
+        cls,
+        language: str,
+        *,
+        capabilities: Collection[str] | None = None,
+    ) -> list[BotCommand]:
         """Build localized command menu entries."""
         labels = telegram_command_descriptions(language)
         commands = [BotCommand("start", labels["start"])]
         commands.extend(
             BotCommand(spec.telegram_name(), labels[spec.telegram_name()])
-            for spec in telegram_menu_specs()
+            for spec in telegram_menu_specs(capabilities=capabilities)
         )
         return commands
+
+    async def _register_bot_commands(self, capabilities: Collection[str]) -> bool:
+        """Register both localized command menus for one capability snapshot."""
+        if self._app is None:
+            return False
+        try:
+            await self._app.bot.set_my_commands(
+                self._build_bot_commands("en", capabilities=capabilities)
+            )
+            await self._app.bot.set_my_commands(
+                self._build_bot_commands("zh", capabilities=capabilities),
+                language_code="zh-hans",
+            )
+            self._command_menu_registered = True
+            logger.debug("Telegram bot commands registered")
+            return True
+        except Exception as e:
+            logger.warning("Failed to register bot commands: {}", e)
+            return False
+
+    def set_command_capabilities(self, capabilities: Collection[str]) -> None:
+        """Hot-reload optional help/menu entries without restarting Telegram."""
+        updated = frozenset(capabilities)
+        if updated == self._command_capabilities:
+            return
+        self._command_capabilities = updated
+        if not self._running or not self._command_menu_registered:
+            return
+        if self._command_refresh_task is None or self._command_refresh_task.done():
+            task = asyncio.create_task(self._refresh_command_menu())
+            self._command_refresh_task = task
+            task.add_done_callback(self._command_refresh_finished)
+
+    async def _refresh_command_menu(self) -> None:
+        """Keep refreshing until the registered menu matches the latest config."""
+        while self._running:
+            capabilities = self._command_capabilities
+            if not await self._register_bot_commands(capabilities):
+                return
+            if capabilities == self._command_capabilities:
+                return
+
+    def _command_refresh_finished(self, task: asyncio.Task[None]) -> None:
+        if self._command_refresh_task is task:
+            self._command_refresh_task = None
+        if task.cancelled():
+            return
+        if error := task.exception():
+            logger.warning("Failed to refresh Telegram command capabilities: {}", error)
 
     @staticmethod
     def _preferred_language(user) -> str:
@@ -464,14 +528,7 @@ class TelegramChannel(BaseChannel):
         self._bot_username = getattr(bot_info, "username", None)
         logger.info("Telegram bot @{} connected", bot_info.username)
 
-        try:
-            await self._app.bot.set_my_commands(self._build_bot_commands("en"))
-            await self._app.bot.set_my_commands(
-                self._build_bot_commands("zh"), language_code="zh-hans"
-            )
-            logger.debug("Telegram bot commands registered")
-        except Exception as e:
-            logger.warning("Failed to register bot commands: {}", e)
+        await self._register_bot_commands(self._command_capabilities)
 
         # Start polling (this runs until stopped)
         await self._app.updater.start_polling(
@@ -933,7 +990,9 @@ class TelegramChannel(BaseChannel):
         if not update.message or not update.effective_user:
             return
         language = self._preferred_language(update.effective_user)
-        await update.message.reply_text("\n".join(help_lines(language)))
+        await update.message.reply_text(
+            "\n".join(help_lines(language, capabilities=self._command_capabilities))
+        )
 
     @staticmethod
     def _sender_id(user) -> str:

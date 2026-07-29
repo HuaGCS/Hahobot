@@ -28,6 +28,16 @@ _RESTART_NOTICE_START_TIMEOUT_S = 30.0
 _RESTART_NOTICE_START_POLL_S = 0.25
 
 
+def _runtime_command_capabilities(config: Config) -> set[str]:
+    """Return optional chat-command capabilities for the current runtime config."""
+    from hahobot.agent.commands.memory import shared_memory_backfill_available
+    from hahobot.command.catalog import SHARED_MEMORY_BACKFILL_CAPABILITY
+
+    if shared_memory_backfill_available(config.memory.shared):
+        return {SHARED_MEMORY_BACKFILL_CAPABILITY}
+    return set()
+
+
 class ChannelManager:
     """
     Manages chat channels and coordinates message routing.
@@ -152,6 +162,8 @@ class ChannelManager:
             kwargs["restrict_to_workspace"] = bool(getattr(tools, "restrict_to_workspace", False))
         if "workspace" in params:
             kwargs["workspace"] = getattr(self.config, "workspace_path", None)
+        if "command_capabilities" in params:
+            kwargs["command_capabilities"] = _runtime_command_capabilities(self.config)
 
         return cls(section, self.bus, **kwargs)
 
@@ -171,6 +183,7 @@ class ChannelManager:
         transcription_provider = config.channels.transcription_provider
         transcription_key = self._resolve_transcription_key(transcription_provider)
         transcription_language = config.channels.transcription_language
+        command_capabilities = _runtime_command_capabilities(config)
         for channel in self.channels.values():
             if hasattr(channel, "_workspace"):
                 channel._workspace = Path(workspace).expanduser()
@@ -182,6 +195,8 @@ class ChannelManager:
                 api_key=transcription_key,
                 language=transcription_language,
             )
+            if update_capabilities := getattr(channel, "set_command_capabilities", None):
+                update_capabilities(command_capabilities)
 
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
         """Start a channel and log any exceptions."""

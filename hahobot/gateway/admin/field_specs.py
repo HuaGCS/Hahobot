@@ -791,6 +791,13 @@ _CONFIG_FIELDS = (
         "admin_config_exec_enable_label",
     ),
     ConfigFieldSpec(
+        "tools_exec_confirmation_mode",
+        ("tools", "exec", "confirmationMode"),
+        "select",
+        "admin_config_exec_confirmation_mode_label",
+        options=("always", "model", "allow"),
+    ),
+    ConfigFieldSpec(
         "tools_exec_timeout",
         ("tools", "exec", "timeout"),
         "int",
@@ -1573,6 +1580,7 @@ _CONFIG_SECTIONS = (
         "admin_config_section_exec_desc",
         (
             "tools_exec_enable",
+            "tools_exec_confirmation_mode",
             "tools_exec_timeout",
             "tools_exec_path_append",
             "tools_exec_allowed_env_keys",

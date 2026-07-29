@@ -1,7 +1,9 @@
 """Command handlers for AgentLoop slash commands."""
 
+from hahobot.agent.commands.approval import ExecApprovalCommandHandler
 from hahobot.agent.commands.language import LanguageCommandHandler
 from hahobot.agent.commands.mcp import MCPCommandHandler
+from hahobot.agent.commands.memory import MemoryCommandHandler
 from hahobot.agent.commands.persona import PersonaCommandHandler
 from hahobot.agent.commands.preset import PresetCommandHandler
 from hahobot.agent.commands.router import build_agent_command_router
@@ -12,7 +14,9 @@ from hahobot.agent.commands.system import SystemCommandHandler
 from hahobot.agent.commands.workspace import WorkspaceCommandHandler
 
 __all__ = [
+    "ExecApprovalCommandHandler",
     "LanguageCommandHandler",
+    "MemoryCommandHandler",
     "MCPCommandHandler",
     "PersonaCommandHandler",
     "PresetCommandHandler",

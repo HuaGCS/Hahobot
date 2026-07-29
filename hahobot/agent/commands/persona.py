@@ -75,6 +75,7 @@ class PersonaCommandHandler:
                 self._archive_outgoing(outgoing, msg, persona=current, language=language)
             )
 
+        self.loop.exec_approval_store.clear_session(session.key)
         session.clear()
         self.loop._set_session_persona(session, target)
         self.loop.sessions.save(session)

@@ -1,0 +1,162 @@
+{% extends "gateway/admin/base.html" %}
+{% block page_body %}
+<div class="section-layout">
+  <aside class="sticky-stack">
+    <div class="card stack spotlight">
+      <span class="eyebrow">{{ memory_nav_label }}</span>
+      <h2 class="panel-title">{{ heading_text }}</h2>
+      <p class="muted">{{ intro }}</p>
+      <div class="badge-row">
+        <span class="pill{% if ready %} hot{% else %} restart{% endif %}">{{ ready_label }}</span>
+      </div>
+    </div>
+    <div class="card stack">
+      <div class="stat-card">
+        <span>{{ workspace_label }}</span>
+        <strong><code>{{ workspace_path }}</code></strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ public_user_label }}</span>
+        <strong><code>{{ public_user_id }}</code></strong>
+      </div>
+      <div class="stat-card">
+        <span>{{ persona_mode_label }}</span>
+        <strong>{{ persona_mode_text }}</strong>
+      </div>
+      <a class="nav-link active" href="/admin/config#section-shared_memory">{{ configure_label }}</a>
+    </div>
+  </aside>
+
+  <div class="stack">
+    <section class="card stack">
+      <div class="section-head">
+        <h2>{{ selection_title }}</h2>
+        <div class="muted">{{ selection_desc }}</div>
+      </div>
+      {% if ready %}
+      <form method="post" action="/admin/memory/shared/preview" class="stack">
+        <input type="hidden" name="form_token" value="{{ preview_token }}">
+        <label class="field">
+          <span class="label">{{ persona_label }}</span>
+          <select name="persona">
+            <option value=""{% if not selected_persona %} selected{% endif %}>{{ all_personas_label }}</option>
+            {% for persona in personas %}
+            <option value="{{ persona }}"{% if selected_persona == persona %} selected{% endif %}>{{ persona }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="actions">
+          <button type="submit">{{ preview_label }}</button>
+        </div>
+      </form>
+      {% else %}
+      <div class="notice error">{{ ready_label }}</div>
+      {% endif %}
+    </section>
+
+    {% if preview %}
+    <section class="card stack">
+      <div class="section-head">
+        <h2>{{ preview_title }}</h2>
+        <div class="muted">{{ preview_desc }}</div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><span>{{ files_scanned_label }}</span><strong>{{ preview.totals.files_scanned }}</strong></div>
+        <div class="stat-card"><span>{{ files_missing_label }}</span><strong>{{ preview.totals.files_missing }}</strong></div>
+        <div class="stat-card"><span>{{ candidate_writes_label }}</span><strong>{{ preview.totals.candidate_writes }}</strong></div>
+        <div class="stat-card"><span>{{ candidate_chars_label }}</span><strong>{{ preview.totals.candidate_chars }}</strong></div>
+        <div class="stat-card"><span>{{ public_writes_label }}</span><strong>{{ preview.totals.public_writes }}</strong></div>
+        <div class="stat-card"><span>{{ private_writes_label }}</span><strong>{{ preview.totals.persona_private_writes }}</strong></div>
+        <div class="stat-card"><span>{{ skipped_label }}</span><strong>{{ preview.totals.skipped }}</strong></div>
+      </div>
+
+      {% if preview.warnings %}
+      <div class="stack">
+        <strong>{{ warnings_title }}</strong>
+        {% for warning in preview.warnings %}
+        <div class="notice error">{{ warning }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if preview.routes %}
+      <div class="stack">
+        <strong>{{ routes_title }}</strong>
+        <div class="admin-list">
+          {% for route in preview.routes %}
+          <div class="list-card">
+            <div class="list-card-summary">
+              <div class="list-card-copy">
+                <strong>{{ route.persona }} · {{ route.layer }}</strong>
+                <div class="muted"><code>{{ route.source_file }}</code></div>
+                <div class="muted"><code>{{ route.user_id }}</code></div>
+              </div>
+              <div class="badge-row">
+                <span class="pill hot">{{ route_writes_label }}: {{ route.writes }}</span>
+                <span class="pill">{{ route_chars_label }}: {{ route.chars }}</span>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <div class="muted">{{ no_candidates_label }}</div>
+      {% endif %}
+
+      {% if preview.skipped %}
+      <details class="card stack">
+        <summary>{{ skipped_title }} ({{ preview.skipped|length }})</summary>
+        <div class="admin-list">
+          {% for item in preview.skipped %}
+          <div class="list-card">
+            <div class="list-card-summary">
+              <div class="list-card-copy">
+                <strong>{{ item.persona }}</strong>
+                <div class="muted"><code>{{ item.source_file }}</code></div>
+              </div>
+              <span class="pill">{{ item.reason }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+
+      {% if allow_apply %}
+      <form method="post" action="/admin/memory/shared/apply" class="actions" data-confirm="{{ apply_confirm }}">
+        <input type="hidden" name="form_token" value="{{ apply_token }}">
+        <input type="hidden" name="persona" value="{{ selected_persona }}">
+        <input type="hidden" name="plan_fingerprint" value="{{ plan_fingerprint }}">
+        <button type="submit">{{ apply_label }}</button>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if result %}
+    <section class="card stack">
+      <div class="section-head">
+        <h2>{{ result_title }}</h2>
+        <div class="notice success">{{ result.message }}</div>
+      </div>
+      {% if result.statuses %}
+      <strong>{{ delivery_title }}</strong>
+      <div class="stat-grid">
+        {% for row in result.statuses %}
+        <div class="stat-card"><span>{{ row.status }}</span><strong>{{ row.count }}</strong></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+  </div>
+</div>
+<script>
+document.querySelectorAll("form[data-confirm]").forEach((form) => {
+  form.addEventListener("submit", (event) => {
+    if (!window.confirm(form.dataset.confirm || "")) event.preventDefault();
+  });
+});
+</script>
+{% endblock %}

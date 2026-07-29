@@ -14,6 +14,7 @@ from hahobot.agent.memory_shared_backfill import (
     SharedMemoryBackfillItem,
     build_shared_memory_backfill_plan,
     execute_shared_memory_backfill,
+    shared_memory_backfill_plan_fingerprint,
 )
 from hahobot.config.schema import SharedMemoryConfig
 
@@ -43,6 +44,42 @@ def _write(path: Path, text: str) -> None:
 def _contents(items: list[SharedMemoryBackfillItem], *, layer: str | None = None) -> str:
     selected = items if layer is None else [item for item in items if item.layer == layer]
     return "\n".join(item.content for item in selected)
+
+
+def test_plan_fingerprint_tracks_content_and_routing_but_not_api_key(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    _write(workspace / "PROFILE.md", "stable-profile-fact")
+    config = _config()
+    plan = build_shared_memory_backfill_plan(workspace, config)
+    baseline = shared_memory_backfill_plan_fingerprint(plan, config)
+
+    rotated_key = _config(apiKey="rotated-secret")
+    assert shared_memory_backfill_plan_fingerprint(plan, rotated_key) == baseline
+
+    different_service = _config(baseUrl="https://other-mem0.internal:8888")
+    assert shared_memory_backfill_plan_fingerprint(plan, different_service) != baseline
+
+    _write(workspace / "PROFILE.md", "changed-profile-fact")
+    changed_plan = build_shared_memory_backfill_plan(workspace, config)
+    assert shared_memory_backfill_plan_fingerprint(changed_plan, config) != baseline
+
+
+def test_plan_fingerprint_tracks_outgoing_fragment_metadata(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    memory_file = workspace / "memory" / "MEMORY.md"
+    _write(memory_file, "legacy fragment without a structured header")
+    config = _config()
+    os.utime(memory_file, (1_700_000_000, 1_700_000_000))
+    first = build_shared_memory_backfill_plan(workspace, config)
+
+    os.utime(memory_file, (1_700_003_600, 1_700_003_600))
+    second = build_shared_memory_backfill_plan(workspace, config)
+
+    assert first.items[0].event_id == second.items[0].event_id
+    assert first.items[0].metadata != second.items[0].metadata
+    assert shared_memory_backfill_plan_fingerprint(
+        first, config
+    ) != shared_memory_backfill_plan_fingerprint(second, config)
 
 
 def test_plan_routes_root_and_custom_memory_to_conservative_namespaces(

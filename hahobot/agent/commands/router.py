@@ -67,6 +67,14 @@ async def _cmd_mcp(ctx: CommandContext):
     return await ctx.loop._handle_mcp_command(ctx.msg, _session(ctx))
 
 
+async def _cmd_memory(ctx: CommandContext):
+    return await ctx.loop._memory_commands.handle(ctx.msg, _session(ctx))
+
+
+async def _cmd_approve(ctx: CommandContext):
+    return await ctx.loop._exec_approval_commands.handle(ctx.msg, _session(ctx))
+
+
 async def _cmd_session(ctx: CommandContext):
     return await ctx.loop._workspace_commands.session(ctx.msg, _session(ctx), ctx.args)
 
@@ -105,6 +113,8 @@ def build_agent_command_router() -> CommandRouter:
         "/scene": _cmd_scene,
         "/skill": _cmd_skill,
         "/mcp": _cmd_mcp,
+        "/memory": _cmd_memory,
+        "/approve": _cmd_approve,
         "/stop": _cmd_stop_priority,
         "/restart": _cmd_restart_priority,
         "/update": cmd_update,

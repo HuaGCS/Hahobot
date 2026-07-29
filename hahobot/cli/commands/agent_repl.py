@@ -194,10 +194,14 @@ def agent(
         # Interactive mode — route through bus like other channels
         from hahobot.bus.events import InboundMessage
 
+        memory_commands = getattr(agent_loop, "_memory_commands", None)
         _set_interactive_completion_context(
             workspace=config.workspace_path,
             session_manager=session_manager,
             current_session_id=session_id,
+            shared_memory_backfill_enabled=(
+                memory_commands.available if memory_commands is not None else False
+            ),
         )
         _init_prompt_session()
         console.print(

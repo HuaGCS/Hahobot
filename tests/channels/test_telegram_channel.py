@@ -855,6 +855,49 @@ def test_build_bot_commands_includes_mcp() -> None:
     assert descriptions["mcp"] == "List MCP servers and tools"
 
 
+def test_build_bot_commands_gates_memory_backfill_by_runtime_capability() -> None:
+    from hahobot.command.catalog import SHARED_MEMORY_BACKFILL_CAPABILITY
+
+    disabled = {
+        command.command for command in TelegramChannel._build_bot_commands("en", capabilities=set())
+    }
+    enabled = {
+        command.command
+        for command in TelegramChannel._build_bot_commands(
+            "en",
+            capabilities={SHARED_MEMORY_BACKFILL_CAPABILITY},
+        )
+    }
+
+    assert "memory" not in disabled
+    assert "memory" in enabled
+
+
+@pytest.mark.asyncio
+async def test_command_capabilities_hot_reload_refreshes_native_menu() -> None:
+    from hahobot.command.catalog import SHARED_MEMORY_BACKFILL_CAPABILITY
+
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._running = True
+    channel._command_menu_registered = True
+
+    channel.set_command_capabilities({SHARED_MEMORY_BACKFILL_CAPABILITY})
+    refresh = channel._command_refresh_task
+    assert refresh is not None
+    await refresh
+    assert "memory" in {command.command for command in channel._app.bot.commands}
+
+    channel.set_command_capabilities(set())
+    refresh = channel._command_refresh_task
+    assert refresh is not None
+    await refresh
+    assert "memory" not in {command.command for command in channel._app.bot.commands}
+
+
 @pytest.mark.asyncio
 async def test_send_progress_keeps_message_in_topic() -> None:
     config = TelegramConfig(enabled=True, token="123:abc", allow_from=["*"])

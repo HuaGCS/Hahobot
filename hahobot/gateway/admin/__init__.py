@@ -37,6 +37,11 @@ from hahobot.gateway.admin.dashboard import (
     _admin_skill_proposal_reject,
     _admin_skills_page,
 )
+from hahobot.gateway.admin.memory import (
+    _admin_shared_memory_apply,
+    _admin_shared_memory_page,
+    _admin_shared_memory_preview,
+)
 from hahobot.gateway.admin.personas import (
     _admin_persona_create,
     _admin_persona_migrate_user,
@@ -98,6 +103,9 @@ def register_admin_routes(
     app.router.add_post("/admin/config", _admin_config_submit)
     app.router.add_post("/admin/restart", _admin_restart_current)
     app.router.add_post("/admin/memory/migrate-legacy", _admin_memory_migrate_legacy)
+    app.router.add_get("/admin/memory/shared", _admin_shared_memory_page)
+    app.router.add_post("/admin/memory/shared/preview", _admin_shared_memory_preview)
+    app.router.add_post("/admin/memory/shared/apply", _admin_shared_memory_apply)
     app.router.add_get("/admin/sessions", _admin_sessions_page)
     app.router.add_get("/admin/skills", _admin_skills_page)
     app.router.add_post(

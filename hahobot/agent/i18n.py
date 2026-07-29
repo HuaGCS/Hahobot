@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Collection
 from functools import lru_cache
 from importlib.resources import files as pkg_files
 from typing import Any
@@ -71,11 +72,15 @@ def text(language: Any, key: str, **kwargs: Any) -> str:
     return template.format(**kwargs)
 
 
-def help_lines(language: Any) -> list[str]:
+def help_lines(
+    language: Any,
+    *,
+    capabilities: Collection[str] | None = None,
+) -> list[str]:
     """Return localized slash-command help lines."""
     active = resolve_language(language)
     lines = [text(active, "help_header")]
-    for spec in help_command_specs():
+    for spec in help_command_specs(capabilities=capabilities):
         lines.extend(text(active, key) for key in spec.description_keys)
     return lines
 

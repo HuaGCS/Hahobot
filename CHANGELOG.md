@@ -13,6 +13,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Durable migration receipts:** queue every candidate before delivery, retain
   offline work in the existing SQLite outbox, and skip unchanged acknowledged
   content on ordinary reruns.
+- **Review-first migration surfaces:** expose the same backfill through a
+  configuration-gated `/memory backfill preview|confirm` chat command and an
+  authenticated Admin “Preview migration → Confirm sync” page. Confirmations
+  are short-lived and invalidated when eligible candidate data or Mem0 routing changes.
+- **Shell execution approval:** add hot-reloadable `always`, `model` (default),
+  and `allow` confirmation modes, with chat/session/sender-scoped `/approve` and
+  `/approve all` commands for short-lived pending exec requests. Approval never
+  bypasses the existing command, network, workspace, or sandbox guards.
 
 ### Security
 - **Conservative memory routing:** send only the default user profile to the

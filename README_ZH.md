@@ -1341,6 +1341,24 @@ hahobot memory shared backfill --dry-run
 hahobot memory shared backfill --dry-run --persona NAME --json
 ```
 
+当 Mem0 已开启、配置完整且允许写入时，`hahobot agent` 和 gateway 接入的各聊天渠道也会提供同一套
+“先预览、再确认”流程：
+
+```text
+/memory backfill preview
+/memory backfill preview NAME
+/memory backfill confirm <token>
+```
+
+共享 Mem0 不可写时，动态帮助和命令补全不会显示该命令。预览不会请求 Mem0，也不会写共享交付状态；
+确认 token 的有效期为 10 分钟，并绑定原聊天、发送者、session 和完整迁移计划。只要符合迁移条件的候选内容、
+候选 metadata 或 Mem0 目标路由发生变化，旧 token 就会失效，必须重新预览。预览还会显示不含记忆正文的
+隐私警告，供人工检查。
+
+已认证的 Admin 页面也可从“共享记忆（Mem0）”配置分区进入 `/admin/memory/shared`：先点
+**预览迁移**，查看不含记忆正文的公共/人格私有数量与路由，再点 **确认同步** 执行完全相同的计划。
+Admin 和聊天入口均不暴露 CLI 专家入口专用的 `--force` 强制重传选项。
+
 预览不会发出网络请求，也不会写入交付状态。检查报告中的来源、目标命名空间和跳过项后，去掉
 `--dry-run` 即可按同一计划入队并发送。backfill 会保存持久内容回执，重复运行时会跳过内容未变化且
 已经交付的条目；只有显式加 `--force` 才会重传。Mem0 离线时，已接受的条目会留在现有持久 outbox
@@ -1399,10 +1417,19 @@ NAS 场景建议通过 Tailscale 私网地址配合 HTTPS 暴露服务（或使�
 |--------|--------|------|
 | `tools.restrictToWorkspace` | `false` | 把 shell、读写文件、列目录等工具限制在 workspace 内 |
 | `tools.exec.enable` | `true` | 关闭后不注册 shell 工具 |
+| `tools.exec.confirmationMode` | `"model"` | shell 确认策略：`always` 每步确认、`model` 由模型逐条判断、`allow` 全部允许 |
 | `tools.exec.pathAppend` | `""` | 给 shell 额外追加 PATH |
 | `tools.exec.allowedEnvKeys` | `[]` | 显式透传给 shell 子进程的环境变量名列表 |
 | `tools.imageGen.enabled` | `false` | 开启内置 `image_gen` |
 | `channels.*.allowFrom` | `[]` | 白名单，空数组默认拒绝所有 |
+
+`confirmationMode: "model"` 是默认档位：exec 工具会要求模型为每条命令声明
+`requires_confirmation`，缺失时按“需要确认”处理。命令暂停后不会启动任何进程；在同一聊天中输入
+`/approve` 可同意当前发送者的下一条待执行命令，输入 `/approve all` 可一次同意当前待处理队列。
+这里的 `all` 只消费本次队列，不会永久改成“全部允许”；若要长期免确认，应显式把配置改为 `allow`。
+审批提示会显示转义后的完整命令和解析后的工作目录；审批还会严格绑定原 channel、chat、session 和发送者。
+待确认项只在当前进程内短期保存，重启后失效。无论选择哪一档，确认都不会绕过危险命令规则、可选
+allowlist、SSRF 检查、workspace 边界、超时或 sandbox；真正执行前会再次检查全部安全规则。
 
 ### Admin 页面
 
@@ -1472,7 +1499,7 @@ NAS 场景建议通过 Tailscale 私网地址配合 HTTPS 暴露服务（或使�
 - 可视化编辑常见单实例 channel 凭据块，例如 `whatsapp`、`telegram`、`discord`、`feishu`、`dingtalk`、`slack`、`qq`、`matrix`、`weixin`、`wecom`；若某个 channel 已使用 `instances` 多实例结构，这里会只读提示，仍需在高级 JSON 中维护
 - Telegram / Discord 单实例卡片同时覆盖常用附加项，例如 `channels.telegram.streamEditInterval`，以及 Discord 的 `streaming`、`readReceiptEmoji`、`workingEmoji`、`workingEmojiDelay`、`proxy`、`proxyUsername`、`proxyPassword`
 - admin 内置专门的 Weixin 扫码登录页，可直接为当前实例申请并轮询个人微信登录二维码；扫码成功后，token 会保存到当前实例的 Weixin 状态文件
-- 可视化编辑 `tools.exec`，用于控制 shell 命令执行、超时时间、额外 PATH、`allowedEnvKeys` 和可选 `sandbox`
+- 可视化编辑 `tools.exec`，用于控制 shell 命令执行、三档 `confirmationMode`、超时时间、额外 PATH、`allowedEnvKeys` 和可选 `sandbox`
 - 可视化编辑渠道运行时分区和工具提示长度，例如 `channels.sendProgress`、`channels.sendToolHints`、`channels.sendMaxRetries`、`channels.transcriptionProvider`、`agents.defaults.toolHintMaxLength` 和 `channels.voiceReply.*`
 - 可视化编辑专门的 `Memorix MCP` 分区，对应 `tools.mcpServers.memorix`
 - 可视化编辑 `用户记忆` 分区,对应 `memory.user.backend` 和 `memory.user.sqlite.{topK,maxContextChars,maxFragmentChars}`

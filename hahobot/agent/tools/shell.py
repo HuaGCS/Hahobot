@@ -11,8 +11,18 @@ from typing import Any
 from loguru import logger
 
 from hahobot.agent.tools.base import Tool, tool_parameters
+from hahobot.agent.tools.exec_approval import (
+    ExecApprovalContext,
+    ExecApprovalStore,
+    PendingExecRequest,
+)
 from hahobot.agent.tools.sandbox import wrap_command
-from hahobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
+from hahobot.agent.tools.schema import (
+    BooleanSchema,
+    IntegerSchema,
+    StringSchema,
+    tool_parameters_schema,
+)
 from hahobot.config.paths import get_media_dir
 
 _IS_WINDOWS = sys.platform == "win32"
@@ -45,6 +55,15 @@ def _reap_pid(pid: int) -> None:
             minimum=1,
             maximum=600,
         ),
+        requires_confirmation=BooleanSchema(
+            description=(
+                "Whether this command needs explicit user approval. In the default model "
+                "confirmation mode, set true for commands that mutate important state, "
+                "affect external systems, install software, or otherwise merit review; set "
+                "false only for clearly safe commands. Omitting this field fails closed and "
+                "requires approval."
+            )
+        ),
         required=["command"],
     )
 )
@@ -61,6 +80,11 @@ class ExecTool(Tool):
         sandbox: str = "",
         path_append: str = "",
         allowed_env_keys: list[str] | None = None,
+        # Runtime factories always pass ExecToolConfig.confirmation_mode (default:
+        # model). Keep raw construction backward-compatible for SDK/tests that do
+        # not have a chat context in which an approval could be consumed.
+        confirmation_mode: str = "allow",
+        approval_store: ExecApprovalStore | None = None,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
@@ -80,6 +104,40 @@ class ExecTool(Tool):
         self.restrict_to_workspace = restrict_to_workspace
         self.path_append = path_append
         self.allowed_env_keys = allowed_env_keys or []
+        self.confirmation_mode = confirmation_mode
+        self.approval_store = approval_store or ExecApprovalStore()
+
+    def set_context(
+        self,
+        channel: str,
+        chat_id: str,
+        session_key: str | None = None,
+        sender_id: str | None = None,
+        *,
+        refresh: bool = False,
+    ) -> None:
+        """Bind approval routing to the current async task via ContextVar."""
+        normalized_session = session_key or f"{channel}:{chat_id}"
+        existing = self.approval_store.current_context()
+        if (
+            not refresh
+            and existing is not None
+            and existing.session_key == normalized_session
+            and existing.sender_id == (sender_id or "")
+            and existing.channel == channel
+            and existing.chat_id == chat_id
+        ):
+            return
+        self.approval_store.set_context(
+            session_key=normalized_session,
+            sender_id=sender_id or "",
+            channel=channel,
+            chat_id=chat_id,
+        )
+
+    def bind_approval_context(self, context: ExecApprovalContext) -> None:
+        """Bind a turn generation captured before a background task was spawned."""
+        self.approval_store.bind_context(context)
 
     @property
     def name(self) -> str:
@@ -102,23 +160,150 @@ class ExecTool(Tool):
     def exclusive(self) -> bool:
         return True
 
+    def cast_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Keep malformed model approval judgments fail-closed through validation.
+
+        The generic tool caster intentionally accepts common string spellings for
+        booleans. That convenience is unsafe for this one field: a model-provided
+        ``"false"`` must not become the exact boolean ``False`` that authorizes
+        execution in model mode. Normalize every present non-boolean judgment to
+        ``True`` before the usual casts and schema validation.
+        """
+        guarded = dict(params)
+        if "requires_confirmation" in guarded and not isinstance(
+            guarded["requires_confirmation"], bool
+        ):
+            guarded["requires_confirmation"] = True
+        return super().cast_params(guarded)
+
     async def execute(
         self,
         command: str,
         working_dir: str | None = None,
         timeout: int | None = None,
+        requires_confirmation: bool | None = None,
         **kwargs: Any,
     ) -> str:
-        cwd = working_dir or self.working_dir or os.getcwd()
+        cwd = str(Path(working_dir or self.working_dir or os.getcwd()).expanduser().resolve())
+        safety_error = await self._safety_error(command, cwd)
+        if safety_error:
+            return safety_error
+
+        if self._needs_confirmation(requires_confirmation):
+            context = self.approval_store.current_context()
+            if context is None:
+                return (
+                    "Error: Command requires confirmation, but no session/sender context is "
+                    "available; no process was started"
+                )
+            if not self.approval_store.context_is_current(context):
+                return (
+                    "Error: This command belongs to a session state that was reset; "
+                    "no process was started"
+                )
+            if not self.approval_store.command_is_presentable(command):
+                return (
+                    "Error: Command requires confirmation but is too long to present safely "
+                    f"({len(command)} raw characters); no process was started"
+                )
+            request = self.approval_store.enqueue(
+                command=command,
+                working_dir=cwd,
+                timeout=timeout,
+                context=context,
+            )
+            if request is None:
+                if not self.approval_store.context_is_current(context):
+                    return (
+                        "Error: This command belongs to a session state that was reset; "
+                        "no process was started"
+                    )
+                return (
+                    "Error: The pending exec approval queue is full; "
+                    "no process was started. Ask the user to run /approve, /approve all, or /new "
+                    "before retrying."
+                )
+            confirmation = self._confirmation_required(request)
+            if len(confirmation) > self.approval_store.max_result_chars:
+                self.approval_store.discard(request.request_id)
+                return (
+                    "Error: Command requires confirmation but its exact approval preview exceeds "
+                    "the configured tool-result budget; no process was started"
+                )
+            return confirmation
+
+        return await self._execute_after_safety(command, cwd=cwd, timeout=timeout)
+
+    async def execute_approved(self, request: PendingExecRequest) -> str:
+        """Execute one consumed approval after re-running every current guard."""
+        if not self.approval_store.context_is_current(request.context):
+            return "Error: Approved command was invalidated by a session reset"
+        safety_error = await self._safety_error(request.command, request.working_dir)
+        if safety_error:
+            return safety_error
+        if not self.approval_store.context_is_current(request.context):
+            return "Error: Approved command was invalidated by a session reset"
+        return await self._execute_after_safety(
+            request.command,
+            cwd=request.working_dir,
+            timeout=request.timeout,
+        )
+
+    def _needs_confirmation(self, requires_confirmation: bool | None) -> bool:
+        mode = str(self.confirmation_mode or "model").strip().lower()
+        if mode == "allow":
+            return False
+        if mode == "always":
+            return True
+        # Unknown modes and omitted/non-boolean model judgments fail closed.
+        return requires_confirmation is not False
+
+    @staticmethod
+    def _confirmation_required(request: PendingExecRequest) -> str:
+        return (
+            "Confirmation required; no process was started.\n"
+            "Ask the user to run /approve to execute the oldest pending command for this "
+            "session, or /approve all to execute all commands currently pending for them. "
+            "Approval is one-shot and does not change tools.exec.confirmationMode.\n"
+            f"Pending exec request: {request.request_id}\n"
+            f"Command (exact JSON string): {request.command_preview}\n"
+            f"Working directory (exact JSON string): {request.working_dir_preview}"
+        )
+
+    async def _safety_error(self, command: str, cwd: str) -> str | None:
         guard_error = self._guard_command(command, cwd)
         if guard_error:
             return guard_error
+
+        cwd_error = self._guard_working_dir(cwd)
+        if cwd_error:
+            return cwd_error
 
         from hahobot.security.network import contains_internal_url
 
         if await contains_internal_url(command.strip()):
             return "Error: Command blocked by safety guard (internal/private URL detected)"
+        return None
 
+    def _guard_working_dir(self, cwd: str) -> str | None:
+        if not self.restrict_to_workspace:
+            return None
+        try:
+            workspace_root = Path(self.working_dir or cwd).expanduser().resolve()
+            target = Path(cwd).expanduser().resolve()
+        except Exception:
+            return "Error: Command blocked by safety guard (invalid working directory)"
+        if target != workspace_root and workspace_root not in target.parents:
+            return "Error: Command blocked by safety guard (working directory outside workspace)"
+        return None
+
+    async def _execute_after_safety(
+        self,
+        command: str,
+        *,
+        cwd: str,
+        timeout: int | None,
+    ) -> str:
         if self.sandbox:
             if _IS_WINDOWS:
                 logger.warning(

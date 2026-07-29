@@ -389,6 +389,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert 'name="channels_weixin_token"' in config_page.text
     assert 'name="channels_weixin_poll_timeout"' in config_page.text
     assert 'name="tools_exec_enable"' in config_page.text
+    assert 'name="tools_exec_confirmation_mode"' in config_page.text
     assert 'name="tools_exec_timeout"' in config_page.text
     assert 'name="tools_exec_path_append"' in config_page.text
     assert 'name="tools_exec_allowed_env_keys"' in config_page.text
@@ -537,6 +538,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
             ("providers_ollama_api_base", "http://localhost:11434/v1"),
             ("providers_vllm_api_base", "http://localhost:8000"),
             ("tools_exec_timeout", "90"),
+            ("tools_exec_confirmation_mode", "allow"),
             ("tools_exec_path_append", "/usr/local/bin:/usr/sbin"),
             ("tools_exec_allowed_env_keys", "JAVA_HOME, GOPATH"),
             ("tools_exec_sandbox", "bwrap"),
@@ -603,6 +605,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
     assert saved["channels"]["transcriptionProvider"] == "openai"
     assert saved["tools"]["exec"]["enable"] is False
     assert saved["tools"]["exec"]["timeout"] == 90
+    assert saved["tools"]["exec"]["confirmationMode"] == "allow"
     assert saved["tools"]["exec"]["pathAppend"] == "/usr/local/bin:/usr/sbin"
     assert saved["tools"]["exec"]["allowedEnvKeys"] == ["JAVA_HOME", "GOPATH"]
     assert saved["tools"]["exec"]["sandbox"] == "bwrap"

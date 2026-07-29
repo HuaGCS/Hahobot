@@ -35,6 +35,7 @@ class RunRuntimeManager:
         chat_id: str = "direct",
         message_id: str | None = None,
         persona: str | None = None,
+        sender_id: str | None = None,
     ) -> tuple[str | None, list[str], list[dict[str, Any]], str]:
         """Run the main agent iteration loop and normalize result bookkeeping."""
         result = await self.loop.runner.run(
@@ -48,6 +49,7 @@ class RunRuntimeManager:
                 chat_id=chat_id,
                 message_id=message_id,
                 persona=persona,
+                sender_id=sender_id,
             )
         )
         self._record_usage_and_logs(result)
@@ -87,6 +89,7 @@ class RunRuntimeManager:
         chat_id: str,
         message_id: str | None,
         persona: str | None,
+        sender_id: str | None,
     ) -> AgentRunSpec:
         """Build the AgentRunSpec used for one main-loop turn."""
         return AgentRunSpec(
@@ -104,6 +107,7 @@ class RunRuntimeManager:
                 chat_id=chat_id,
                 message_id=message_id,
                 persona=persona,
+                sender_id=sender_id,
             ),
             error_message="Sorry, I encountered an error calling the AI model.",
             max_iterations_message=(
@@ -132,6 +136,7 @@ class RunRuntimeManager:
         chat_id: str,
         message_id: str | None,
         persona: str | None,
+        sender_id: str | None,
     ) -> AgentHook:
         """Build the core loop hook chain for one runner invocation."""
         loop_hook = LoopRunHook(
@@ -149,6 +154,8 @@ class RunRuntimeManager:
             chat_id=chat_id,
             message_id=message_id,
             persona=persona,
+            session_key=session.key if session else None,
+            sender_id=sender_id,
         )
         if self.loop._extra_hooks:
             return LoopHookChain(loop_hook, self.loop._extra_hooks)
