@@ -107,6 +107,10 @@ If you only want the base runtime:
 pip install -e .
 ```
 
+When `python -m hahobot` or `hahobot` runs directly from this source checkout, the displayed version
+comes from `pyproject.toml` even if the environment still contains stale installed distribution
+metadata. Installed wheels continue to report their packaged metadata version.
+
 ### Optional runtime requirements
 
 - Node.js >= 18 if you use the local WhatsApp bridge.
@@ -511,6 +515,7 @@ Example for a self-hosted Mem0 REST service:
       "topK": 8,
       "maxContextChars": 4000,
       "timeoutSeconds": 5,
+      "writeTimeoutSeconds": 120,
       "snapshotRefreshSeconds": 3600
     }
   }
@@ -534,6 +539,15 @@ mode is disabled. If `personaUserIdPrefix` is empty, Hahobot derives
 `<userId>::hahobot-persona`; keep the prefix and persona names stable across Hahobot devices.
 Hahobot rejects a persona-private ID that equals the public `userId` (case-insensitively); choose a
 different prefix instead of allowing that misconfiguration to expose private memories to Hermes.
+
+`timeoutSeconds` bounds foreground search so an unavailable Mem0 service falls back quickly to the
+local snapshot. `writeTimeoutSeconds` is separate because background `/memories` inference can take
+substantially longer without delaying the conversation. Within one Hahobot process, public and
+persona-private outboxes share one write slot; failed events use stable per-event jitter before
+retrying, preventing startup recovery from sending every namespace in lockstep. A transient 429,
+5xx, timeout, or network failure opens a shared cooldown circuit, so already-queued namespaces are
+deferred without making another request or consuming a real attempt. HTTP failure logs include the
+exception type and the server request id when available.
 
 `topK` applies to each queried namespace. Persona mode can therefore merge up to `2 × topK`
 candidates before the combined shared block is bounded by `maxContextChars`.

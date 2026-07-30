@@ -1023,6 +1023,13 @@ _CONFIG_FIELDS = (
         "admin_config_memory_shared_timeout_seconds_tooltip",
     ),
     ConfigFieldSpec(
+        "memory_shared_write_timeout_seconds",
+        ("memory", "shared", "writeTimeoutSeconds"),
+        "float",
+        "admin_config_memory_shared_write_timeout_seconds_label",
+        "admin_config_memory_shared_write_timeout_seconds_tooltip",
+    ),
+    ConfigFieldSpec(
         "memory_shared_snapshot_refresh_seconds",
         ("memory", "shared", "snapshotRefreshSeconds"),
         "int",
@@ -1630,6 +1637,7 @@ _CONFIG_SECTIONS = (
             "memory_shared_top_k",
             "memory_shared_max_context_chars",
             "memory_shared_timeout_seconds",
+            "memory_shared_write_timeout_seconds",
             "memory_shared_snapshot_refresh_seconds",
         ),
     ),

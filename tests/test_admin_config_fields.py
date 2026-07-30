@@ -142,6 +142,10 @@ def test_shared_memory_fields_are_registered_as_hot_reloadable() -> None:
             ("memory", "shared", "timeoutSeconds"),
             "float",
         ),
+        "memory_shared_write_timeout_seconds": (
+            ("memory", "shared", "writeTimeoutSeconds"),
+            "float",
+        ),
         "memory_shared_snapshot_refresh_seconds": (
             ("memory", "shared", "snapshotRefreshSeconds"),
             "int",

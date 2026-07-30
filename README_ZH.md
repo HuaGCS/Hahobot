@@ -65,6 +65,9 @@ cd /path/to/Hahobot
 pip install -e .
 ```
 
+从源码目录运行 `python -m hahobot` 或 `hahobot` 时，显示版本以当前 `pyproject.toml` 为准，
+即使虚拟环境中还残留旧的安装元数据也不会误报；安装后的 wheel 仍使用其打包元数据版本。
+
 ### 使用 uv 安装
 
 ```bash
@@ -1303,6 +1306,7 @@ Mem0 的检索结果只作为额外上下文注入，每轮完成后再把对应
       "topK": 8,
       "maxContextChars": 4000,
       "timeoutSeconds": 5,
+      "writeTimeoutSeconds": 120,
       "snapshotRefreshSeconds": 3600
     }
   }
@@ -1323,6 +1327,13 @@ hahobot 会通过 `X-API-Key` 请求头发送它。
 `personaUserIdPrefix` 留空时自动派生 `<userId>::hahobot-persona`；不同 Hahobot 设备必须保持前缀和
 persona 名稳定。如果生成的人格私有 ID 与公共 `userId` 相同（不区分大小写），Hahobot 会拒绝该
 配置，而不是冒险让 Hermes 看到人格私有记忆；此时应换一个私有前缀。
+
+`timeoutSeconds` 只限制前台检索，使 Mem0 不可用时能够快速退回本地快照；后台
+`/memories` 提炼可能明显更慢，因此由独立的 `writeTimeoutSeconds` 控制，且不会拖慢对话。
+同一 Hahobot 进程内，公共层与所有人格私有层共用一个写入槽；失败事件按事件 ID 加入稳定 jitter
+后再重试，避免启动恢复时所有命名空间同步冲击服务。遇到临时 429、5xx、超时或网络错误时会打开
+共享冷却熔断器；已经排队的其他人格会延期，但不会继续请求服务，也不会消耗一次真实尝试。
+HTTP 失败日志会记录异常类型，并在服务端提供时记录 request id。
 
 `topK` 对每个被查询的命名空间分别生效，因此人格模式最多会合并 `2 × topK` 个候选，再由
 `maxContextChars` 限制最终共享记忆区块的总长度。

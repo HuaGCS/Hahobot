@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 def _read_pyproject_version() -> str | None:
-    """Read the source-tree version when package metadata is unavailable."""
+    """Read the source-tree version when importing directly from a checkout."""
     pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
     if not pyproject.exists():
         return None
@@ -18,11 +18,13 @@ def _read_pyproject_version() -> str | None:
 
 
 def _resolve_version() -> str:
+    source_version = _read_pyproject_version()
+    if source_version is not None:
+        return source_version
     try:
         return _pkg_version("hahobot-ai")
     except PackageNotFoundError:
-        # Source checkouts often import hahobot without installed dist-info.
-        return _read_pyproject_version() or "0.1.8"
+        return "0.1.9"
 
 
 __version__ = _resolve_version()

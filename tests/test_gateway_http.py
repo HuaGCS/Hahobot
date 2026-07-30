@@ -421,6 +421,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
         "memory_shared_top_k",
         "memory_shared_max_context_chars",
         "memory_shared_timeout_seconds",
+        "memory_shared_write_timeout_seconds",
         "memory_shared_snapshot_refresh_seconds",
     ):
         assert f'name="{field_name}"' in config_page.text
@@ -557,6 +558,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
             ("memory_shared_top_k", "12"),
             ("memory_shared_max_context_chars", "6000"),
             ("memory_shared_timeout_seconds", "7.5"),
+            ("memory_shared_write_timeout_seconds", "120"),
             ("memory_shared_snapshot_refresh_seconds", "1800"),
             ("channels_voice_reply_provider", "sovits"),
             ("channels_voice_reply_sovits_api_url", "http://127.0.0.1:9880"),
@@ -626,6 +628,7 @@ async def test_gateway_admin_uses_default_chinese_theme_and_visual_config_save(
         "topK": 12,
         "maxContextChars": 6000,
         "timeoutSeconds": 7.5,
+        "writeTimeoutSeconds": 120.0,
         "snapshotRefreshSeconds": 1800,
     }
     assert saved["tools"]["mcpServers"]["memorix"]["args"] == ["serve"]

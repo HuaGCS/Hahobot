@@ -996,6 +996,7 @@ class SharedMemoryConfig(Base):
     top_k: int = Field(default=8, ge=1, le=50)
     max_context_chars: int = Field(default=4_000, ge=0)
     timeout_seconds: float = Field(default=5.0, gt=0, le=60)
+    write_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
     snapshot_refresh_seconds: int = Field(default=3_600, ge=0)
 
 

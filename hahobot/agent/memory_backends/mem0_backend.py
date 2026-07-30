@@ -28,9 +28,13 @@ if TYPE_CHECKING:
 
 _STATE_VERSION = 1
 _SNAPSHOT_LIMIT = 1_000
-# One in-flight event per claim keeps the 120-second SQLite lease safely above
-# the configured per-request timeout (at most 60 seconds) without a heartbeat.
+# One in-flight event per claim keeps the 360-second SQLite lease safely above
+# the configured write timeout (at most 300 seconds) without a heartbeat.
 _DRAIN_BATCH_SIZE = 1
+_MAX_WRITE_RETRY_SECONDS = 300.0
+_WRITE_MIN_INTERVAL_SECONDS = 0.25
+_WRITE_CIRCUIT_BASE_SECONDS = 5.0
+_WRITE_CIRCUIT_MAX_SECONDS = 60.0
 _MAX_MEMORY_ITEM_CHARS = 500
 _TOKEN_RE = re.compile(r"[a-z0-9_]{2,}|[\u3400-\u9fff]", re.IGNORECASE)
 _BACKFILL_METADATA_KEYS = frozenset(
@@ -53,6 +57,78 @@ _BACKFILL_METADATA_KEYS = frozenset(
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _retry_delay_seconds(event_id: str, attempts: int) -> float:
+    """Return stable jittered backoff so namespace workers do not retry in lockstep."""
+    exponent = min(max(1, attempts), 9)
+    ceiling = min(_MAX_WRITE_RETRY_SECONDS, float(2**exponent))
+    digest = hashlib.blake2s(f"{event_id}:{attempts}".encode(), digest_size=8).digest()
+    fraction = int.from_bytes(digest, "big") / float((1 << 64) - 1)
+    return max(1.0, ceiling * (0.5 + (fraction / 2.0)))
+
+
+def _request_error_summary(exc: Exception) -> str:
+    """Format transport failures without blank timeout messages or response bodies."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        parts = [type(exc).__name__, f"status={response.status_code}"]
+        request_id = response.headers.get("x-request-id") or response.headers.get("request-id")
+        if request_id:
+            parts.append(f"request_id={request_id}")
+        return " ".join(parts)
+    detail = str(exc).strip().splitlines()[0] if str(exc).strip() else ""
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
+
+def _is_transient_write_error(exc: Exception) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    return isinstance(exc, httpx.TransportError)
+
+
+class _Mem0WriteCircuitOpenError(RuntimeError):
+    def __init__(self, retry_after: float) -> None:
+        super().__init__("Mem0 write circuit is cooling down")
+        self.retry_after = max(0.0, retry_after)
+
+
+class _Mem0WriteCoordinator:
+    """Serialize writes and stop queued namespaces after a transient failure."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._blocked_until = 0.0
+        self._next_request_at = 0.0
+        self._consecutive_failures = 0
+
+    async def execute(self, operation: Callable[[], Awaitable[Any]]) -> Any:
+        async with self._lock:
+            loop = asyncio.get_running_loop()
+            now = loop.time()
+            if now < self._blocked_until:
+                raise _Mem0WriteCircuitOpenError(self._blocked_until - now)
+            if now < self._next_request_at:
+                await asyncio.sleep(self._next_request_at - now)
+            try:
+                result = await operation()
+            except Exception as exc:
+                if _is_transient_write_error(exc):
+                    self._consecutive_failures += 1
+                    cooldown = min(
+                        _WRITE_CIRCUIT_MAX_SECONDS,
+                        _WRITE_CIRCUIT_BASE_SECONDS
+                        * float(2 ** min(self._consecutive_failures - 1, 4)),
+                    )
+                    self._blocked_until = loop.time() + cooldown
+                else:
+                    self._consecutive_failures = 0
+                    self._blocked_until = 0.0
+                raise
+            self._consecutive_failures = 0
+            self._blocked_until = 0.0
+            self._next_request_at = loop.time() + _WRITE_MIN_INTERVAL_SECONDS
+            return result
 
 
 def persona_mem0_user_id(config: SharedMemoryConfig, persona: str | None) -> str:
@@ -80,12 +156,17 @@ class Mem0SharedMemoryBackend(UserMemoryBackend):
         state_root: Path,
         schedule_background: Callable[[Awaitable[None]], asyncio.Task[Any]] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        write_coordinator: _Mem0WriteCoordinator | None = None,
         namespace: str = "global",
         write_mode: str | None = None,
     ) -> None:
         self._config = config
         self._schedule_background = schedule_background
         self._transport = transport
+        # Layered backends inject one process-local coordinator shared by the
+        # public and every persona namespace. A standalone backend still gets
+        # one coordinator so an explicit flush cannot overlap its background drain.
+        self._write_coordinator = write_coordinator or _Mem0WriteCoordinator()
         self._namespace = namespace
         self._write_mode = write_mode or config.global_write_mode
         service = f"{config.base_url.rstrip('/')}|{config.user_id.strip()}"
@@ -533,11 +614,25 @@ class Mem0SharedMemoryBackend(UserMemoryBackend):
                     try:
                         await self._send_event(event)
                         succeeded.add(event_id)
+                    except _Mem0WriteCircuitOpenError as exc:
+                        attempts = int(event.get("attempts", 0) or 0)
+                        spread = _retry_delay_seconds(event_id, max(1, attempts))
+                        delay = exc.retry_after + spread
+                        failed[event_id] = (attempts, time.time() + delay)
+                        logger.debug(
+                            "Mem0 shared-memory event {} deferred by write circuit for {:.1f}s",
+                            event_id,
+                            delay,
+                        )
                     except Exception as exc:
                         attempts = int(event.get("attempts", 0) or 0) + 1
-                        delay = min(300.0, float(2 ** min(attempts, 8)))
+                        delay = _retry_delay_seconds(event_id, attempts)
                         failed[event_id] = (attempts, time.time() + delay)
-                        logger.warning("Mem0 shared-memory write queued for retry: {}", exc)
+                        logger.warning(
+                            "Mem0 shared-memory event {} queued for retry: {}",
+                            event_id,
+                            _request_error_summary(exc),
+                        )
                 await asyncio.to_thread(
                     self._state.finish_claim,
                     token,
@@ -600,26 +695,38 @@ class Mem0SharedMemoryBackend(UserMemoryBackend):
                 messages.append({**raw_message, "content": content})
         if not messages:
             return
-        await self._request(
-            "POST",
-            "/memories",
-            json={
-                "messages": messages,
-                "user_id": self._config.user_id.strip(),
-                "agent_id": str(metadata.get("source_agent") or "hahobot"),
-                "infer": True,
-                "metadata": metadata,
-            },
-        )
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        async def send() -> Any:
+            return await self._request(
+                "POST",
+                "/memories",
+                timeout_seconds=self._config.write_timeout_seconds,
+                json={
+                    "messages": messages,
+                    "user_id": self._config.user_id.strip(),
+                    "agent_id": str(metadata.get("source_agent") or "hahobot"),
+                    "infer": True,
+                    "metadata": metadata,
+                },
+            )
+
+        await self._write_coordinator.execute(send)
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        timeout_seconds: float | None = None,
+        **kwargs: Any,
+    ) -> Any:
         headers = {"Content-Type": "application/json"}
         if self._config.api_key:
             headers["X-API-Key"] = self._config.api_key
         url = f"{self._config.base_url.rstrip('/')}/{path.lstrip('/')}"
         async with httpx.AsyncClient(
             headers=headers,
-            timeout=self._config.timeout_seconds,
+            timeout=timeout_seconds or self._config.timeout_seconds,
             transport=self._transport,
         ) as client:
             response = await client.request(method, url, **kwargs)
@@ -724,11 +831,13 @@ class LayeredMem0SharedMemoryBackend(UserMemoryBackend):
         self._persona_names = persona_names
         self._schedule_background = schedule_background
         self._transport = transport
+        self._write_coordinator = _Mem0WriteCoordinator()
         self._global = Mem0SharedMemoryBackend(
             config,
             state_root=state_root,
             schedule_background=schedule_background,
             transport=transport,
+            write_coordinator=self._write_coordinator,
             namespace="global",
             write_mode=config.global_write_mode,
         )
@@ -765,6 +874,7 @@ class LayeredMem0SharedMemoryBackend(UserMemoryBackend):
             state_root=self._state_root,
             schedule_background=self._schedule_background,
             transport=self._transport,
+            write_coordinator=self._write_coordinator,
             namespace="persona",
             write_mode="full",
         )

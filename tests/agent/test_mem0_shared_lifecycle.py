@@ -15,7 +15,12 @@ import httpx
 import pytest
 
 from hahobot.agent.memory_backends.file_backend import FileUserMemoryBackend
-from hahobot.agent.memory_backends.mem0_backend import Mem0SharedMemoryBackend
+from hahobot.agent.memory_backends.mem0_backend import (
+    LayeredMem0SharedMemoryBackend,
+    Mem0SharedMemoryBackend,
+    _request_error_summary,
+    _retry_delay_seconds,
+)
 from hahobot.agent.memory_models import MemoryCommitRequest, MemoryScope
 from hahobot.agent.memory_router import MemoryRouter
 from hahobot.agent.memory_shared_sqlite import (
@@ -151,6 +156,136 @@ async def test_two_backends_claim_same_outbox_event_only_once(tmp_path: Path) ->
     assert post_count == 1
     assert first._state.pending_events() == []
     await asyncio.gather(first.close(), second.close())
+
+
+@pytest.mark.asyncio
+async def test_layered_namespace_writes_share_one_process_slot(tmp_path: Path) -> None:
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    request_count = 0
+    active_requests = 0
+    max_active_requests = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal active_requests, max_active_requests, request_count
+        assert request.url.path == "/memories"
+        request_count += 1
+        active_requests += 1
+        max_active_requests = max(max_active_requests, active_requests)
+        try:
+            if request_count == 1:
+                first_started.set()
+                await release_first.wait()
+            await asyncio.sleep(0)
+            return httpx.Response(200, json={"results": []})
+        finally:
+            active_requests -= 1
+
+    backend = LayeredMem0SharedMemoryBackend(
+        _config(readEnabled=False, personaEnabled=True),
+        state_root=tmp_path / "state",
+        persona_names=lambda: ["coder"],
+        transport=httpx.MockTransport(handler),
+    )
+    await backend.start()
+    private = backend._persona_backend("coder")
+    initial_drains = [backend.global_backend._drain_task, private._drain_task]
+    await asyncio.gather(*(task for task in initial_drains if task is not None))
+
+    await backend.commit_turn(
+        MemoryCommitRequest(
+            scope=_scope(tmp_path),
+            inbound_content="write privately and publicly",
+            outbound_content="acknowledged",
+        )
+    )
+    await asyncio.wait_for(first_started.wait(), timeout=1)
+    await asyncio.sleep(0.01)
+
+    assert request_count == 1
+    assert max_active_requests == 1
+
+    release_first.set()
+    drains = [backend.global_backend._drain_task, private._drain_task]
+    await asyncio.gather(*(task for task in drains if task is not None))
+
+    assert request_count == 2
+    assert max_active_requests == 1
+    await backend.close()
+
+
+@pytest.mark.asyncio
+async def test_layered_transient_failure_defers_other_namespaces_without_request(
+    tmp_path: Path,
+) -> None:
+    request_count = 0
+    tasks: list[asyncio.Task[Any]] = []
+
+    def schedule(coro):
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            502,
+            headers={"x-request-id": "failed-once"},
+            json={"detail": "upstream unavailable"},
+        )
+
+    backend = LayeredMem0SharedMemoryBackend(
+        _config(readEnabled=False, personaEnabled=True),
+        state_root=tmp_path / "state",
+        persona_names=lambda: ["coder"],
+        schedule_background=schedule,
+        transport=httpx.MockTransport(handler),
+    )
+    await backend.start()
+    private = backend._persona_backend("coder")
+    await asyncio.gather(*tasks)
+    tasks.clear()
+
+    await backend.commit_turn(
+        MemoryCommitRequest(
+            scope=_scope(tmp_path),
+            inbound_content="preserve both queued writes",
+            outbound_content="acknowledged",
+        )
+    )
+    await asyncio.gather(*tasks)
+
+    queued = [
+        *backend.global_backend._state.pending_events(),
+        *private._state.pending_events(),
+    ]
+    assert request_count == 1
+    assert len(queued) == 2
+    assert sorted(event["attempts"] for event in queued) == [0, 1]
+    await backend.close()
+
+
+def test_mem0_retry_jitter_is_stable_bounded_and_event_specific() -> None:
+    first = _retry_delay_seconds("event-1", 12)
+    second = _retry_delay_seconds("event-2", 12)
+
+    assert 150.0 <= first <= 300.0
+    assert 150.0 <= second <= 300.0
+    assert first == _retry_delay_seconds("event-1", 12)
+    assert first != second
+
+
+def test_mem0_request_error_summary_keeps_timeout_type_and_http_request_id() -> None:
+    request = httpx.Request("POST", "https://mem0.internal/memories")
+    timeout = httpx.ReadTimeout("", request=request)
+    response = httpx.Response(502, headers={"x-request-id": "mem0-123"}, request=request)
+    status_error = httpx.HTTPStatusError("bad gateway", request=request, response=response)
+
+    assert _request_error_summary(timeout) == "ReadTimeout"
+    assert _request_error_summary(status_error) == (
+        "HTTPStatusError status=502 request_id=mem0-123"
+    )
 
 
 @pytest.mark.asyncio

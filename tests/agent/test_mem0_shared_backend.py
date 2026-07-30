@@ -369,6 +369,14 @@ async def test_mem0_failed_write_survives_and_force_flush_retries(tmp_path: Path
 
     await backend.flush_session(_scope(tmp_path))
 
+    # Explicit flushes respect the shared outage circuit rather than bypassing
+    # it and recreating a namespace-wide retry wave.
+    assert attempts == 1
+    assert (await asyncio.to_thread(backend._state.pending_events))[0]["attempts"] == 1
+
+    backend._write_coordinator._blocked_until = 0.0
+    await backend.flush_session(_scope(tmp_path))
+
     assert attempts == 2
     assert await asyncio.to_thread(backend._state.pending_events) == []
     await backend.close()
@@ -546,7 +554,44 @@ async def test_public_write_policy_applies_without_persona_mode(tmp_path: Path) 
 
 
 def test_shared_mem0_defaults_public_writes_to_user_only() -> None:
-    assert SharedMemoryConfig().global_write_mode == "user_only"
+    config = SharedMemoryConfig()
+
+    assert config.global_write_mode == "user_only"
+    assert config.timeout_seconds == 5.0
+    assert config.write_timeout_seconds == 120.0
+
+
+@pytest.mark.asyncio
+async def test_mem0_uses_separate_foreground_and_write_timeouts(tmp_path: Path) -> None:
+    observed: dict[str, float] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        observed[request.url.path] = request.extensions["timeout"]["read"]
+        return httpx.Response(200, json={"results": []})
+
+    tasks: list[asyncio.Task[Any]] = []
+    backend = Mem0SharedMemoryBackend(
+        _config(timeoutSeconds=3, writeTimeoutSeconds=120, snapshotRefreshSeconds=0),
+        state_root=tmp_path / "instance-state",
+        schedule_background=_scheduler(tasks),
+        transport=httpx.MockTransport(handler),
+    )
+
+    await backend.resolve_context(_scope(tmp_path))
+    await backend.commit_turn(_request(tmp_path))
+
+    async def wait_for_write() -> None:
+        while "/memories" not in observed:
+            drain = backend._drain_task
+            if drain is not None:
+                await asyncio.gather(drain, return_exceptions=True)
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(wait_for_write(), timeout=1)
+    await asyncio.gather(*tasks)
+
+    assert observed == {"/search": 3.0, "/memories": 120.0}
+    await backend.close()
 
 
 @pytest.mark.asyncio

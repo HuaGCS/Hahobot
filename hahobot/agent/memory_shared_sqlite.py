@@ -13,7 +13,9 @@ from typing import Any
 
 from loguru import logger
 
-_CLAIM_LEASE_SECONDS = 120.0
+# Keep cross-process claims above the longest configured Mem0 write timeout
+# (300 seconds) so a slow accepted request cannot be reclaimed and duplicated.
+_CLAIM_LEASE_SECONDS = 360.0
 _CONNECT_TIMEOUT_SECONDS = 5.0
 _WAL_RETRY_INITIAL_SECONDS = 0.005
 _WAL_RETRY_MAX_SECONDS = 0.05
