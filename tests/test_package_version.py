@@ -9,9 +9,9 @@ from pathlib import Path
 
 def test_editable_lock_version_matches_pyproject() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    project_version = tomllib.loads(
-        (repo_root / "pyproject.toml").read_text(encoding="utf-8")
-    )["project"]["version"]
+    project_version = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]["version"]
     locked = tomllib.loads((repo_root / "uv.lock").read_text(encoding="utf-8"))
     root_package = next(
         package
