@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import base64
 import json
+import socket
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from hahobot.agent.tools import image_gen as image_gen_module
@@ -205,7 +207,7 @@ def test_gemini_image_config_is_scoped_by_model(
     ],
 )
 @pytest.mark.asyncio
-async def test_gemini_request_uses_response_format_capabilities(
+async def test_gemini_request_uses_image_config_capabilities(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     model: str,
@@ -243,5 +245,103 @@ async def test_gemini_request_uses_response_format_capabilities(
     assert "Image generated successfully." in result
     generation_config = calls[0]["json"]["generationConfig"]
     assert generation_config["responseModalities"] == ["IMAGE"]
-    assert generation_config.get("responseFormat") == expected
-    assert "imageConfig" not in generation_config
+    assert generation_config.get("imageConfig") == (expected or {}).get("image")
+    assert "responseFormat" not in generation_config
+
+
+def _public_image_resolver(hostname: str) -> list[tuple]:
+    return [
+        (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("93.184.216.34", 0),
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generated_image_download_blocks_private_target(tmp_path: Path) -> None:
+    requested = False
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requested
+        requested = True
+        return httpx.Response(200, content=_PNG_BYTES)
+
+    tool = ImageGenTool(workspace=tmp_path, api_key="test")
+    result = await tool._download_image(
+        "http://127.0.0.1/admin",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert "blocked unsafe URL" in result
+    assert requested is False
+
+
+@pytest.mark.asyncio
+async def test_generated_image_download_revalidates_redirects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def resolve_redirect_host(hostname: str) -> list[tuple]:
+        if hostname == "cdn.example":
+            return _public_image_resolver(hostname)
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("169.254.169.254", 0),
+            )
+        ]
+
+    monkeypatch.setattr(
+        "hahobot.security.network._resolve_hostname",
+        AsyncMock(side_effect=resolve_redirect_host),
+    )
+    requested: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(302, headers={"location": "http://169.254.169.254/latest"})
+
+    tool = ImageGenTool(workspace=tmp_path, api_key="test")
+    result = await tool._download_image(
+        "https://cdn.example/image.png",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert "blocked unsafe URL" in result
+    assert requested == ["https://cdn.example/image.png"]
+
+
+class _OversizedImageStream(httpx.AsyncByteStream):
+    async def __aiter__(self):
+        yield b"12345"
+        yield b"6789"
+
+
+@pytest.mark.asyncio
+async def test_generated_image_download_enforces_streaming_size_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "hahobot.security.network._resolve_hostname",
+        AsyncMock(side_effect=_public_image_resolver),
+    )
+    monkeypatch.setattr(image_gen_module, "_IMAGE_DOWNLOAD_MAX_BYTES", 8)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_OversizedImageStream())
+
+    tool = ImageGenTool(workspace=tmp_path, api_key="test")
+    result = await tool._download_image(
+        "https://cdn.example/image.png",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert "exceeded the 32 MiB limit" in result

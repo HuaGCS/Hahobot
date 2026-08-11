@@ -42,9 +42,17 @@ class AutoCompact:
     ) -> bool:
         if self._ttl <= 0 or not ts:
             return False
-        if isinstance(ts, str):
-            ts = datetime.fromisoformat(ts)
-        return ((now or datetime.now()) - ts).total_seconds() >= self._ttl * 60
+        try:
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts)
+            current = now or datetime.now()
+            if ts.tzinfo is not None or current.tzinfo is not None:
+                idle_seconds = current.timestamp() - ts.timestamp()
+            else:
+                idle_seconds = (current - ts).total_seconds()
+        except (AttributeError, OSError, OverflowError, TypeError, ValueError):
+            return False
+        return idle_seconds >= self._ttl * 60
 
     @staticmethod
     def _format_summary(text: str, last_active: datetime) -> str:
@@ -165,9 +173,18 @@ class AutoCompact:
         if "_last_summary" in session.metadata:
             meta = session.metadata.pop("_last_summary")
             self.sessions.save(session)
-            return session, self._format_summary(
-                str(meta["text"]),
-                datetime.fromisoformat(str(meta["last_active"])),
-            )
+            if isinstance(meta, dict):
+                summary_text = meta.get("text")
+                if isinstance(summary_text, str) and summary_text:
+                    raw_last_active = meta.get("last_active")
+                    try:
+                        last_active = (
+                            datetime.fromisoformat(raw_last_active)
+                            if isinstance(raw_last_active, str)
+                            else session.updated_at
+                        )
+                    except ValueError:
+                        last_active = session.updated_at
+                    return session, self._format_summary(summary_text, last_active)
 
         return session, None

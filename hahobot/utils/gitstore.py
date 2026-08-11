@@ -114,7 +114,9 @@ class GitStore:
             )
             if sha_bytes is None:
                 return None
-            sha = sha_bytes.hex()[:8]
+            # Dulwich returns an ASCII-encoded 40-character object id. Calling
+            # .hex() would hex-encode that text again and produce a non-Git id.
+            sha = sha_bytes.decode()[:8]
             logger.debug("Git auto-commit: {} ({})", sha, message)
             return sha
         except Exception:
@@ -135,7 +137,7 @@ class GitStore:
                     return None
 
                 while sha:
-                    if sha.hex().startswith(short_sha):
+                    if sha.decode().startswith(short_sha):
                         return sha
                     commit = repo[sha]
                     if commit.type_name != b"commit":
@@ -189,7 +191,7 @@ class GitStore:
                     msg = commit.message.decode("utf-8", errors="replace").strip()
                     entries.append(
                         CommitInfo(
-                            sha=sha.hex()[:8],
+                            sha=sha.decode()[:8],
                             message=msg,
                             timestamp=ts,
                         )

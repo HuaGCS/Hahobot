@@ -207,7 +207,7 @@ def _markdown_to_telegram_html(text: str) -> str:
         code_blocks.append(m.group(1))
         return f"\x00CB{len(code_blocks) - 1}\x00"
 
-    text = re.sub(r"```[\w]*\n?([\s\S]*?)```", save_code_block, text)
+    text = re.sub(r"```(?:[^\n]*\n)?([\s\S]*?)```", save_code_block, text)
 
     # 1.5. Convert markdown tables to box-drawing (reuse code_block placeholders)
     lines = text.split("\n")

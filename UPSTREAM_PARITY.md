@@ -24,11 +24,11 @@ The current ledger is authoritative when an older audit entry describes a supers
 
 | Upstream | Tracking role | Audited ref | Previous boundary | Audit date |
 | --- | --- | --- | --- | --- |
-| `HKUDS/nanobot` | Primary behavior-parity target | `main@cf1e801a` | `d5658dbc` | 2026-07-27 |
-| `lsdefine/GenericAgent` | Architecture/workflow ideas | `main@5c3fc72d` | `d69ec880` (force-rewritten history) | 2026-07-27 |
-| `thedotmack/claude-mem` | Memory-architecture ideas | `main@132b4634` | `f5633c1f` | 2026-07-27 |
-| `Dataojitori/nocturne_memory` | Memory-architecture ideas | `main@2cbfb8a` | unchanged | 2026-07-27 |
-| `openJiuwen/jiuwenswarm` | Architecture/channel ideas | `develop@de623dd9` | `caec89ca` | 2026-07-27 |
+| `HKUDS/nanobot` | Primary behavior-parity target | `main@55ecda27` | `cf1e801a` | 2026-08-10 |
+| `lsdefine/GenericAgent` | Architecture/workflow ideas | `main@d426d45e` | `5c3fc72d` | 2026-08-10 |
+| `thedotmack/claude-mem` | Memory-architecture ideas | `main@4702c337` | `132b4634` | 2026-08-10 |
+| `Dataojitori/nocturne_memory` | Memory-architecture ideas | `main@54c48eea` | `2cbfb8a` | 2026-08-10 |
+| `openJiuwen/jiuwenswarm` | Architecture/channel ideas | `develop@fb43da6c` | `de623dd9` | 2026-08-10 |
 
 `nanobot` and `GenericAgent` remotes must retain `tagOpt = --no-tags`. Hahobot owns its independent
 `v0.x` release line; upstream tags are not imported into the local `v*` namespace.
@@ -43,51 +43,56 @@ design, but they are not tracked parity targets.
 - `intentional_divergence`: local behavior deliberately differs from upstream.
 - `watchlist`: re-evaluate when the related local surface or upstream behavior changes.
 
-## Latest Audit — 2026-07-27
+## Latest Audit — 2026-08-10
 
 ### nanobot
 
-Audited 142 commits through `cf1e801a`. Portable changes were adapted as coherent local behavior:
+Audited 188 commits through `55ecda27`. The portable delta was adapted onto local owners:
 
-- reject oversized `read_file` inputs before loading (`cdb2df49`);
-- mode-preserving atomic config/admin writes (`28102382`, `b2cf37da`);
-- recursive malformed UTF-16 surrogate cleanup at provider boundaries (`89d8c055`);
-- model-scoped Qwen thinking parameters (`79d94553`);
-- Gemini model-specific aspect-ratio and image-size request rules (`4986590b..cf1e801a`);
-- tolerant persisted cron/session/history/skill parsing (`b81c0558`, `299bcf49`, `7c94ba96`,
-  `745757cc`, `259d8a01`);
-- Slack/Feishu fenced-table preservation and malformed Feishu payload tolerance (`5851bd43`,
-  `81951817`, `fb881543`, `aaf2eef5`);
-- assignment-form exec path guards (`78f4c132`), Telegram split forward progress (`017a4946`,
-  `98d66177`, `7e9426d9`), arbitrary local MCP JSON Pointer handling (`9aae7485`, `c1899e2c`),
-  completed-only Dream cursor advancement (`4e2640f2`, `15e42059`), and end-to-end length recovery
-  (`b19039f9..b55b76d7`).
+- generated-image URL downloads now pin validated DNS, revalidate every redirect, honor explicit
+  proxy DNS without trusting private literals, reject IPv6 unspecified targets, stream with a
+  32 MiB cap, and verify image bytes (`4408cde0..b3d3a3e6`);
+- Dream history compaction never drops entries beyond its processed cursor; malformed idle-summary
+  timestamps/metadata and raw-archive message fields degrade safely (`7fd28c9f`, `e633f867`,
+  `39bb20c7`, `4c387f66`);
+- real Dulwich object IDs cross the `/dream-log` and restore boundary (`92361cbe`), blank
+  `finish_reason=length` responses enter continuation (`511c764f`), and cron expressions are
+  validated before persistence (`73a00804`);
+- Gemini Flash hints use live `generationConfig.imageConfig` syntax (`08fe9f7b`); Anthropic's
+  versioned adaptive-thinking/effort rules cover Opus 4.7+ and Opus/Sonnet 5 (`4e8702a4`);
+- Telegram preserves special-character and single-line fences (`a13e29bf`, `170c7083`), while
+  Matrix sends a non-empty join body and retries eligible sync invites (`5c4c2cb8`).
 
-React/native UI, pairing/triggers, and broad new provider/channel surfaces were reviewed but not
-copied. See [`NANOBOT.md`](docs/upstream-parity/NANOBOT.md).
+The React/Vite marketplace, temporary chats, cross-session mention UI, pairing/triggers, provider
+breadth, and whole-file session retention remain demand-driven or architecture-specific. See
+[`NANOBOT.md`](docs/upstream-parity/NANOBOT.md).
 
 ### GenericAgent
 
-Upstream rewrote `main`; the audit used date/first-parent inspection through `5c3fc72d` instead of
-treating `d69ec880` as an ancestor. Its empty-text-block fix was already covered by Hahobot's shared
-provider normalization. Desktop/Tauri packaging and conductor/runtime structure remain
-architecture-specific. See [`GENERICAGENT.md`](docs/upstream-parity/GENERICAGENT.md).
+Audited 30 linear commits through `d426d45e`. Responses terminal-event handling and maximum
+reasoning effort map to Hahobot's existing provider normalization plus the newly updated Anthropic
+capability matrix. The 60-second oversized `Retry-After` guard is useful, but remains a watchlist
+item until Hahobot defines one policy across finite and persistent retry modes. Hub/P2P, desktop,
+TUI, and conductor changes remain architecture-specific. See
+[`GENERICAGENT.md`](docs/upstream-parity/GENERICAGENT.md).
 
 ### Memory upstreams
 
-`claude-mem` was audited through `132b4634`; the 183-commit range mainly concerned hosted
-SyncHub/worker, Chroma, plugin, and release surfaces. `filesRead` / `filesModified` observation
-evidence remains useful but needs a local sidecar and query contract. `nocturne_memory` remained at
-`2cbfb8a`, so its file-first/patch-only decisions did not change. See
+`claude-mem` added 11 commits through `4702c337`: Chroma write-storm control, sensitive
+observations, a custom-mode creator, and hosted/install work. Local WAL/worker serialization,
+privacy tags, and reviewed skill/subagent modes already cover the portable concepts.
+`nocturne_memory` added 7 commits through `54c48eea`; bloat diagnostics and block-matched patching
+are worth revisiting through local doctor/Dream surfaces, without adopting its graph store. See
 [`MEMORY_UPSTREAMS.md`](docs/upstream-parity/MEMORY_UPSTREAMS.md).
 
 ### jiuwenswarm
 
-Audited 116 commits through `develop@de623dd9`. Hahobot adapted complete cron read-modify-write
-locking and atomic replacement from `1d5c54bdf`, then hardened it locally with worker-pool I/O,
-claims, cancellation linearization, and workspace-rebind draining. Persisted WebUI media restoration
-was adapted through Hahobot's existing guarded `/app/media` route (`94310a3ad`). See
-[`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
+Audited 271 commits through `develop@fb43da6c`. Relevant deltas—session-delete traversal guards,
+config secret masking, cancellation cleanup, context compression, cron crash recovery, and stream
+whitespace—are already covered by Hahobot's collision-safe session store, redacted admin/config
+surfaces, task/tool lifecycle, bounded memory pipeline, claimed atomic cron store, and streaming
+tests. Team/warm-pool, desktop/TUI, Symphony, PDF/PPT skills, and sandbox infrastructure remain
+ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 
 ## Current Snapshot
 
@@ -96,19 +101,20 @@ was adapted through Hahobot's existing guarded `/app/media` route (`94310a3ad`).
 | Tool/runtime policy | `synced` | Central policy controls tool availability, hot reload, doctor output, and explicit exec environment passthrough. |
 | File/config durability | `synced` | Oversized reads fail before allocation; config/admin and cron commits use mode-preserving atomic replacement. |
 | Exec isolation | `synced` | Segment-wise allow rules, deny-first matching, assignment/home-path guards, bounded execution, and robust process cleanup remain local invariants. |
-| Provider normalization | `synced` | Empty content, malformed surrogates, reasoning fields, model-specific thinking, and provider error detail are normalized before transport. |
-| Image generation | `synced` | Gemini and compatible image endpoints receive model-appropriate request fields while persona `/scene` keeps local reference-image behavior. |
+| Provider normalization | `synced` | Empty content, malformed surrogates, reasoning fields, versioned Anthropic adaptive effort, model-specific thinking, and provider error detail are normalized before transport. |
+| Image generation | `synced` | Gemini Flash uses live `imageConfig`; generated-image downloads are redirect-safe, DNS-pinned, byte-capped, and content-verified while persona `/scene` keeps local reference-image behavior. |
 | Length recovery | `synced` | Truncated provider segments are retried/merged and streamed as one visible response without losing already-produced text. |
 | Hook streaming ownership | `synced` | Composite hooks fan out safely; only the primary output owner suppresses runner-side delta accumulation. |
 | MCP schemas | `synced` | Local URI-decoded JSON Pointers are resolved/hoisted into `$defs`, including recursion and unresolved-ref fallback. |
 | MCP lifecycle | `synced` | Each connection generation has one owner task; terminated sessions reconnect without cross-task context-manager teardown. |
 | Session persistence | `synced` | Atomic rewrites, malformed-row tolerance, bounded strong LRU caching, and checkpoint recovery protect saved conversations. |
 | Memory/archive | `local_extension` | Markdown remains source of truth; JSON sidecars and optional SQLite FTS are rebuildable recall indexes. |
-| Dream maintenance | `local_extension` | Two-phase reflection updates local memory layers and advances its cursor only after a completed second phase. |
+| Dream maintenance | `local_extension` | Two-phase reflection updates local memory layers, advances only after completed phase 2, preserves all pending history, and emits real Git object IDs. |
 | Skill lifecycle | `local_extension` | Query-aware summaries, usage metadata, derive/supersede/lint commands, and operator review govern local skill growth. |
 | Subagent modes | `local_extension` | Explore/implement/verify tool boundaries and durable completion announcements extend the local runtime. |
-| Cron persistence | `synced` | Cross-process transactions, expiring claims, merged history, worker-pool I/O, cancellation linearization, and safe store rebinding prevent common duplicate/lost-update paths. |
-| Channel streaming | `synced` | Stateful delivery IDs, retry cursors, Telegram fence balancing, and channel-specific overflow handling preserve exactly-once chunk progress within a delivery attempt. |
+| Cron persistence | `synced` | Syntax validation, cross-process transactions, expiring claims, merged history, worker-pool I/O, cancellation linearization, and safe store rebinding prevent common invalid/duplicate/lost-update paths. |
+| Channel streaming | `synced` | Stateful delivery IDs, retry cursors, special-character-safe Telegram fences, and channel-specific overflow handling preserve exactly-once chunk progress within a delivery attempt. |
+| Matrix joins | `synced` | Invite joins send `{}` for strict homeservers and retry allowed pending invites from the same sync response. |
 | Slack/Feishu rendering | `synced` | Fenced tables stay intact and malformed/null rich-message fields degrade safely. |
 | WebUI persisted media | `synced` | Initial history and live frames share the traversal-guarded `workspace/out` media mapping. |
 | Proactive delivery | `local_extension` | Cron, heartbeat, and cross-session messages persist into the destination session and can push to an open WebUI connection. |
@@ -142,11 +148,14 @@ The detailed historical matrix remains searchable in
 | Upstream | Revisit when | Candidate |
 | --- | --- | --- |
 | nanobot | Channel identity or provider breadth is touched | DingTalk DM gating/sender labels; demand-driven provider/channel additions. |
-| nanobot | Session retention is redesigned | Session-file retention/archiving adapted to Hahobot's incremental JSONL model. |
+| nanobot | Session retention is redesigned | Session-file retention/archiving and cross-session references adapted to Hahobot's incremental JSONL and session-authority model. |
 | nanobot | Reasoning model routing expands | Kimi/MiMo and other model-specific reasoning parameters not already covered locally. |
+| nanobot | Exec/session tooling expands | Bounded-at-source subprocess capture instead of post-`communicate()` truncation. |
+| nanobot | Slash-command UX is revisited | Explicit localized rejection/suggestions for unknown slash commands. |
 | GenericAgent | Workflow or unattended background behavior becomes concrete | Reviewable planning/memory SOPs without copying desktop/conductor structure. |
+| GenericAgent | Retry policy is redesigned | One bounded policy for oversized `Retry-After` across finite and persistent modes. |
 | claude-mem | Archive sidecar schema changes | `filesRead` / `filesModified` evidence with migration and query semantics. |
-| nocturne_memory | Ranked recall needs stable addressability | Stable per-entry IDs and metadata without replacing Markdown as source of truth. |
+| nocturne_memory | Memory diagnostics are expanded | Bloat reporting and stable per-entry IDs without replacing Markdown as source of truth. |
 | jiuwenswarm | Config concurrency/security work begins | Cross-process config transactions and secret redaction. |
 | jiuwenswarm | Local exec or orchestration requirements materially expand | `jiuwenbox` isolation or Team concepts, only with explicit authority boundaries. |
 

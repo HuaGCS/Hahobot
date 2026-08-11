@@ -147,3 +147,17 @@ def test_rendered_html_chunks_stay_within_telegram_limit():
     assert len(chunks) > 1
     assert all(len(html) <= TELEGRAM_HTML_MAX_LEN for _, html in chunks)
     assert all("<b>" not in markdown for markdown, _ in chunks)
+
+
+def test_code_block_language_with_special_characters_keeps_content():
+    text = "```c++\nint main() { return 0; }\n```"
+
+    html = _markdown_to_telegram_html(text)
+
+    assert html == "<pre><code>int main() { return 0; }\n</code></pre>"
+
+
+def test_single_line_fence_is_not_misread_as_language_tag():
+    html = _markdown_to_telegram_html("Use ```<tag>``` here")
+
+    assert html == "Use <pre><code>&lt;tag&gt;</code></pre> here"

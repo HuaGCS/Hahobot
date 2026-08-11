@@ -164,9 +164,12 @@ timeouts, allowing healthy long reasoning to finish while still bounding trickle
 For direct Moonshot requests, Kimi K2.5/K2.6 leave `temperature` to the server's thinking mode;
 K2.7 variants keep the provider-required `1.0` override.
 Qwen thinking controls are selected by model family rather than applied to every model on an
-OpenAI-compatible endpoint. Provider-bound nested messages also sanitize malformed UTF-16
-surrogates before JSON encoding. If a provider stops with `finish_reason="length"`, hahobot anchors
-the continuation at the delivered tail and merges recovered segments into one final/streamed reply.
+OpenAI-compatible endpoint. Anthropic reasoning controls are likewise model/version aware: newer
+Opus/Sonnet families use adaptive thinking and effort where supported, while an explicit `none`
+disables default thinking instead of behaving like an unset value. Provider-bound nested messages
+also sanitize malformed UTF-16 surrogates before JSON encoding. If a provider stops with
+`finish_reason="length"`, including before returning visible text, hahobot continues the response
+and merges recovered segments into one final/streamed reply.
 
 ### 3. Start chatting
 
@@ -350,7 +353,9 @@ persona's reference images when available. If `.hahobot/st_manifest.json` define
 `scene_prompts`, `scene_captions`, or scene-specific `reference_images`, those scene names also
 become valid `/scene <name>` shortcuts.
 For Gemini image models, hahobot sends aspect ratio and image-size hints only where that exact model
-family supports them, avoiding invalid `imageConfig` fields on older or narrower variants.
+family supports them through `generationConfig.imageConfig`, avoiding legacy or unsupported shapes.
+Images returned by URL are downloaded with redirect-by-redirect SSRF validation, direct-connect DNS
+pinning, a 32 MiB response cap, and magic-byte type verification before being saved.
 
 The admin persona page can preview a `/scene` result with the current runtime image settings and
 save that preview back into `.hahobot/st_manifest.json` as a named scene template.

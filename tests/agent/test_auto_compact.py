@@ -69,6 +69,14 @@ def test_agent_defaults_accepts_idle_compact_aliases() -> None:
     assert dumped["idleCompactAfterMinutes"] == 45
 
 
+@pytest.mark.parametrize("timestamp", ["not-a-timestamp", 1720000000, object()])
+def test_idle_compact_ignores_malformed_timestamps(tmp_path, timestamp) -> None:
+    manager = SessionManager(tmp_path)
+    auto = AutoCompact(manager, _FakeConsolidator(), session_ttl_minutes=15)
+
+    assert auto._is_expired(timestamp) is False
+
+
 @pytest.mark.asyncio
 async def test_auto_compact_archives_idle_prefix_and_exposes_resume_summary(tmp_path) -> None:
     manager = SessionManager(tmp_path)
@@ -163,3 +171,24 @@ async def test_process_direct_injects_resume_summary_from_auto_compact_metadata(
         assert "Previous conversation summary: summary one" in user_message
     finally:
         await loop.close_mcp()
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"text": "summary one", "last_active": "not-a-date"},
+        {"text": "summary one"},
+    ],
+)
+def test_prepare_session_tolerates_malformed_persisted_summary(tmp_path, metadata) -> None:
+    manager = SessionManager(tmp_path)
+    session = manager.get_or_create("cli:test")
+    session.metadata["_last_summary"] = metadata
+    manager.save(session)
+    auto = AutoCompact(manager, _FakeConsolidator(), session_ttl_minutes=0)
+
+    prepared, summary = auto.prepare_session(session, "cli:test")
+
+    assert prepared is session
+    assert summary is not None
+    assert "summary one" in summary

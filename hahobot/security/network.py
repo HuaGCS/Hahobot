@@ -20,6 +20,7 @@ _BLOCKED_NETWORKS = [
     ipaddress.ip_network("169.254.0.0/16"),  # link-local / cloud metadata
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("::/128"),  # unspecified; may route to local host
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("fc00::/7"),  # unique local
     ipaddress.ip_network("fe80::/10"),  # link-local v6
@@ -72,13 +73,18 @@ async def resolve_url_target(
     url: str,
     *,
     allow_loopback: bool = False,
+    trust_remote_dns: bool = False,
 ) -> tuple[bool, str, tuple[str, ...]]:
     """Validate a URL is safe to fetch: scheme, hostname, and resolved IPs.
+
+    ``trust_remote_dns`` is only for an operator-configured proxy that owns DNS
+    resolution and egress. It permits an unresolved ordinary hostname while
+    still rejecting localhost names and private/internal IP literals.
 
     Returns (ok, error_message, resolved_ips).  When ok is True, resolved_ips
     contains the addresses validated for this URL so direct HTTP transports can
     pin subsequent DNS lookups and avoid DNS rebinding between validation and
-    connect.
+    connect. It is empty when trusted proxy DNS owns resolution.
     """
     try:
         p = urlparse(url)
@@ -97,7 +103,18 @@ async def resolve_url_target(
     try:
         infos = await _resolve_hostname(hostname)
     except socket.gaierror:
-        return False, f"Cannot resolve hostname: {hostname}", ()
+        if not trust_remote_dns:
+            return False, f"Cannot resolve hostname: {hostname}", ()
+        normalized_hostname = hostname.rstrip(".").lower()
+        if normalized_hostname == "localhost" or normalized_hostname.endswith(".localhost"):
+            return False, f"Blocked local/internal hostname: {hostname}", ()
+        try:
+            literal_addr = ipaddress.ip_address(normalized_hostname)
+        except ValueError:
+            return True, "", ()
+        if _is_private(literal_addr):
+            return False, f"Blocked private/internal address: {literal_addr}", ()
+        return True, "", (str(_normalize_addr(literal_addr)),)
 
     addrs: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     for info in infos:

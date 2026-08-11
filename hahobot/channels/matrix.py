@@ -7,7 +7,7 @@ import mimetypes
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 from loguru import logger
 
@@ -15,11 +15,13 @@ try:
     import nh3
     from mistune import HTMLRenderer, create_markdown
     from nio import (
+        Api,
         AsyncClient,
         AsyncClientConfig,
         DownloadError,
         InviteEvent,
         JoinError,
+        JoinResponse,
         LoginResponse,
         MatrixRoom,
         MemoryDownloadResponse,
@@ -31,6 +33,7 @@ try:
         RoomSendResponse,
         RoomTypingError,
         SyncError,
+        SyncResponse,
         UploadError,
     )
     from nio.crypto.attachments import decrypt_attachment
@@ -669,6 +672,7 @@ class MatrixChannel(BaseChannel):
         self.client.add_response_callback(self._on_sync_error, SyncError)
         self.client.add_response_callback(self._on_join_error, JoinError)
         self.client.add_response_callback(self._on_send_error, RoomSendError)
+        self.client.add_response_callback(self._on_sync_invite_fallback, SyncResponse)
 
     def _log_response_error(self, label: str, response: Any) -> None:
         """Log Matrix response errors — auth errors at ERROR level, rest at WARNING."""
@@ -735,9 +739,46 @@ class MatrixChannel(BaseChannel):
             except Exception:
                 await asyncio.sleep(2)
 
+    async def _join_room_safe(self, room_id: str) -> bool:
+        """Join with a non-empty JSON body for strict Matrix homeservers."""
+        if not self.client:
+            return False
+        method, path = Api.join(self.client.access_token, room_id)
+        try:
+            response = cast(
+                JoinResponse | JoinError,
+                await self.client._send(  # type: ignore[attr-defined]
+                    JoinResponse,
+                    method,
+                    path,
+                    data="{}",
+                ),
+            )
+        except Exception:
+            logger.exception("Matrix join request failed for {}", room_id)
+            return False
+        if isinstance(response, JoinError):
+            logger.error("Matrix auto-join failed for {}: {}", room_id, response)
+            return False
+        logger.info("Matrix auto-join succeeded for {}", room_id)
+        return True
+
+    async def _on_sync_invite_fallback(self, response: SyncResponse) -> None:
+        """Retry an allowed invite found in the same sync response."""
+        rooms = getattr(response, "rooms", None)
+        invites = getattr(rooms, "invite", None)
+        if not invites:
+            return
+        for room_id, invite_info in invites.items():
+            for event in cast(list[Any], getattr(invite_info, "invite_state", ())):
+                sender = getattr(event, "sender", None)
+                if sender and self.is_allowed(cast(str, sender)):
+                    await self._join_room_safe(room_id)
+                    break
+
     async def _on_room_invite(self, room: MatrixRoom, event: InviteEvent) -> None:
         if self.is_allowed(event.sender):
-            await self.client.join(room.room_id)
+            await self._join_room_safe(room.room_id)
 
     def _is_direct_room(self, room: MatrixRoom) -> bool:
         count = getattr(room, "member_count", None)

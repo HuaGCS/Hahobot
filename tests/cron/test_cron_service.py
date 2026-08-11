@@ -49,6 +49,20 @@ def test_add_job_accepts_valid_timezone(tmp_path) -> None:
     assert job.state.next_run_at_ms is not None
 
 
+@pytest.mark.parametrize("expr", [None, "", "not a cron expression"])
+def test_add_job_rejects_invalid_cron_expression(tmp_path, expr) -> None:
+    service = CronService(tmp_path / "cron" / "jobs.json")
+
+    with pytest.raises(ValueError, match="cron schedule requires|invalid cron expression"):
+        service.add_job(
+            name="invalid cron",
+            schedule=CronSchedule(kind="cron", expr=expr),
+            message="hello",
+        )
+
+    assert service.list_jobs(include_disabled=True) == []
+
+
 @pytest.mark.asyncio
 async def test_execute_job_records_run_history(tmp_path) -> None:
     store_path = tmp_path / "cron" / "jobs.json"

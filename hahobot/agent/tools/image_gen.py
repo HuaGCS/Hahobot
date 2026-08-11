@@ -9,18 +9,26 @@ from dataclasses import dataclass
 from math import gcd
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 from loguru import logger
 
 from hahobot.agent.personas import resolve_persona_reference_image
 from hahobot.agent.tools.base import Tool
+from hahobot.security.network import (
+    PinnedDNSAsyncTransport,
+    UnsafeURLRequestError,
+    resolve_url_target,
+)
 from hahobot.utils.helpers import detect_image_mime, ensure_dir
 
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 _OPENAI_SIZE_DEFAULT = "1024x1024"
 _GEMINI_DEFAULT_ASPECT_RATIO = "1:1"
 _GEMINI_DEFAULT_IMAGE_SIZE = "2K"
+_IMAGE_DOWNLOAD_MAX_BYTES = 32 * 1024 * 1024
+_IMAGE_DOWNLOAD_MAX_REDIRECTS = 5
 # Aspect ratios documented for every Gemini image model using generateContent.
 _GEMINI_COMMON_ASPECT_RATIOS = frozenset(
     {"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
@@ -446,7 +454,10 @@ class ImageGenTool(Tool):
         generation_config: dict[str, Any] = {"responseModalities": ["IMAGE"]}
         image_config = _gemini_image_config(self.model, aspect_ratio, image_size)
         if image_config:
-            generation_config["responseFormat"] = {"image": image_config}
+            # Gemini Flash image models accept these plain-string hints under
+            # imageConfig. The older responseFormat.image form is rejected by
+            # current v1beta endpoints for variants such as Flash Lite.
+            generation_config["imageConfig"] = image_config
 
         body = {
             "contents": [{"parts": body_parts}],
@@ -541,23 +552,75 @@ class ImageGenTool(Tool):
         except Exception as exc:
             return f"Error saving image: {exc}"
 
-    async def _download_image(self, url: str) -> str:
+    async def _download_image(
+        self,
+        url: str,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> str:
         try:
-            async with httpx.AsyncClient(
-                proxy=self.proxy,
-                timeout=float(min(self.timeout, 60)),
-                trust_env=True,
-            ) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                mime = resp.headers.get("content-type", "").split(";", 1)[0].strip()
-                suffix = _MIME_EXTENSIONS.get(mime, ".png")
-                path = (
-                    self._default_output_dir()
-                    / f"gen_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}{suffix}"
-                )
-                path.write_bytes(resp.content)
-                return self._success_message(path)
+            client_kwargs: dict[str, Any] = {
+                "follow_redirects": False,
+                "timeout": float(min(self.timeout, 60)),
+                "trust_env": False,
+            }
+            if self.proxy:
+                client_kwargs["proxy"] = self.proxy
+            else:
+                client_kwargs["transport"] = PinnedDNSAsyncTransport(inner=transport)
+
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                current_url = url
+                for _ in range(_IMAGE_DOWNLOAD_MAX_REDIRECTS + 1):
+                    if self.proxy:
+                        ok, error, _ = await resolve_url_target(
+                            current_url,
+                            trust_remote_dns=True,
+                        )
+                        if not ok:
+                            return f"Error downloading image: blocked unsafe URL: {error}"
+
+                    async with client.stream("GET", current_url) as resp:
+                        if resp.is_redirect:
+                            location = resp.headers.get("location")
+                            if not location:
+                                return "Error downloading image: redirect missing Location header."
+                            current_url = urljoin(str(resp.url), location)
+                            continue
+
+                        resp.raise_for_status()
+                        declared_size = resp.headers.get("content-length")
+                        if declared_size:
+                            try:
+                                if int(declared_size) > _IMAGE_DOWNLOAD_MAX_BYTES:
+                                    return "Error downloading image: exceeded the 32 MiB limit."
+                            except ValueError:
+                                pass
+
+                        chunks: list[bytes] = []
+                        total = 0
+                        async for chunk in resp.aiter_bytes():
+                            total += len(chunk)
+                            if total > _IMAGE_DOWNLOAD_MAX_BYTES:
+                                return "Error downloading image: exceeded the 32 MiB limit."
+                            chunks.append(chunk)
+                        raw = b"".join(chunks)
+                        break
+                else:
+                    return "Error downloading image: exceeded the redirect limit."
+
+            mime = detect_image_mime(raw)
+            if mime is None:
+                return "Error downloading image: response was not a supported image."
+            suffix = _MIME_EXTENSIONS[mime]
+            path = (
+                self._default_output_dir()
+                / f"gen_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}{suffix}"
+            )
+            path.write_bytes(raw)
+            return self._success_message(path)
+        except UnsafeURLRequestError as exc:
+            return f"Error downloading image: blocked unsafe URL: {exc}"
         except httpx.HTTPStatusError as exc:
             return self._format_http_error(exc)
         except httpx.TimeoutException:

@@ -584,13 +584,26 @@ class MemoryStore:
         return [e for e in self._read_entries() if e["cursor"] > since_cursor]
 
     def compact_history(self) -> None:
-        """Drop oldest entries if the file exceeds *max_history_entries*."""
+        """Drop processed entries without discarding pending Dream input."""
         if self.max_history_entries <= 0:
             return
         entries = self._read_entries()
         if len(entries) <= self.max_history_entries:
             return
-        kept = entries[-self.max_history_entries :]
+        last_dream_cursor = self.get_last_dream_cursor()
+        first_unprocessed = next(
+            (index for index, entry in enumerate(entries) if entry["cursor"] > last_dream_cursor),
+            len(entries),
+        )
+        keep_from = min(len(entries) - self.max_history_entries, first_unprocessed)
+        kept = entries[keep_from:]
+        if len(kept) > self.max_history_entries:
+            logger.warning(
+                "History compaction retained {} unprocessed entries beyond the configured "
+                "limit of {}",
+                len(kept),
+                self.max_history_entries,
+            )
         self._write_entries(kept)
 
     # -- JSONL helpers -------------------------------------------------------
@@ -693,9 +706,10 @@ class MemoryStore:
             tools = (
                 f" [tools: {', '.join(message['tools_used'])}]" if message.get("tools_used") else ""
             )
-            lines.append(
-                f"[{message.get('timestamp', '?')[:16]}] {message['role'].upper()}{tools}: {message['content']}"
-            )
+            raw_timestamp = message.get("timestamp")
+            timestamp = str(raw_timestamp) if raw_timestamp is not None else "?"
+            role = str(message.get("role") or "unknown")
+            lines.append(f"[{timestamp[:16]}] {role.upper()}{tools}: {message['content']}")
         return "\n".join(lines)
 
     async def consolidate(

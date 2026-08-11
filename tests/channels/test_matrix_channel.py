@@ -1,13 +1,14 @@
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 import pytest
 
 pytest.importorskip("nio")
 pytest.importorskip("nh3")
 pytest.importorskip("mistune")
-from nio import RoomSendResponse
+from nio import JoinResponse, RoomSendResponse
 
 import hahobot.channels.matrix as matrix_module
 from hahobot.bus.events import OutboundMessage
@@ -81,6 +82,15 @@ class _FakeAsyncClient:
 
     async def join(self, room_id: str) -> None:
         self.join_calls.append(room_id)
+
+    async def _send(self, response_class, method, path, data=None, **kwargs):
+        if response_class is JoinResponse and method == "POST" and "/join/" in path:
+            encoded = path.split("/join/", 1)[1].split("?", 1)[0]
+            room_id = unquote(encoded)
+            assert data == "{}"
+            self.join_calls.append(room_id)
+            return JoinResponse(room_id=room_id)
+        return response_class()
 
     async def room_send(
         self,
@@ -205,7 +215,7 @@ async def test_start_skips_load_store_when_device_id_missing(monkeypatch, tmp_pa
     assert clients[0].config.encryption_enabled is True
     assert clients[0].load_store_called is False
     assert len(clients[0].callbacks) == 3
-    assert len(clients[0].response_callbacks) == 3
+    assert len(clients[0].response_callbacks) == 4
 
     await channel.stop()
 
@@ -314,6 +324,26 @@ async def test_room_invite_respects_allow_list_when_configured() -> None:
     await channel._on_room_invite(room, event)
 
     assert client.join_calls == []
+
+
+@pytest.mark.asyncio
+async def test_sync_invite_fallback_joins_allowed_pending_invite() -> None:
+    channel = MatrixChannel(_make_config(allow_from=["@alice:matrix.org"]), MessageBus())
+    client = _FakeAsyncClient("", "", "", None)
+    channel.client = client
+    response = SimpleNamespace(
+        rooms=SimpleNamespace(
+            invite={
+                "!room:matrix.org": SimpleNamespace(
+                    invite_state=[SimpleNamespace(sender="@alice:matrix.org")]
+                )
+            }
+        )
+    )
+
+    await channel._on_sync_invite_fallback(response)
+
+    assert client.join_calls == ["!room:matrix.org"]
 
 
 @pytest.mark.asyncio

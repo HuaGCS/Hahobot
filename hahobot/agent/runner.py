@@ -251,7 +251,7 @@ class AgentRunner:
             normalized = hook.normalize_content(context, response.content)
             clean = hook.finalize_content(context, normalized)
             stream_closed = False
-            if response.finish_reason != "error" and is_blank_text(clean):
+            if response.finish_reason not in {"error", "length"} and is_blank_text(clean):
                 empty_content_retries += 1
                 if empty_content_retries < _MAX_EMPTY_RETRIES:
                     logger.warning(
@@ -296,9 +296,9 @@ class AgentRunner:
             if not is_blank_text(clean):
                 empty_content_retries = 0
 
-            if response.finish_reason == "length" and not is_blank_text(clean):
+            if response.finish_reason == "length":
                 if len(length_recovery_parts) < _MAX_LENGTH_RECOVERIES:
-                    recovered_segment = _restore_outer_whitespace(clean, original_content)
+                    recovered_segment = _restore_outer_whitespace(clean or "", original_content)
                     length_recovery_parts.append(recovered_segment)
                     logger.info(
                         "Output truncated on turn {} for {} ({}/{}); continuing",

@@ -90,6 +90,28 @@ async def test_blocks_ipv6_loopback():
 
 
 @pytest.mark.asyncio
+async def test_blocks_ipv6_unspecified_address():
+    resolved = [(socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::", 0, 0, 0))]
+    with patch("hahobot.security.network._resolve_hostname", AsyncMock(return_value=resolved)):
+        ok, _ = await validate_url_target("http://evil.com/")
+    assert not ok
+
+
+@pytest.mark.asyncio
+async def test_trusted_proxy_dns_allows_unresolved_public_hostname():
+    with _patch_resolve_raises(socket.gaierror("proxy-only hostname")):
+        from hahobot.security.network import resolve_url_target
+
+        ok, error, resolved = await resolve_url_target(
+            "https://proxy-only.example/image.png",
+            trust_remote_dns=True,
+        )
+    assert ok is True
+    assert error == ""
+    assert resolved == ()
+
+
+@pytest.mark.asyncio
 async def test_blocks_ipv4_mapped_ipv6_loopback():
     resolved = [(socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::ffff:127.0.0.1", 0, 0, 0))]
     with patch("hahobot.security.network._resolve_hostname", AsyncMock(return_value=resolved)):

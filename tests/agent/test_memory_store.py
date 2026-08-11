@@ -99,10 +99,22 @@ class TestHistoryWithCursor:
         store.append_history("event 3")
         store.append_history("event 4")
         store.append_history("event 5")
+        store.set_last_dream_cursor(5)
         store.compact_history()
         entries = store.read_unprocessed_history(since_cursor=0)
         assert len(entries) == 2
         assert entries[0]["cursor"] in {4, 5}
+
+    def test_compact_history_retains_all_unprocessed_dream_entries(self, tmp_path):
+        store = MemoryStore(tmp_path, max_history_entries=2)
+        for index in range(1, 6):
+            store.append_history(f"event {index}")
+        store.set_last_dream_cursor(2)
+
+        store.compact_history()
+
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert [entry["cursor"] for entry in entries] == [3, 4, 5]
 
     def test_read_entries_drops_malformed_external_entries(self, store):
         store.append_history("good 1")
@@ -152,6 +164,20 @@ class TestHistoryWithCursor:
         entries = store.read_unprocessed_history(since_cursor=0)
         assert len(entries[0]["content"]) < 17_000
         assert "truncated" in entries[0]["content"]
+
+    def test_raw_archive_tolerates_bad_timestamp_and_missing_role(self, store):
+        store.raw_archive(
+            [
+                {"timestamp": None, "role": "user", "content": "none timestamp"},
+                {"timestamp": 1720000000, "role": "assistant", "content": "int timestamp"},
+                {"timestamp": "2026-07-28T12:00:00", "content": "missing role"},
+            ]
+        )
+
+        content = store.read_unprocessed_history(since_cursor=0)[0]["content"]
+        assert "[?] USER: none timestamp" in content
+        assert "[1720000000] ASSISTANT: int timestamp" in content
+        assert "[2026-07-28T12:00] UNKNOWN: missing role" in content
 
     def test_next_cursor_stays_monotonic_when_sidecar_lags(self, store):
         """A stale/truncated .cursor must not re-allocate a used cursor."""

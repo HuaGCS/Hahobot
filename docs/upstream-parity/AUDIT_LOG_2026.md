@@ -70,6 +70,46 @@ This file therefore records both:
 
 ## Dated Audit Log (Newest First)
 
+- `nanobot` (`2026-08-10` pass): audited 188 commits from `cf1e801a` through
+  `main@55ecda27` (`2026-08-09`). Adopted generated-image download hardening and IPv6 unspecified
+  blocking (`4408cde0`, `cc3dbbe8`, `d73794bc`, `b3d3a3e6`) in
+  `hahobot/security/network.py` + `hahobot/agent/tools/image_gen.py`; direct downloads pin validated
+  DNS, redirects are revalidated, an explicit proxy may own unresolved public DNS, content is
+  streamed under 32 MiB, and magic bytes determine the saved image type. Updated Gemini Flash
+  hints to `generationConfig.imageConfig` (`08fe9f7b`) and Anthropic's versioned adaptive
+  effort/disable rules (`4e8702a4`). Persistence ports cover pending Dream-history retention
+  (`7fd28c9f`), malformed idle timestamp/summary and raw-archive records (`e633f867`, `39bb20c7`,
+  `4c387f66`), and real Dulwich object IDs (`92361cbe`). Runtime/channel ports cover blank length
+  recovery (`511c764f`), cron syntax validation (`73a00804`), Telegram special/single-line fences
+  (`a13e29bf`, `170c7083`), and strict Matrix invite joins (`5c4c2cb8`). Evidence lives in
+  `tests/security/test_security_network.py`, `tests/tools/test_image_gen_tool.py`,
+  `tests/providers/test_anthropic_thinking.py`, `tests/agent/test_memory_store.py`,
+  `tests/agent/test_auto_compact.py`, `tests/agent/test_git_store.py`, `tests/agent/test_runner.py`,
+  `tests/cron/test_cron_service.py`, `tests/test_telegram_markdown_split.py`, and
+  `tests/channels/test_matrix_channel.py`. Final verification passed the full suite: 2363 tests,
+  with 4 tests skipped by the current environment. Reviewed but did not port React/Vite
+  marketplace/temporary-chat/mention UI, pairing/triggers, whole-file session
+  retention, provider breadth, and persistent exec-session machinery. One-shot exec capture and
+  localized invalid slash-command rejection remain watchlist items.
+- `GenericAgent` (`2026-08-10` pass): audited 30 linear commits from `5c3fc72d` through
+  `main@d426d45e` (`2026-08-08`). Responses incomplete/failed terminal handling and maximum Claude
+  effort are already mapped locally. Hub/P2P, Streamlit/desktop/TUI, conductor, and workspace-copy
+  changes remain architecture-specific. `7ffc9582`'s oversized `Retry-After` cap is retained as a
+  policy watchlist item rather than copied into only one of Hahobot's finite/persistent retry modes.
+- `claude-mem` / `nocturne_memory` (`2026-08-10` pass): audited 11 commits from `132b4634` through
+  `claude-mem main@4702c337` and 7 commits from `2cbfb8a` through
+  `nocturne_memory main@54c48eea`. Chroma write-storm control and sensitive observations map to
+  Hahobot's derived-cache concurrency plus private-tag boundaries; custom modes map to reviewed
+  skills/subagent modes. Nocturne's bloat diagnostics and block-matched updates are useful doctor /
+  Dream-hygiene candidates, but its graph store and maintenance UI remain intentional divergences.
+- `jiuwenswarm` (`2026-08-10` pass): audited 271 commits from `develop@de623dd9` through
+  `develop@fb43da6c`. Session-delete traversal fixes, secret masking, context compression,
+  cancellation cleanup, cron reliability, and stream whitespace are already covered by local
+  session-key encoding/scoped stores, redacted config/admin surfaces, bounded memory/runtime
+  ownership, claimed atomic cron transactions, and channel streaming regressions. Team/warm-pool,
+  Symphony, desktop/TUI, sandbox, PDF/PPT, and distributed authority changes were intentionally not
+  copied.
+
 - `nanobot` (`2026-07-27` pass): re-checked upstream `main` through `cf1e801a`
   (`2026-07-27`); 142 commits since `d5658dbc`. The portable fixes were adapted in coherent
   clusters rather than cherry-picked mechanically: oversized `read_file` inputs are rejected from

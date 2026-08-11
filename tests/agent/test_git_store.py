@@ -85,6 +85,17 @@ class TestAutoCommit:
         assert sha is not None
         assert len(sha) == 8
 
+    def test_commit_returns_real_git_object_id(self, git_ready):
+        from dulwich.repo import Repo
+
+        (git_ready._workspace / "SOUL.md").write_text("changed", encoding="utf-8")
+        sha = git_ready.auto_commit("real id")
+
+        with Repo(str(git_ready._workspace)) as repo:
+            expected = repo.refs[b"HEAD"].decode()[:8]
+        assert sha == expected
+        assert git_ready._resolve_sha(expected) is not None
+
     def test_returns_none_when_no_changes(self, git_ready):
         assert git_ready.auto_commit("no change") is None
 

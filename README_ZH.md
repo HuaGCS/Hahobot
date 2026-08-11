@@ -233,9 +233,11 @@ hahobot config unset skills.entries.today-task.config.authCode
 Moonshot 直连请求中，Kimi K2.5/K2.6 不再显式发送 `temperature`，由服务端根据 thinking
 模式选择合法值；K2.7 系列仍保留服务端要求的 `1.0` 覆盖。
 Qwen 的 thinking 参数按模型家族匹配，不会因为共用一个 OpenAI 兼容端点就误加到其他模型。
-所有发往 provider 的嵌套消息还会在 JSON 编码前清理异常 UTF-16 surrogate。若 provider 以
-`finish_reason="length"` 截断输出，hahobot 会用已送达尾部锚定续写，并把各段合并成同一条
-最终回复和同一条可见流式消息。
+Anthropic 推理参数同样按模型与版本判断：较新的 Opus/Sonnet 家族会在支持时使用 adaptive
+thinking 与 effort；显式 `none` 会关闭默认 thinking，不会再与“未配置”混为一谈。所有发往
+provider 的嵌套消息还会在 JSON 编码前清理异常 UTF-16 surrogate。若 provider 以
+`finish_reason="length"` 截断输出，即使首段还没有可见文本，hahobot 也会继续生成，并把各段
+合并成同一条最终回复和同一条可见流式消息。
 
 对于直连 OpenAI 的请求，当前实现也已经同步了上游新逻辑：
 
@@ -333,8 +335,10 @@ DuckDuckGo：
 - 当当前 persona 的 `.hahobot/st_manifest.json` 里有 `reference_image` 或 `reference_images` 时，`image_gen` 支持：
   - `reference_image="__default__"`
   - `reference_image="__default__:scene"`
-- Gemini 生图请求会按具体模型能力发送 `aspectRatio` / `imageSize`，不把不受支持的
-  `imageConfig` 字段强塞给较旧或能力较窄的模型。
+- Gemini 生图请求会按具体模型能力通过 `generationConfig.imageConfig` 发送
+  `aspectRatio` / `imageSize`，不再使用旧版或不受支持的请求结构。
+- 模型返回的图片 URL 会逐跳做 SSRF 校验；直连下载固定已校验的 DNS 结果，并限制为
+  32 MiB，保存前再以图片魔数确认真实格式。
 
 这使得角色一致性出图、场景换装、生活陪伴类配图都可以复用 persona 参考图。
 

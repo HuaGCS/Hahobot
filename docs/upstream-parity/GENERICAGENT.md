@@ -6,10 +6,9 @@ memory, hooks, subagents, Dream, heartbeat, and admin surfaces.
 
 ## Current Boundary
 
-- Audited ref: `main@5c3fc72d` (2026-07-25; audited on 2026-07-27)
-- Previous recorded boundary: `d69ec880`
-- History note: upstream `main` was force-rewritten, so the latest pass used date and first-parent
-  inspection rather than claiming the previous boundary was an ancestor.
+- Audited ref: `main@d426d45e` (2026-08-08; audited on 2026-08-10)
+- Previous recorded boundary: `5c3fc72d`
+- Range reviewed: 30 linear commits (the older force-rewrite note remains historical).
 - Remote rule: keep `remote.genericagent-upstream.tagOpt = --no-tags`
 
 ## Current Mapping
@@ -24,8 +23,10 @@ memory, hooks, subagents, Dream, heartbeat, and admin surfaces.
 | Background workflows | Explicit cron, heartbeat, Dream, runtime status, and Star-Office push | `local_extension` |
 | Minimal autonomous loop | Richer Hahobot runtime surfaces remain first-class | `intentional_divergence` |
 
-The 2026-07-27 empty-text-block change required no port because Hahobot's shared provider
-normalization already removes invalid empty content.
+The latest Responses incomplete/failed-event and maximum-effort changes map to Hahobot's existing
+Responses parsing and updated versioned Anthropic effort handling. `7ffc9582`'s oversized
+`Retry-After` cap is useful but remains deferred until finite/persistent retry modes share one
+documented policy.
 
 ## Intentional Divergences
 
@@ -46,6 +47,7 @@ normalization already removes invalid empty content.
 - Re-evaluate autonomous background behavior only with explicit authority, visibility, and failure
   boundaries.
 - Treat future force-pushes as new audit lineages and record the comparison method in the root ledger.
+- Revisit a maximum accepted `Retry-After` when provider retry policy next changes.
 
 See the [current root ledger](../../UPSTREAM_PARITY.md) and the
 [complete 2026 audit log](AUDIT_LOG_2026.md) for the older detailed matrix and dated decisions.

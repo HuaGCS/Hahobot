@@ -6,9 +6,9 @@ own architecture; file-for-file mirroring is not required.
 
 ## Current Boundary
 
-- Audited ref: `main@cf1e801a` (2026-07-27)
-- Previous boundary: `d5658dbc`
-- Range reviewed: 142 commits
+- Audited ref: `main@55ecda27` (2026-08-09; audited 2026-08-10)
+- Previous boundary: `cf1e801a`
+- Range reviewed: 188 commits
 - Remote rule: keep `remote.nanobot-upstream.tagOpt = --no-tags`
 
 ## Latest Adopted Clusters
@@ -27,6 +27,12 @@ own architecture; file-for-file mirroring is not required.
 | `9aae7485`, `c1899e2c` | MCP schemas resolve and hoist arbitrary URI-decoded local JSON Pointers into `$defs`. |
 | `4e2640f2`, `15e42059` | Dream advances/compacts only after phase 2 completes. |
 | `b19039f9..b55b76d7` | Provider length recovery preserves partial text and one-message streaming continuity. |
+| `4408cde0..b3d3a3e6` | Generated-image downloads use per-hop SSRF validation, pinned direct DNS, explicit-proxy DNS delegation, byte limits, and content verification; IPv6 unspecified is blocked. |
+| `7fd28c9f`, `e633f867`, `39bb20c7`, `4c387f66` | Pending Dream input and malformed idle/raw-archive metadata remain safe and retryable. |
+| `92361cbe` | Dream Git history exposes real Dulwich object IDs instead of hex-of-hex identifiers. |
+| `511c764f`, `73a00804` | Blank truncated responses continue; invalid cron expressions fail before persistence. |
+| `08fe9f7b`, `4e8702a4` | Gemini Flash and versioned Anthropic thinking requests use their current provider-native wire shapes. |
+| `a13e29bf`, `170c7083`, `5c4c2cb8` | Telegram fenced code and strict Matrix invite joins retain interoperable channel behavior. |
 
 ## Established Local Mapping
 
@@ -58,6 +64,9 @@ own architecture; file-for-file mirroring is not required.
 - Kimi/MiMo and other model-scoped reasoning parameters when provider routing expands.
 - A Hahobot-native retention/archival design if incremental session stores need bounded history.
 - New channel/provider surfaces only when operator demand and local config/admin/test coverage exist.
+- Bounded-at-source one-shot exec capture; Hahobot has no upstream-style persistent exec sessions,
+  but `communicate()` can still buffer before the local response cap is applied.
+- Explicit localized unknown-command rejection if slash-command UX is next revised.
 
 See the [current root ledger](../../UPSTREAM_PARITY.md) and the
 [complete 2026 audit log](AUDIT_LOG_2026.md) for dated commit-by-commit rationale.

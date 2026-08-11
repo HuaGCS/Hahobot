@@ -6,9 +6,9 @@ clone or AtomGit web inspection rather than GitHub APIs.
 
 ## Current Boundary
 
-- Audited ref: `develop@de623dd9` (2026-07-26; audited on 2026-07-27)
-- Previous boundary: `caec89ca`
-- Range reviewed: 116 commits
+- Audited ref: `develop@fb43da6c` (2026-08-10)
+- Previous boundary: `de623dd9`
+- Range reviewed: 271 commits
 
 ## Adopted Or Mapped Ideas
 
@@ -21,6 +21,8 @@ clone or AtomGit web inspection rather than GitHub APIs.
 | Persisted WebUI media (`94310a3ad`) | Existing server-rendered history uses the guarded `workspace/out` `/app/media` mapping after refresh. | `synced` |
 | PLAN/AGENT/CODE modes | Existing plan/verify skills and explore/implement/verify subagent modes cover the useful authority split. | `synced` |
 | Self-evolving skills | `/skill derive`, lifecycle metadata, supersede/lint, and explicit review provide a bounded local analogue. | `intentional_divergence` |
+| Session/config safety deltas | Collision-safe session paths, scoped deletion, redacted config/admin output, and atomic persistence already cover the portable traversal/masking changes. | `synced` |
+| Stream/cancellation/cron reliability | Existing whitespace-preserving streams, task/tool cleanup, claimed cron transactions, and crash-ambiguity rules cover the behavioral intent. | `synced` |
 
 ## Intentional Divergences
 
@@ -39,6 +41,8 @@ clone or AtomGit web inspection rather than GitHub APIs.
 - `jiuwenbox` only if local exec isolation requirements exceed the current workspace guard.
 - Team/distributed orchestration only with explicit operator authority, ownership, recovery, and
   observability contracts.
+- Warm pools and system-operation inheritance only if Hahobot introduces a concrete multi-tenant
+  runtime; they are not needed for the current single-instance workspace model.
 
 See the [current root ledger](../../UPSTREAM_PARITY.md) and the
 [complete 2026 audit log](AUDIT_LOG_2026.md) for detailed dated analysis.

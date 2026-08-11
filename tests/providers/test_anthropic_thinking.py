@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from hahobot.providers.anthropic_provider import AnthropicProvider
 
 
@@ -65,6 +67,12 @@ def test_none_does_not_enable_thinking() -> None:
     assert kw["temperature"] == 0.7
 
 
+def test_explicit_none_does_not_enable_thinking_on_ordinary_model() -> None:
+    kw = _build(_make_provider(), "none")
+    assert "thinking" not in kw
+    assert kw["temperature"] == 0.7
+
+
 def test_opus_4_7_omits_temperature_without_thinking() -> None:
     kw = _build(_make_provider("claude-opus-4-7"), None)
     assert "temperature" not in kw
@@ -73,6 +81,14 @@ def test_opus_4_7_omits_temperature_without_thinking() -> None:
 def test_opus_4_7_omits_temperature_with_adaptive_thinking() -> None:
     kw = _build(_make_provider("claude-opus-4-7"), "adaptive")
     assert kw["thinking"] == {"type": "adaptive"}
+    assert "temperature" not in kw
+
+
+def test_opus_4_7_high_uses_adaptive_effort() -> None:
+    kw = _build(_make_provider("claude-opus-4-7"), "high", max_tokens=4096)
+    assert kw["thinking"] == {"type": "adaptive"}
+    assert kw["output_config"] == {"effort": "high"}
+    assert kw["max_tokens"] == 4096
     assert "temperature" not in kw
 
 
@@ -94,6 +110,28 @@ def test_sonnet_5_omits_temperature() -> None:
     assert "temperature" not in kw_adaptive
     assert kw_adaptive["thinking"] == {"type": "adaptive"}
     assert "temperature" not in _build(_make_provider("claude-sonnet-5"), "high", max_tokens=4096)
+
+
+@pytest.mark.parametrize("reasoning_effort", ["low", "medium", "high", "xhigh", "max"])
+def test_opus_5_uses_adaptive_thinking_with_effort(reasoning_effort: str) -> None:
+    kw = _build(_make_provider("claude-opus-5"), reasoning_effort, max_tokens=4096)
+    assert kw["thinking"] == {"type": "adaptive"}
+    assert kw["output_config"] == {"effort": reasoning_effort}
+    assert kw["max_tokens"] == 4096
+    assert "temperature" not in kw
+
+
+def test_opus_5_none_disables_default_thinking() -> None:
+    kw = _build(_make_provider("claude-opus-5"), "none")
+    assert kw["thinking"] == {"type": "disabled"}
+    assert "output_config" not in kw
+    assert "temperature" not in kw
+
+
+def test_dated_opus_4_does_not_treat_date_as_minor_version() -> None:
+    kw = _build(_make_provider("claude-opus-4-20250514"), "high")
+    assert kw["thinking"] == {"type": "enabled", "budget_tokens": 8192}
+    assert kw["temperature"] == 1.0
 
 
 def test_omit_temperature_matches_mixed_case() -> None:

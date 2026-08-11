@@ -8,8 +8,8 @@ memory-architecture inspirations. Neither is a storage-layout parity target.
 
 | Upstream | Audited ref | Previous boundary | Audit result |
 | --- | --- | --- | --- |
-| `claude-mem` | `main@132b4634` (2026-07-23) | `f5633c1f` | 183 commits reviewed on 2026-07-27; mostly hosted SyncHub/worker, Chroma, plugin, and release work. |
-| `nocturne_memory` | `main@2cbfb8a` (2026-07-21) | unchanged | No new commits in the 2026-07-27 pass. |
+| `claude-mem` | `main@4702c337` (2026-08-08) | `132b4634` | 11 commits reviewed on 2026-08-10; Chroma concurrency, sensitive observations, mode creation, hosted/install work. |
+| `nocturne_memory` | `main@54c48eea` (2026-08-10) | `2cbfb8a` | 7 commits reviewed; bloat diagnostics, content-size reporting, and block-matched patch updates. |
 
 `claude-mem`'s public repository has been Apache-2.0 since v13.0.0 (`36b0929fa`); its hosted service
 is a separate reserved surface. `nocturne_memory` is MIT-licensed.
@@ -43,6 +43,10 @@ is a separate reserved surface. `nocturne_memory` is MIT-licensed.
   sidecar migration, write path, and query contract.
 - Stable addressable memory-entry IDs from graph-oriented systems may help ranked recall, but must
   not replace Markdown bullets as the canonical representation.
+- Nocturne's bloat report is a candidate for local doctor/admin diagnostics; its byte threshold and
+  graph maintenance UI are not copied directly.
+- Block-matched patching may inform future Dream edit hygiene, but Hahobot keeps explicit file edits
+  and Markdown review rather than adopting graph-node mutation semantics.
 - New workflow skills from memory upstreams are demand-driven; they are not automatically bundled.
 - Revisit either source when it changes memory semantics, not for hosted UI, telemetry, or release
   churn alone.

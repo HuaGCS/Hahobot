@@ -1271,6 +1271,42 @@ async def test_length_recovery_continues_from_truncated_output():
 
 
 @pytest.mark.asyncio
+async def test_length_recovery_continues_when_truncated_output_is_blank():
+    from hahobot.agent.runner import AgentRunner, AgentRunSpec
+
+    provider = MagicMock()
+    responses = iter(
+        [
+            LLMResponse(content="", finish_reason="length", usage={}),
+            LLMResponse(content="recovered", finish_reason="stop", usage={}),
+        ]
+    )
+
+    async def chat_with_retry(**kwargs):
+        return next(responses)
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    result = await AgentRunner(provider).run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "go"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
+
+    assert result.final_content == "recovered"
+    assert any(
+        message.get("role") == "user" and "<already_delivered_tail>" in message.get("content", "")
+        for message in result.messages
+    )
+
+
+@pytest.mark.asyncio
 async def test_length_recovery_streaming_calls_on_stream_end_with_resuming():
     """During length recovery with streaming, on_stream_end should be called
     with resuming=True so the hook knows the conversation is continuing."""
