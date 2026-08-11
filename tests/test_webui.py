@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 import pytest
 import pytest_asyncio
@@ -263,6 +264,92 @@ async def test_webui_new_session_redirects_with_webui_key(tmp_path: Path, client
     assert resp.status == 302
     assert resp.headers["Location"].startswith("/app?session=webui")
     assert "My-Chat" in resp.headers["Location"]
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_temporary_chat_is_process_local_and_can_save_copy(
+    tmp_path: Path, client_factory
+) -> None:
+    from hahobot.gateway.webui.app import _WEBUI_SESSION_MANAGER_KEY
+    from hahobot.session.temporary import is_temporary_session_key
+
+    cron = _FakeCron()
+    app = _make_app(
+        tmp_path,
+        webui_enabled=True,
+        agent=_StreamingAgent(),
+        cron_service=cron,
+    )
+    client = await client_factory(app)
+    created = await client.post(
+        "/app/session/new-temporary",
+        cookies=_auth_cookies(),
+        allow_redirects=False,
+    )
+    assert created.status == 302
+    key = unquote(created.headers["Location"].split("session=", 1)[1])
+    assert is_temporary_session_key(key)
+
+    page = await client.get(created.headers["Location"], cookies=_auth_cookies())
+    body = await page.text()
+    assert "Temporary chat · Messages stay only in this gateway process" in body
+    assert 'action="/app/session/new-temporary"' in body
+    assert 'action="/app/schedule"' not in body
+    assert "Save copy" in body
+
+    sm = app[_WEBUI_SESSION_MANAGER_KEY]
+    temporary = sm.get_or_create(key)
+    temporary.add_message("user", "scratch")
+    sm.save(temporary)
+    assert sm._get_session_path(key).exists() is False
+
+    saved = await client.post(
+        "/app/session/fork",
+        data={"session": key},
+        cookies=_auth_cookies(),
+        allow_redirects=False,
+    )
+    saved_key = unquote(saved.headers["Location"].split("session=", 1)[1])
+    assert saved_key.startswith("webui:saved-")
+    assert sm._get_session_path(saved_key).exists()
+    assert sm.get_or_create(saved_key).messages[0]["content"] == "scratch"
+
+    closed = await client.post(
+        "/app/session/delete",
+        data={"session": key, "current": key},
+        cookies=_auth_cookies(),
+        allow_redirects=False,
+    )
+    assert closed.status == 302
+    assert sm.list_temporary_sessions() == []
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_temporary_chat_rejects_schedule_post(tmp_path: Path, client_factory) -> None:
+    cron = _FakeCron()
+    app = _make_app(
+        tmp_path,
+        webui_enabled=True,
+        agent=_StreamingAgent(),
+        cron_service=cron,
+    )
+    client = await client_factory(app)
+
+    response = await client.post(
+        "/app/schedule",
+        data={
+            "session": "webui:__temporary__-manual",
+            "delay": "5",
+            "message": "must not persist",
+        },
+        cookies=_auth_cookies(),
+        allow_redirects=False,
+    )
+
+    assert response.status == 302
+    assert cron.jobs == []
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")

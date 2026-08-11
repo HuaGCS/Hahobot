@@ -40,6 +40,11 @@ from hahobot.gateway.admin.base import (
     _t,
 )
 from hahobot.gateway.webui.broadcast import WebUIBroadcaster, WebUIConnection
+from hahobot.session.temporary import (
+    TEMPORARY_WEBUI_CHAT_PREFIX,
+    TEMPORARY_WEBUI_SESSION_PREFIX,
+    is_temporary_session_key,
+)
 from hahobot.utils.html_templates import render_html_template
 
 _WEBUI_AGENT_KEY = web.AppKey("webui_agent", object)
@@ -118,6 +123,9 @@ def _list_webui_sessions(request: web.Request) -> list[dict[str, Any]]:
     items = [
         s for s in sm.list_sessions() if str(s.get("key", "")).startswith(_WEBUI_SESSION_PREFIX)
     ]
+    list_temporary = getattr(sm, "list_temporary_sessions", None)
+    if callable(list_temporary):
+        items.extend(list_temporary())
     items.sort(key=lambda s: str(s.get("updated_at") or ""), reverse=True)
     return items
 
@@ -320,6 +328,7 @@ async def webui_index(request: web.Request) -> web.Response:
     personas = list_personas(_runtime_workspace(request))
     current_persona = _current_persona(request, session_key)
     checkpoint = _working_checkpoint(request, session_key)
+    temporary = is_temporary_session_key(session_key)
 
     html = render_html_template(
         "gateway/webui/shell.html",
@@ -347,7 +356,7 @@ async def webui_index(request: web.Request) -> web.Response:
         mic_recording=_t(request, "webui_mic_recording"),
         mic_transcribing=_t(request, "webui_mic_transcribing"),
         mic_error=_t(request, "webui_mic_error"),
-        can_schedule=_cron_service(request) is not None,
+        can_schedule=_cron_service(request) is not None and not temporary,
         schedule_label=_t(request, "webui_schedule_label"),
         schedule_delay_label=_t(request, "webui_schedule_delay"),
         schedule_message_label=_t(request, "webui_schedule_message"),
@@ -356,6 +365,12 @@ async def webui_index(request: web.Request) -> web.Response:
         sessions_heading=_t(request, "webui_sessions_heading"),
         new_session_label=_t(request, "webui_new_session"),
         new_session_placeholder=_t(request, "webui_new_session_placeholder"),
+        temporary=temporary,
+        temporary_label=_t(request, "webui_temporary_session"),
+        temporary_new_label=_t(request, "webui_new_temporary_session"),
+        temporary_notice=_t(request, "webui_temporary_notice"),
+        temporary_close_label=_t(request, "webui_close_temporary_session"),
+        temporary_save_label=_t(request, "webui_save_temporary_copy"),
         clear_label=_t(request, "webui_clear_session"),
         fork_label=_t(request, "webui_fork_session"),
         delete_label=_t(request, "webui_delete_session"),
@@ -455,7 +470,19 @@ async def webui_session_new(request: web.Request) -> web.Response:
     ident = _SESSION_ID_RE.sub("-", name).strip("-") if name else ""
     if not ident:
         ident = secrets.token_hex(4)
+    if ident.startswith(TEMPORARY_WEBUI_CHAT_PREFIX):
+        ident = f"session-{ident}"
     key = f"{_WEBUI_SESSION_PREFIX}{ident}"
+    raise _redirect(request, f"/app?session={quote(key)}")
+
+
+async def webui_session_new_temporary(request: web.Request) -> web.Response:
+    """Create a process-local conversation that never receives a session file."""
+    _require_webui_auth(request)
+    key = f"{TEMPORARY_WEBUI_SESSION_PREFIX}{secrets.token_hex(4)}"
+    sm = _session_manager(request)
+    if sm is not None:
+        sm.get_or_create(key)
     raise _redirect(request, f"/app?session={quote(key)}")
 
 
@@ -502,8 +529,11 @@ async def webui_session_fork(request: web.Request) -> web.Response:
         raise _redirect(request, f"/app?session={quote(source_key)}")
 
     source = sm.get_or_create(source_key)
-    base_ident = source_key.split(":", 1)[1]
-    fork_key = f"{_WEBUI_SESSION_PREFIX}{base_ident}-fork-{secrets.token_hex(3)}"
+    if is_temporary_session_key(source_key):
+        fork_key = f"{_WEBUI_SESSION_PREFIX}saved-{secrets.token_hex(4)}"
+    else:
+        base_ident = source_key.split(":", 1)[1]
+        fork_key = f"{_WEBUI_SESSION_PREFIX}{base_ident}-fork-{secrets.token_hex(3)}"
     fork = sm.get_or_create(fork_key)
     fork.messages = copy.deepcopy(source.messages)
     fork.metadata = copy.deepcopy(source.metadata)
@@ -524,6 +554,8 @@ async def webui_schedule(request: web.Request) -> web.Response:
     cron = _cron_service(request)
     form = await request.post()
     key = _normalize_session_key(str(form.get("session", "")))
+    if is_temporary_session_key(key):
+        raise _redirect(request, f"/app?session={quote(key)}")
     chat_id = key.split(":", 1)[1]
     message = str(form.get("message", "")).strip()
     try:
@@ -705,6 +737,7 @@ def register_webui_routes(
     app.router.add_post("/app/transcribe", webui_transcribe)
     app.router.add_get("/app/ws", webui_chat_ws)
     app.router.add_post("/app/session/new", webui_session_new)
+    app.router.add_post("/app/session/new-temporary", webui_session_new_temporary)
     app.router.add_post("/app/session/clear", webui_session_clear)
     app.router.add_post("/app/session/delete", webui_session_delete)
     app.router.add_post("/app/session/fork", webui_session_fork)

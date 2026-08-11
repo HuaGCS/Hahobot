@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from hahobot.agent.commands import router as router_mod
@@ -12,6 +14,7 @@ from hahobot.command.catalog import (
     telegram_forwardable_commands,
 )
 from hahobot.command.router import CommandContext
+from hahobot.session.manager import Session
 
 
 def test_help_and_admin_catalog_include_gateway_workspace_commands() -> None:
@@ -111,3 +114,49 @@ async def test_agent_command_router_registers_update_prefix(monkeypatch) -> None
     assert out is not None
     assert out.content == "ok"
     assert seen == {"raw": "/update check", "args": "check"}
+
+
+@pytest.mark.asyncio
+async def test_agent_command_router_suggests_unknown_command_in_session_language() -> None:
+    router = router_mod.build_agent_command_router()
+    session = Session(key="cli:direct", metadata={"language": "zh"})
+    loop = SimpleNamespace(_get_session_language=lambda _session: "zh")
+    ctx = CommandContext(
+        msg=InboundMessage(
+            channel="cli",
+            sender_id="u1",
+            chat_id="direct",
+            content="/persna current",
+            metadata={"source": "test"},
+        ),
+        session=session,
+        key=session.key,
+        raw="/persna current",
+        loop=loop,
+    )
+
+    out = await router.dispatch(ctx)
+
+    assert out is not None
+    assert "未知命令“/persna”" in out.content
+    assert "“/persona”" in out.content
+    assert out.metadata == {"source": "test", "render_as": "text"}
+
+
+@pytest.mark.asyncio
+async def test_agent_command_router_rejects_arguments_for_exact_only_command() -> None:
+    router = router_mod.build_agent_command_router()
+    session = Session(key="cli:direct")
+    loop = SimpleNamespace(_get_session_language=lambda _session: "en")
+    ctx = CommandContext(
+        msg=InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content="/status now"),
+        session=session,
+        key=session.key,
+        raw="/status now",
+        loop=loop,
+    )
+
+    out = await router.dispatch(ctx)
+
+    assert out is not None
+    assert out.content == 'Command "/status" does not accept arguments. Use "/status" by itself.'

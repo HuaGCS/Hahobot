@@ -8,6 +8,7 @@ from loguru import logger
 
 from hahobot.agent.i18n import DEFAULT_LANGUAGE, resolve_language
 from hahobot.agent.memory_models import MemoryCommitRequest, MemoryScope
+from hahobot.session.temporary import is_temporary_session_key
 
 if TYPE_CHECKING:
     from hahobot.agent.loop import AgentLoop, _SessionTurnState
@@ -78,6 +79,8 @@ class SessionRuntimeManager:
         router: MemoryRouter | None = None,
     ) -> None:
         """Forward a completed turn to the memory router without blocking replies on failures."""
+        if is_temporary_session_key(scope.session_key):
+            return
         try:
             active_router = router or self.loop.memory_router
             await active_router.commit_turn(
@@ -102,6 +105,8 @@ class SessionRuntimeManager:
         language: str | None = None,
     ) -> None:
         """Flush buffered memory state before persona/session transitions."""
+        if is_temporary_session_key(session.key):
+            return
         scope = self.memory_scope(
             session,
             channel=channel,
@@ -130,7 +135,9 @@ class SessionRuntimeManager:
             self.loop.sessions.save(session)
         persona = self.get_session_persona(session)
         language = self.get_session_language(session)
-        session, pending = self.loop.auto_compact.prepare_session(session, key)
+        pending = None
+        if not is_temporary_session_key(key):
+            session, pending = self.loop.auto_compact.prepare_session(session, key)
         return self.loop._session_turn_state_type()(
             key=key,
             session=session,

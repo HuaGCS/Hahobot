@@ -212,6 +212,57 @@ async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) ->
 
 
 @pytest.mark.asyncio
+async def test_temporary_webui_turn_skips_persistence_and_memory_writeback(tmp_path) -> None:
+    loop = _make_loop(tmp_path, estimated_tokens=1000, context_window_tokens=200)
+    loop._run_preflight_token_consolidation = AsyncMock()  # type: ignore[method-assign]
+    loop._maybe_start_memorix_session = AsyncMock(return_value="external")  # type: ignore[method-assign]
+    loop.memory_router.commit_turn = AsyncMock()
+    key = "webui:__temporary__-scratch"
+
+    response = await loop.process_direct(
+        "temporary question",
+        session_key=key,
+        channel="webui",
+        chat_id="__temporary__-scratch",
+    )
+
+    assert response is not None
+    assert response.content == "ok"
+    loop._run_preflight_token_consolidation.assert_not_awaited()
+    loop._maybe_start_memorix_session.assert_not_awaited()
+    loop.memory_router.commit_turn.assert_not_awaited()
+    assert [message["role"] for message in loop.sessions.get_or_create(key).messages] == [
+        "user",
+        "assistant",
+    ]
+    assert loop.sessions.list_sessions() == []
+    assert list((tmp_path / "sessions").glob("*.jsonl")) == []
+
+
+@pytest.mark.asyncio
+async def test_temporary_webui_archive_is_a_noop(tmp_path) -> None:
+    loop = _make_loop(tmp_path, estimated_tokens=1000, context_window_tokens=200)
+    loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    session = loop.sessions.get_or_create("webui:__temporary__-scratch")
+    messages = [{"role": "user", "content": "private scratch"}]
+
+    assert await loop.consolidator.archive_messages(session, messages) is True
+    loop.consolidator.archive.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unknown_slash_command_never_reaches_provider(tmp_path) -> None:
+    loop = _make_loop(tmp_path, estimated_tokens=100, context_window_tokens=200)
+
+    response = await loop.process_direct("/persna", session_key="cli:test")
+
+    assert response is not None
+    assert "/persona" in response.content
+    loop.provider.chat_with_retry.assert_not_awaited()
+    loop.provider.chat_stream_with_retry.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_slow_preflight_consolidation_continues_in_background(tmp_path, monkeypatch) -> None:
     order: list[str] = []
 

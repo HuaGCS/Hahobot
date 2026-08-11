@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from difflib import get_close_matches
 from typing import TYPE_CHECKING, Any
 
+from hahobot.bus.events import OutboundMessage
+
 if TYPE_CHECKING:
-    from hahobot.bus.events import InboundMessage, OutboundMessage
+    from hahobot.bus.events import InboundMessage
     from hahobot.session.manager import Session
 
 Handler = Callable[["CommandContext"], Awaitable["OutboundMessage | None"]]
@@ -66,7 +69,7 @@ class CommandRouter:
         return None
 
     async def dispatch(self, ctx: CommandContext) -> OutboundMessage | None:
-        """Try exact, prefix, then interceptors. Returns None if unhandled."""
+        """Try handlers, then reject unknown slash commands before they reach the model."""
         cmd = ctx.raw.lower()
 
         if handler := self._exact.get(cmd):
@@ -82,4 +85,59 @@ class CommandRouter:
             if result is not None:
                 return result
 
+        if ctx.raw.startswith("/"):
+            return self._invalid_command_response(ctx)
         return None
+
+    def _invalid_command_response(self, ctx: CommandContext) -> OutboundMessage:
+        from hahobot.agent.i18n import text
+
+        entered = ctx.raw.split(maxsplit=1)[0]
+        commands = self._registered_commands()
+        command = commands.get(entered.lower())
+        language = "en"
+        if ctx.loop is not None:
+            try:
+                session = ctx.session or ctx.loop.sessions.get_or_create(ctx.key)
+                language = ctx.loop._get_session_language(session)
+            except (AttributeError, TypeError):
+                pass
+
+        if command is not None and not command[1]:
+            content = text(
+                language,
+                "command_no_arguments",
+                entered=entered,
+                command=command[0],
+            )
+        else:
+            matches = get_close_matches(entered.lower(), commands, n=1, cutoff=0.6)
+            if matches:
+                content = text(
+                    language,
+                    "unknown_command_suggestion",
+                    entered=entered,
+                    suggestion=commands[matches[0]][0],
+                )
+            else:
+                content = text(language, "unknown_command", entered=entered)
+
+        return OutboundMessage(
+            channel=ctx.msg.channel,
+            chat_id=ctx.msg.chat_id,
+            content=content,
+            metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+        )
+
+    def _registered_commands(self) -> dict[str, tuple[str, bool]]:
+        """Return display form and argument support for every registered command."""
+        commands: dict[str, tuple[str, bool]] = {
+            command.lower(): (command, False)
+            for command in (*self._priority, *self._exact)
+            if command
+        }
+        for prefix, _handler in self._prefix:
+            command = prefix.rstrip()
+            if command:
+                commands[command.lower()] = (command, True)
+        return commands

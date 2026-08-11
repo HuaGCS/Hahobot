@@ -12,6 +12,7 @@ from hahobot.agent.memory_metadata import (
 )
 from hahobot.bus.events import InboundMessage, OutboundMessage
 from hahobot.command.catalog import SHARED_MEMORY_BACKFILL_CAPABILITY
+from hahobot.session.temporary import is_temporary_session_key
 from hahobot.utils.helpers import build_status_content
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ class SystemCommandHandler:
         self.loop.sessions.save(session)
         self.loop.sessions.invalidate(session.key)
 
-        if snapshot:
+        if snapshot and not is_temporary_session_key(session.key):
             self.loop._schedule_background(
                 self.loop.memory_consolidator.archive_messages(
                     session,

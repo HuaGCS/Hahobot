@@ -70,6 +70,20 @@ This file therefore records both:
 
 ## Dated Audit Log (Newest First)
 
+- `nanobot` (`2026-08-11` follow-up port; audit boundary unchanged at `main@55ecda27`): superseded
+  two dispositions from the 2026-08-10 pass. Unknown slash commands now stop in
+  `hahobot/command/router.py` before model dispatch and use session-localized nearest-command
+  guidance (`f45436b61`; regression coverage in `tests/command/test_catalog.py`). Temporary-chat
+  behavior (`c9a614587`, `a5bc3bfbb`, `75e333a3c`, `af52fbcbc` and their audited follow-up fixes)
+  is adapted to Hahobot's server-rendered architecture through
+  `hahobot/session/temporary.py`, `SessionManager`, and `hahobot/gateway/webui/app.py`: temporary
+  sessions are bounded/process-local, never write JSONL or automatic memory/skill state, cannot
+  own scheduled jobs, disappear when closed or restarted, and become durable only through the
+  explicit **Save copy** fork. Ordinary tool-created files and external side effects intentionally
+  remain durable. Evidence lives in `tests/test_session_manager_persistence.py`,
+  `tests/agent/test_loop_consolidation_tokens.py`, `tests/cron/test_cron_tool_list.py`, and
+  `tests/test_webui.py`; the complete suite passed with 2373 tests and 4 environment skips. The
+  React/Vite marketplace and cross-session mention UI remain unported.
 - `nanobot` (`2026-08-10` pass): audited 188 commits from `cf1e801a` through
   `main@55ecda27` (`2026-08-09`). Adopted generated-image download hardening and IPv6 unspecified
   blocking (`4408cde0`, `cc3dbbe8`, `d73794bc`, `b3d3a3e6`) in

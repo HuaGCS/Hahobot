@@ -33,6 +33,8 @@ own architecture; file-for-file mirroring is not required.
 | `511c764f`, `73a00804` | Blank truncated responses continue; invalid cron expressions fail before persistence. |
 | `08fe9f7b`, `4e8702a4` | Gemini Flash and versioned Anthropic thinking requests use their current provider-native wire shapes. |
 | `a13e29bf`, `170c7083`, `5c4c2cb8` | Telegram fenced code and strict Matrix invite joins retain interoperable channel behavior. |
+| `f45436b61` | Unknown slash commands are rejected before model dispatch with localized nearest-command suggestions. |
+| `c9a614587`, `a5bc3bfbb`, `75e333a3c`, `af52fbcbc` | Temporary chat semantics are adapted onto the server-rendered WebUI: process-local session state, no persistence/memory/cron ownership, and an explicit persisted **Save copy**. |
 
 ## Established Local Mapping
 
@@ -45,7 +47,8 @@ own architecture; file-for-file mirroring is not required.
 - Channels: transport-specific rendering and retry state stay in each adapter; manager-generated
   delivery IDs provide retry identity across streaming channels.
 - Web surfaces: useful behavior is adapted into the aiohttp/Jinja gateway rather than copying
-  nanobot's React/Vite frontend.
+  nanobot's React/Vite frontend. Temporary chats therefore use `SessionManager`'s bounded in-memory
+  namespace and Jinja forms instead of browser-local SPA state.
 
 ## Intentional Divergences
 
@@ -66,7 +69,6 @@ own architecture; file-for-file mirroring is not required.
 - New channel/provider surfaces only when operator demand and local config/admin/test coverage exist.
 - Bounded-at-source one-shot exec capture; Hahobot has no upstream-style persistent exec sessions,
   but `communicate()` can still buffer before the local response cap is applied.
-- Explicit localized unknown-command rejection if slash-command UX is next revised.
 
 See the [current root ledger](../../UPSTREAM_PARITY.md) and the
 [complete 2026 audit log](AUDIT_LOG_2026.md) for dated commit-by-commit rationale.

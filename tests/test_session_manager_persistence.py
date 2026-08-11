@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from hahobot.session.manager import Session, SessionManager
+from hahobot.session.temporary import TEMPORARY_WEBUI_SESSION_PREFIX
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -262,3 +263,37 @@ def test_delete_session_removes_file_and_cache(tmp_path: Path) -> None:
 def test_delete_session_missing_is_noop(tmp_path: Path) -> None:
     manager = SessionManager(tmp_path)
     assert manager.delete_session("webui:never") is False
+
+
+def test_temporary_session_stays_in_memory_without_creating_jsonl(tmp_path: Path) -> None:
+    manager = SessionManager(tmp_path)
+    key = f"{TEMPORARY_WEBUI_SESSION_PREFIX}abc123"
+    session = manager.get_or_create(key)
+    session.add_message("user", "private scratch")
+    manager.save(session)
+
+    assert manager.get_or_create(key) is session
+    assert manager._get_session_path(key).exists() is False
+    assert manager.list_sessions() == []
+    assert [item["key"] for item in manager.list_temporary_sessions()] == [key]
+
+    # invalidate cannot reload an in-memory-only chat from disk, so it retains it.
+    manager.invalidate(key)
+    assert manager.get_or_create(key).messages[0]["content"] == "private scratch"
+
+    assert manager.delete_session(key) is True
+    assert manager.list_temporary_sessions() == []
+    assert manager.delete_session(key) is False
+
+
+def test_temporary_sessions_disappear_with_manager_process_state(tmp_path: Path) -> None:
+    key = f"{TEMPORARY_WEBUI_SESSION_PREFIX}restart"
+    manager = SessionManager(tmp_path)
+    session = manager.get_or_create(key)
+    session.add_message("user", "not durable")
+    manager.save(session)
+
+    restarted = SessionManager(tmp_path)
+
+    assert restarted.get_or_create(key).messages == []
+    assert list((tmp_path / "sessions").glob("*.jsonl")) == []

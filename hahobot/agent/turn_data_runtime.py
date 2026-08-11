@@ -10,6 +10,7 @@ from loguru import logger
 
 from hahobot.agent.context import ContextBuilder
 from hahobot.agent.privacy import strip_private_message
+from hahobot.session.temporary import is_temporary_session_key
 from hahobot.utils.helpers import image_placeholder_text
 from hahobot.utils.helpers import (
     truncate_text as truncate_text_value,
@@ -36,7 +37,9 @@ class TurnDataRuntimeManager:
     ) -> _PreparedTurnContext:
         """Warm runtime services and resolve per-turn history/memory context."""
         await self.loop._connect_mcp()
-        await self.loop._run_preflight_token_consolidation(state.session)
+        temporary = is_temporary_session_key(state.key)
+        if not temporary:
+            await self.loop._run_preflight_token_consolidation(state.session)
         self.loop._set_tool_context(
             state.channel,
             state.chat_id,
@@ -51,7 +54,9 @@ class TurnDataRuntimeManager:
             if history is not None
             else state.session.get_history(max_messages=0, include_timestamps=True)
         )
-        memorix_context = await self.loop._maybe_start_memorix_session(state.session)
+        memorix_context = (
+            "" if temporary else await self.loop._maybe_start_memorix_session(state.session)
+        )
         memory_scope = self.loop._memory_scope(
             state.session,
             channel=state.channel,

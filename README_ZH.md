@@ -1488,6 +1488,9 @@ allowlist、SSRF 检查、workspace 边界、超时或 sandbox；真正执行前
 - 带实时工作检查点面板（读取会话 `working_checkpoint`），以及语音输入（麦克风 → `/app/transcribe`，
   复用已配置的转写 provider：`channels.transcriptionProvider` + `providers.openai`/`groq` 的 key）
 - 支持会话分叉（`/app/session/fork` 复制当前会话为新分支）、回到最新按钮与移动端自适应布局
+- 支持仅保存在当前进程内的临时聊天：不写 session JSONL，不进入 Dream/历史归档、共享记忆提交或
+  skill 使用统计，也不能绑定定时任务；关闭或 gateway 重启后即消失。需要保留时可显式点击“保存副本”
+  转成普通持久会话。工具创建的文件和外部副作用仍是明确的持久操作，不会因关闭临时聊天自动撤销
 - WebUI、admin 与浏览器 `/status` 共用 Apple 风格的系统蓝、分层玻璃材质、平台字体与空间层级；桌面
   WebUI 使用圆角窗口内容区、半透明侧栏和浮动输入区，语言控件只显示当前语言，点击后再以下拉菜单选择。
   只有实时消息和 working checkpoint 采用轻量 continuity transition，高频导航不做整页动画。
@@ -1833,6 +1836,9 @@ manifest 中可声明：
 使用结构化 metadata，而不是自由文本后缀。这两个可选文件默认不会在新 workspace 中预置，需要时再创建即可。聊天 `/status` 和浏览器访问的 `/status` 页面会沿用同一套术语，显示当前或最近活跃 persona 的 `PROFILE.md` / `INSIGHTS.md` 摘要。
 
 ### 聊天内斜杠命令
+
+未知或拼错的斜杠命令会在本地直接拒绝，并按当前会话语言提示最接近的已注册命令；它们不会再落入
+模型对话。例如 `/persna` 会建议 `/persona`。
 
 | 命令 | 说明 |
 |------|------|

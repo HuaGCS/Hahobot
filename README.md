@@ -790,6 +790,10 @@ Notable gateway features:
   memory-layer summary, and links to every admin section). Chat is scoped to `webui:*` sessions, so it
   never writes into a live channel conversation. It includes:
     - streaming replies and a conversation sidebar over a WebSocket (`/app/ws`)
+    - process-local temporary chats that never write session JSONL, Dream/history archives,
+      shared-memory commits, or skill-usage metadata; they cannot own scheduled jobs, disappear on
+      gateway restart/close, and can be deliberately converted into a persisted conversation with
+      **Save copy** (tool-created files and external side effects remain explicit durable actions)
     - inline media (images served from `workspace/out` via `/app/media/...`), restored from
       persisted history after refresh even when a message contains media but no text
     - an in-chat persona selector, a live working-checkpoint panel, and conversation forking
@@ -822,6 +826,8 @@ Notable gateway features:
 - config and admin saves use a mode-preserving atomic replace, so an interrupted write cannot leave
   a truncated active `config.json`
 - built-in slash-command reference in the admin page
+- localized rejection and nearest-command suggestions for unknown slash commands, so mistyped
+  commands never fall through to the model
 - persona editor in the admin page, including companion scene fields for `/scene` reference images,
   prompt overrides, and caption overrides
 - one-click `/scene` preview generation in the persona editor, using the current runtime imageGen

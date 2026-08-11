@@ -123,6 +123,7 @@ body {
 }
 .sidebar-head { padding: 14px 16px 8px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0; }
 .new-session { display: flex; gap: 6px; padding: 0 12px 10px; }
+.temporary-session-form { display: flex; padding: 0 12px 10px; }
 .new-session input {
   flex: 1; min-width: 0; background: var(--bg-soft); border: 1px solid var(--border);
   border-radius: 9px; color: var(--text); padding: 7px 10px; font: inherit; font-size: 13px;
@@ -132,6 +133,11 @@ body {
   padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer;
   transition: opacity var(--motion-ui) var(--ease-out), transform var(--motion-press) var(--ease-out);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.20), 0 1px 3px rgba(0, 0, 0, 0.14);
+}
+.temporary-session-form button {
+  width: 100%; background: var(--bg-soft); color: var(--text); border: 1px solid var(--border);
+  border-radius: 9px; padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer;
+  transition: opacity var(--motion-ui) var(--ease-out), transform var(--motion-press) var(--ease-out);
 }
 .session-list { list-style: none; margin: 0; padding: 4px 8px; overflow-y: auto; flex: 1; }
 .session-row { display: flex; align-items: stretch; gap: 4px; }
@@ -157,6 +163,10 @@ body {
 .session-time { font-size: 11px; color: var(--muted); }
 
 .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.temporary-notice {
+  margin: 10px clamp(16px, 8vw, 120px) 0; padding: 9px 13px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--accent-soft); color: var(--text); font-size: 12.5px;
+}
 .scroll-latest {
   position: absolute; right: 22px; bottom: 108px; z-index: 5;
   width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border);
@@ -299,7 +309,7 @@ body {
 .section-card-arrow { color: var(--muted); }
 
 button:disabled { cursor: wait; opacity: 0.62; }
-.nav-link:active, .lang-trigger:active, .new-session button:active, .composer button:active,
+.nav-link:active, .lang-trigger:active, .new-session button:active, .temporary-session-form button:active, .composer button:active,
 .clear-form button:active, .schedule-form button:active, .session-item:active,
 .session-delete-btn:active, .scroll-latest:active, .section-card:active {
   transform: scale(0.97);
@@ -313,7 +323,7 @@ summary:focus-visible {
 
 @media (hover: hover) and (pointer: fine) {
   .nav-link:hover, .lang-trigger:hover, .lang-option:hover { color: var(--text); background: var(--bg-soft); }
-  .new-session button:hover, .composer button:hover, .schedule-form button:hover { opacity: 0.88; }
+  .new-session button:hover, .temporary-session-form button:hover, .composer button:hover, .schedule-form button:hover { opacity: 0.88; }
   .session-delete-btn { opacity: 0; }
   .session-row:hover .session-delete-btn { opacity: 1; }
   .session-delete-btn:hover { color: #fff; background: var(--danger, #d64545); }
@@ -325,7 +335,7 @@ summary:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .typing i, #mic-btn.recording { animation: none; transform: none; }
   .typing i { opacity: 0.72; }
-  .nav-link:active, .lang-trigger:active, .new-session button:active, .composer button:active,
+  .nav-link:active, .lang-trigger:active, .new-session button:active, .temporary-session-form button:active, .composer button:active,
   .clear-form button:active, .schedule-form button:active, .session-item:active,
   .session-delete-btn:active, .scroll-latest:active, .section-card:active { transform: none; }
   .msg.live, .checkpoint { transform: none; transition: opacity 140ms var(--ease-out), display 140ms allow-discrete; }
@@ -337,7 +347,7 @@ summary:focus-visible {
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .topbar, .sidebar, .composer, .bubble, .checkpoint, .panel, .section-card, .lang-popover {
+  .topbar, .sidebar, .composer, .bubble, .checkpoint, .temporary-notice, .panel, .section-card, .lang-popover {
     background: var(--bg-elev); backdrop-filter: none; -webkit-backdrop-filter: none;
   }
   .msg.user .bubble { background: var(--accent); }

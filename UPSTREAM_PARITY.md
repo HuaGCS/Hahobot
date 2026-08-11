@@ -43,7 +43,7 @@ design, but they are not tracked parity targets.
 - `intentional_divergence`: local behavior deliberately differs from upstream.
 - `watchlist`: re-evaluate when the related local surface or upstream behavior changes.
 
-## Latest Audit — 2026-08-10
+## Latest Audit / Port Update — 2026-08-11
 
 ### nanobot
 
@@ -61,10 +61,16 @@ Audited 188 commits through `55ecda27`. The portable delta was adapted onto loca
 - Gemini Flash hints use live `generationConfig.imageConfig` syntax (`08fe9f7b`); Anthropic's
   versioned adaptive-thinking/effort rules cover Opus 4.7+ and Opus/Sonnet 5 (`4e8702a4`);
 - Telegram preserves special-character and single-line fences (`a13e29bf`, `170c7083`), while
-  Matrix sends a non-empty join body and retries eligible sync invites (`5c4c2cb8`).
+  Matrix sends a non-empty join body and retries eligible sync invites (`5c4c2cb8`);
+- unknown slash commands are rejected locally with session-language wording and a nearest-command
+  suggestion instead of reaching the model (`f45436b61`);
+- temporary WebUI chats adapt nanobot's ephemeral-chat behavior onto the server-rendered gateway:
+  process-local sessions skip persistence, memory/skill writeback, and cron ownership, while an
+  explicit **Save copy** creates a normal persisted session (`c9a614587`, `a5bc3bfbb`, `75e333a3c`,
+  `af52fbcbc`).
 
-The React/Vite marketplace, temporary chats, cross-session mention UI, pairing/triggers, provider
-breadth, and whole-file session retention remain demand-driven or architecture-specific. See
+The React/Vite marketplace, cross-session mention UI, pairing/triggers, provider breadth, and
+whole-file session retention remain demand-driven or architecture-specific. See
 [`NANOBOT.md`](docs/upstream-parity/NANOBOT.md).
 
 ### GenericAgent
@@ -108,6 +114,7 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 | MCP schemas | `synced` | Local URI-decoded JSON Pointers are resolved/hoisted into `$defs`, including recursion and unresolved-ref fallback. |
 | MCP lifecycle | `synced` | Each connection generation has one owner task; terminated sessions reconnect without cross-task context-manager teardown. |
 | Session persistence | `synced` | Atomic rewrites, malformed-row tolerance, bounded strong LRU caching, and checkpoint recovery protect saved conversations. |
+| Temporary WebUI chat | `synced` | Bounded process-local sessions skip JSONL, memory/skill writeback, and scheduling; **Save copy** is the explicit transition into persisted history. |
 | Memory/archive | `local_extension` | Markdown remains source of truth; JSON sidecars and optional SQLite FTS are rebuildable recall indexes. |
 | Dream maintenance | `local_extension` | Two-phase reflection updates local memory layers, advances only after completed phase 2, preserves all pending history, and emits real Git object IDs. |
 | Skill lifecycle | `local_extension` | Query-aware summaries, usage metadata, derive/supersede/lint commands, and operator review govern local skill growth. |
@@ -117,6 +124,7 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 | Matrix joins | `synced` | Invite joins send `{}` for strict homeservers and retry allowed pending invites from the same sync response. |
 | Slack/Feishu rendering | `synced` | Fenced tables stay intact and malformed/null rich-message fields degrade safely. |
 | WebUI persisted media | `synced` | Initial history and live frames share the traversal-guarded `workspace/out` media mapping. |
+| Slash-command UX | `synced` | Unknown or mistyped slash commands are rejected before model dispatch with localized nearest-command guidance. |
 | Proactive delivery | `local_extension` | Cron, heartbeat, and cross-session messages persist into the destination session and can push to an open WebUI connection. |
 | Server-rendered operations UI | `intentional_divergence` | WebUI/admin/status remain in the aiohttp/Jinja gateway instead of adopting a React/Vite or desktop stack. |
 | Legacy compatibility | `local_extension` | `nanobot` CLI/module/SDK aliases and legacy config/cookie migration remain supported during the rename. |
@@ -151,7 +159,6 @@ The detailed historical matrix remains searchable in
 | nanobot | Session retention is redesigned | Session-file retention/archiving and cross-session references adapted to Hahobot's incremental JSONL and session-authority model. |
 | nanobot | Reasoning model routing expands | Kimi/MiMo and other model-specific reasoning parameters not already covered locally. |
 | nanobot | Exec/session tooling expands | Bounded-at-source subprocess capture instead of post-`communicate()` truncation. |
-| nanobot | Slash-command UX is revisited | Explicit localized rejection/suggestions for unknown slash commands. |
 | GenericAgent | Workflow or unattended background behavior becomes concrete | Reviewable planning/memory SOPs without copying desktop/conductor structure. |
 | GenericAgent | Retry policy is redesigned | One bounded policy for oversized `Retry-After` across finite and persistent modes. |
 | claude-mem | Archive sidecar schema changes | `filesRead` / `filesModified` evidence with migration and query semantics. |

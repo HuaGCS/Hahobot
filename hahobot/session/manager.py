@@ -15,9 +15,11 @@ from weakref import WeakValueDictionary
 from loguru import logger
 
 from hahobot.config.paths import get_legacy_sessions_dir
+from hahobot.session.temporary import is_temporary_session_key
 from hahobot.utils.helpers import ensure_dir, find_legal_message_start, safe_filename
 
 SESSION_CACHE_MAX_SIZE = 128
+TEMPORARY_SESSION_CACHE_MAX_SIZE = 32
 
 
 @dataclass
@@ -152,6 +154,15 @@ class SessionManager:
         # identity, without keeping inactive sessions alive indefinitely.
         self._overflow_cache: WeakValueDictionary[str, Session] = WeakValueDictionary()
         self._max_cached_sessions = SESSION_CACHE_MAX_SIZE
+        # Temporary WebUI chats are deliberately strong, process-local entries:
+        # they survive page reloads but never acquire a backing JSONL file.
+        self._temporary_sessions: OrderedDict[str, Session] = OrderedDict()
+
+    def _remember_temporary(self, session: Session) -> None:
+        self._temporary_sessions[session.key] = session
+        self._temporary_sessions.move_to_end(session.key)
+        while len(self._temporary_sessions) > TEMPORARY_SESSION_CACHE_MAX_SIZE:
+            self._temporary_sessions.popitem(last=False)
 
     def _remember(self, session: Session) -> None:
         """Keep recent sessions strongly cached without duplicating live objects."""
@@ -179,6 +190,7 @@ class SessionManager:
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self._cache.clear()
         self._overflow_cache.clear()
+        self._temporary_sessions.clear()
 
     @staticmethod
     def _storage_key(key: str) -> str:
@@ -244,6 +256,13 @@ class SessionManager:
         Returns:
             The session.
         """
+        if is_temporary_session_key(key):
+            session = self._temporary_sessions.get(key)
+            if session is None:
+                session = Session(key=key)
+            self._remember_temporary(session)
+            return session
+
         session = self._cached(key)
         if session is not None:
             return session
@@ -487,6 +506,10 @@ class SessionManager:
 
     def save(self, session: Session) -> None:
         """Save a session to disk."""
+        if is_temporary_session_key(session.key):
+            self._remember_temporary(session)
+            return
+
         path = self._get_session_path(session.key)
         metadata_state = self._metadata_state(session)
         needs_full_rewrite = (
@@ -515,6 +538,10 @@ class SessionManager:
 
     def invalidate(self, key: str) -> None:
         """Remove a session from the in-memory cache."""
+        if is_temporary_session_key(key):
+            # There is no disk copy to reload. Keep the live object until the
+            # user explicitly closes it or the gateway process exits.
+            return
         self._cache.pop(key, None)
         self._overflow_cache.pop(key, None)
 
@@ -525,6 +552,9 @@ class SessionManager:
         workspace stem and the legacy global dir) so a deleted session cannot
         reappear via :meth:`list_sessions`. Returns True if any file was removed.
         """
+        if is_temporary_session_key(key):
+            return self._temporary_sessions.pop(key, None) is not None
+
         self._cache.pop(key, None)
         self._overflow_cache.pop(key, None)
         removed = False
@@ -566,6 +596,9 @@ class SessionManager:
                             key = data.get("key") or key
                             created_at = data.get("created_at")
 
+                if is_temporary_session_key(str(key)):
+                    continue
+
                 # Incremental saves append messages without rewriting the first metadata line,
                 # so use file mtime as the session's latest activity timestamp.
                 sessions.append(
@@ -590,3 +623,20 @@ class SessionManager:
                 continue
 
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)
+
+    def list_temporary_sessions(self) -> list[dict[str, Any]]:
+        """List live in-memory WebUI chats without exposing them as saved sessions."""
+        return sorted(
+            (
+                {
+                    "key": session.key,
+                    "created_at": session.created_at.isoformat(),
+                    "updated_at": session.updated_at.isoformat(),
+                    "path": None,
+                    "temporary": True,
+                }
+                for session in self._temporary_sessions.values()
+            ),
+            key=lambda item: item["updated_at"],
+            reverse=True,
+        )

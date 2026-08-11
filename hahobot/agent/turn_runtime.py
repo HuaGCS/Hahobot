@@ -12,6 +12,7 @@ from loguru import logger
 from hahobot.agent.skills import SkillsLoader
 from hahobot.agent.tools.message import MessageTool
 from hahobot.bus.events import OutboundMessage
+from hahobot.session.temporary import is_temporary_session_key
 from hahobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 if TYPE_CHECKING:
@@ -96,7 +97,8 @@ class TurnRuntimeManager:
         persisted_messages = self.loop._save_turn(
             turn.state.session, all_msgs, 1 + len(turn.history)
         )
-        self._record_turn_skill_usage(all_msgs, stop_reason)
+        if not is_temporary_session_key(turn.state.key):
+            self._record_turn_skill_usage(all_msgs, stop_reason)
         self.loop.sessions.save(turn.state.session)
         await self.loop._commit_memory_turn(
             scope=turn.memory_scope,
@@ -105,7 +107,8 @@ class TurnRuntimeManager:
             persisted_messages=persisted_messages,
             router=turn.memory_router,
         )
-        self.loop._ensure_background_token_consolidation(turn.state.session)
+        if not is_temporary_session_key(turn.state.key):
+            self.loop._ensure_background_token_consolidation(turn.state.session)
         return await self.loop._maybe_attach_voice_reply(
             OutboundMessage(
                 channel=turn.state.channel,
@@ -192,7 +195,8 @@ class TurnRuntimeManager:
             all_msgs,
             1 + len(turn.history) + (1 if user_persisted_early else 0),
         )
-        self._record_turn_skill_usage(all_msgs, stop_reason)
+        if not is_temporary_session_key(turn.state.key):
+            self._record_turn_skill_usage(all_msgs, stop_reason)
         self.loop._clear_pending_user_turn(turn.state.session)
         self.loop.sessions.save(turn.state.session)
         await self.loop._commit_memory_turn(
@@ -202,7 +206,8 @@ class TurnRuntimeManager:
             persisted_messages=persisted_messages,
             router=turn.memory_router,
         )
-        self.loop._ensure_background_token_consolidation(turn.state.session)
+        if not is_temporary_session_key(turn.state.key):
+            self.loop._ensure_background_token_consolidation(turn.state.session)
 
         if self._message_tool_sent_in_turn():
             return None

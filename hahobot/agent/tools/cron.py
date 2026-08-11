@@ -13,6 +13,7 @@ from hahobot.agent.tools.schema import (
 )
 from hahobot.cron.service import CronService
 from hahobot.cron.types import CronJob, CronJobState, CronSchedule
+from hahobot.session.temporary import is_temporary_webui_target
 
 # Module-level ContextVars so they work correctly across instances and
 # concurrent sessions without shared mutable state.
@@ -122,6 +123,8 @@ class CronTool(Tool):
         if action == "add":
             if _in_cron_context.get():
                 return "Error: cannot schedule new jobs from within a cron job execution"
+            if is_temporary_webui_target(_cron_channel.get(), _cron_chat_id.get()):
+                return "Error: temporary WebUI chats cannot own scheduled jobs"
             return await self._cron.run_store_io(
                 self._add_job,
                 name,

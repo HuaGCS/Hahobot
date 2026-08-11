@@ -13,6 +13,7 @@ from hahobot.agent.memory_metadata import (
 )
 from hahobot.bus.events import OutboundMessage
 from hahobot.command.router import CommandContext, CommandRouter
+from hahobot.session.temporary import is_temporary_session_key
 from hahobot.utils.helpers import build_status_content
 from hahobot.utils.restart import set_restart_notice_to_env
 from hahobot.utils.self_update import (
@@ -303,7 +304,7 @@ async def cmd_new(ctx: CommandContext) -> OutboundMessage:
     session.clear()
     loop.sessions.save(session)
     loop.sessions.invalidate(session.key)
-    if snapshot:
+    if snapshot and not is_temporary_session_key(session.key):
         loop._schedule_background(
             loop.memory_consolidator.archive_messages(
                 session,

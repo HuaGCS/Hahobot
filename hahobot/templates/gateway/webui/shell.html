@@ -21,13 +21,16 @@
           <input type="text" name="name" placeholder="{{ new_session_placeholder }}" autocomplete="off">
           <button type="submit">{{ new_session_label }}</button>
         </form>
+        <form method="post" action="/app/session/new-temporary" class="temporary-session-form">
+          <button type="submit" class="ghost">{{ temporary_new_label }}</button>
+        </form>
         <ul class="session-list">
           {% for s in sessions %}
           <li class="session-row">
             <a class="session-item{% if s.key == active_session %} active{% endif %}"
                href="/app?session={{ s.key | urlencode }}">
-              <span class="session-key">{{ s.key.split(':', 1)[1] if ':' in s.key else s.key }}</span>
-              <span class="session-time">{{ s.updated_at[:19] if s.updated_at else '' }}</span>
+              <span class="session-key">{% if s.temporary %}{{ temporary_label }}{% else %}{{ s.key.split(':', 1)[1] if ':' in s.key else s.key }}{% endif %}</span>
+              <span class="session-time">{% if s.temporary %}{{ temporary_label }} · {% endif %}{{ s.updated_at[:19] if s.updated_at else '' }}</span>
             </a>
             <form method="post" action="/app/session/delete" class="session-delete"
                   onsubmit="return confirm('{{ delete_confirm }}');">
@@ -41,8 +44,8 @@
           {% if active_session not in (sessions | map(attribute='key') | list) %}
           <li>
             <a class="session-item active" href="/app?session={{ active_session | urlencode }}">
-              <span class="session-key">{{ active_session.split(':', 1)[1] }}</span>
-              <span class="session-time">new</span>
+              <span class="session-key">{% if temporary %}{{ temporary_label }}{% else %}{{ active_session.split(':', 1)[1] }}{% endif %}</span>
+              <span class="session-time">{% if temporary %}{{ temporary_label }}{% else %}new{% endif %}</span>
             </a>
           </li>
           {% endif %}
@@ -51,6 +54,9 @@
 
       <main class="chat" data-session="{{ active_session }}">
         <button id="scroll-latest" type="button" class="scroll-latest" title="{{ scroll_latest_label }}" hidden>↓</button>
+        {% if temporary %}
+        <div class="temporary-notice" role="status">{{ temporary_notice }}</div>
+        {% endif %}
         <div class="chat-scroll" id="chat-scroll">
           {% if not messages %}
           <div class="empty">{{ empty_conversation }}</div>
@@ -92,8 +98,15 @@
         <div class="composer">
           <form method="post" action="/app/session/fork" class="clear-form">
             <input type="hidden" name="session" value="{{ active_session }}">
-            <button type="submit" class="ghost" title="{{ fork_label }}">{{ fork_label }}</button>
+            <button type="submit" class="ghost" title="{% if temporary %}{{ temporary_save_label }}{% else %}{{ fork_label }}{% endif %}">{% if temporary %}{{ temporary_save_label }}{% else %}{{ fork_label }}{% endif %}</button>
           </form>
+          {% if temporary %}
+          <form method="post" action="/app/session/delete" class="clear-form">
+            <input type="hidden" name="session" value="{{ active_session }}">
+            <input type="hidden" name="current" value="{{ active_session }}">
+            <button type="submit" class="ghost" title="{{ temporary_close_label }}">{{ temporary_close_label }}</button>
+          </form>
+          {% endif %}
           <form method="post" action="/app/session/clear" class="clear-form">
             <input type="hidden" name="session" value="{{ active_session }}">
             <button type="submit" class="ghost" title="{{ clear_label }}">{{ clear_label }}</button>

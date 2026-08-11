@@ -9,6 +9,7 @@ from loguru import logger
 
 from hahobot.agent.i18n import text
 from hahobot.bus.events import InboundMessage, OutboundMessage
+from hahobot.session.temporary import is_temporary_session_key
 
 if TYPE_CHECKING:
     from hahobot.agent.loop import AgentLoop
@@ -69,7 +70,10 @@ class PersonaCommandHandler:
         # previous persona's store even after the live session is switched below,
         # then hand it to a background task. The archive path has a raw-dump
         # fallback, so backgrounding it does not risk losing the tail.
-        if session.messages[session.last_consolidated :]:
+        if (
+            not is_temporary_session_key(session.key)
+            and session.messages[session.last_consolidated :]
+        ):
             outgoing = copy.deepcopy(session)
             self.loop._schedule_background(
                 self._archive_outgoing(outgoing, msg, persona=current, language=language)

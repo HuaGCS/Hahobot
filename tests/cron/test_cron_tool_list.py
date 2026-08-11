@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 from hahobot.agent.tools.cron import CronTool
 from hahobot.cron.service import CronService
 from hahobot.cron.types import CronJob, CronJobState, CronPayload, CronSchedule
@@ -15,6 +17,17 @@ def _make_tool(tmp_path) -> CronTool:
 def _make_tool_with_tz(tmp_path, tz: str) -> CronTool:
     service = CronService(tmp_path / "cron" / "jobs.json")
     return CronTool(service, default_timezone=tz)
+
+
+@pytest.mark.asyncio
+async def test_temporary_webui_context_cannot_create_cron_job(tmp_path) -> None:
+    tool = _make_tool(tmp_path)
+    tool.set_context("webui", "__temporary__-scratch")
+
+    result = await tool.execute(action="add", message="persist me", every_seconds=60)
+
+    assert result == "Error: temporary WebUI chats cannot own scheduled jobs"
+    assert tool._cron.list_jobs() == []
 
 
 # -- _format_timing tests --

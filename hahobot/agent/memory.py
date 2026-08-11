@@ -28,6 +28,7 @@ from hahobot.agent.personas import (
 from hahobot.agent.privacy import strip_private_text
 from hahobot.agent.runner import AgentRunner, AgentRunSpec
 from hahobot.agent.tools.registry import ToolRegistry
+from hahobot.session.temporary import is_temporary_session_key
 from hahobot.utils.gitstore import GitStore
 from hahobot.utils.helpers import (
     ensure_dir,
@@ -1088,6 +1089,8 @@ class Consolidator:
         on_archive: Callable[[dict[str, Any]], None] | None = None,
     ) -> bool:
         """Archive messages in the background with session-scoped memory persistence."""
+        if is_temporary_session_key(session.key):
+            return True
         lock = self.get_lock(session.key)
         async with lock:
             return await self._archive_messages_locked(
@@ -1105,6 +1108,8 @@ class Consolidator:
         on_archive: Callable[[dict[str, Any]], None] | None = None,
     ) -> bool:
         """Archive the full unconsolidated tail for persona switch and similar rollover flows."""
+        if is_temporary_session_key(session.key):
+            return True
         lock = self.get_lock(session.key)
         async with lock:
             snapshot = session.messages[session.last_consolidated :]
@@ -1123,7 +1128,11 @@ class Consolidator:
         The budget reserves space for completion tokens and a safety buffer
         so the LLM request never exceeds the context window.
         """
-        if not session.messages or self.context_window_tokens <= 0:
+        if (
+            is_temporary_session_key(session.key)
+            or not session.messages
+            or self.context_window_tokens <= 0
+        ):
             return
 
         lock = self.get_lock(session.key)
