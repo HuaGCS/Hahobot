@@ -1153,6 +1153,9 @@ HTTP 示例：
 
 ### 运行时工具补充
 
+工具调用参数会在执行前按 schema 做类型转换与校验。JSON `number` 字段会拒绝 `NaN`、正负无穷等
+非有限数，包括模型传入字符串后转换出的值，以及数组或对象中的嵌套值。
+
 当前内置工具除了 web / 文件 / shell / image_gen / history / cron / message / MCP 之外，还额外包括：
 
 - `self_inspect`：只读运行时自检工具，返回当前 model、provider、注册工具、实际 session key 和运行中 subagent 的 JSON 快照

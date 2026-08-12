@@ -6,9 +6,9 @@ own architecture; file-for-file mirroring is not required.
 
 ## Current Boundary
 
-- Audited ref: `main@3778e7e62` (2026-08-10; audited 2026-08-11)
-- Previous boundary: `55ecda27`
-- Range reviewed: 16 commits
+- Audited ref: `main@abfcdd481` (2026-08-12; audited 2026-08-12)
+- Previous boundary: `3778e7e62`
+- Range reviewed: 19 linear commits
 - Remote rule: keep `remote.nanobot-upstream.tagOpt = --no-tags`
 
 ## Latest Adopted Clusters
@@ -37,6 +37,7 @@ own architecture; file-for-file mirroring is not required.
 | `c9a614587`, `a5bc3bfbb`, `75e333a3c`, `af52fbcbc` | Temporary chat semantics are adapted onto the server-rendered WebUI: process-local session state, no persistence/memory/cron ownership, and an explicit persisted **Save copy**. |
 | `b3b051761` | `edit_file` rejects identical old/new text before any existing-file read or rewrite. |
 | `5e67fbf93` (adapted follow-up) | Nanobot's bounded persistent-session buffer is mapped to Hahobot's one-shot exec: stdout/stderr are drained concurrently with incremental UTF-8 decoding and fixed head/tail retention before the combined response cap. |
+| `99e07e138` | Tool JSON Schema `number` fields reject non-finite values after casting, including nested object/array paths. |
 
 ## Established Local Mapping
 
@@ -58,6 +59,8 @@ own architecture; file-for-file mirroring is not required.
 
 - Hahobot keeps an independent `v0.x` release/tag namespace.
 - The built-in WebUI stays server-rendered and shares the gateway/admin runtime.
+- Agent Plugins/marketplace and the React PWA are not copied; local workspace skills, explicit MCP
+  configuration, and the aiohttp/Jinja WebUI remain the product boundary.
 - The OpenAI-compatible API remains non-streaming until that public contract is intentionally
   expanded.
 - Session persistence is incremental JSONL, so nanobot's whole-file retention/archiver cannot be

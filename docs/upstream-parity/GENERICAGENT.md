@@ -6,9 +6,9 @@ memory, hooks, subagents, Dream, heartbeat, and admin surfaces.
 
 ## Current Boundary
 
-- Audited ref: `main@d426d45e` (2026-08-08; audited on 2026-08-10)
-- Previous recorded boundary: `5c3fc72d`
-- Range reviewed: 30 linear commits (the older force-rewrite note remains historical).
+- Audited ref: `main@63f9db74e` (2026-08-12; audited on 2026-08-12)
+- Previous recorded boundary: `d426d45e`
+- Range reviewed: 7 linear commits (the older force-rewrite note remains historical).
 - Remote rule: keep `remote.genericagent-upstream.tagOpt = --no-tags`
 
 ## Current Mapping
@@ -23,8 +23,10 @@ memory, hooks, subagents, Dream, heartbeat, and admin surfaces.
 | Background workflows | Explicit cron, heartbeat, Dream, runtime status, and Star-Office push | `local_extension` |
 | Minimal autonomous loop | Richer Hahobot runtime surfaces remain first-class | `intentional_divergence` |
 
-The latest Responses incomplete/failed-event and maximum-effort changes map to Hahobot's existing
-Responses parsing and updated versioned Anthropic effort handling. `7ffc9582`'s oversized
+The latest range is Hub/P2P, conductor, and world-model-specific; its overload retry behavior is
+already covered by Hahobot's provider retry layer, so no new local change was needed. The prior
+Responses incomplete/failed-event and maximum-effort changes map to Hahobot's existing Responses
+parsing and updated versioned Anthropic effort handling. `7ffc9582`'s oversized
 `Retry-After` cap is useful but remains deferred until finite/persistent retry modes share one
 documented policy.
 

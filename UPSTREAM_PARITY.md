@@ -24,8 +24,8 @@ The current ledger is authoritative when an older audit entry describes a supers
 
 | Upstream | Tracking role | Audited ref | Previous boundary | Audit date |
 | --- | --- | --- | --- | --- |
-| `HKUDS/nanobot` | Primary behavior-parity target | `main@3778e7e62` | `55ecda27` | 2026-08-11 |
-| `lsdefine/GenericAgent` | Architecture/workflow ideas | `main@d426d45e` | `5c3fc72d` | 2026-08-10 |
+| `HKUDS/nanobot` | Primary behavior-parity target | `main@abfcdd481` | `3778e7e62` | 2026-08-12 |
+| `lsdefine/GenericAgent` | Architecture/workflow ideas | `main@63f9db74e` | `d426d45e` | 2026-08-12 |
 | `thedotmack/claude-mem` | Memory-architecture ideas | `main@4702c337` | `132b4634` | 2026-08-10 |
 | `Dataojitori/nocturne_memory` | Memory-architecture ideas | `main@54c48eea` | `2cbfb8a` | 2026-08-10 |
 | `openJiuwen/jiuwenswarm` | Architecture/channel ideas | `develop@fb43da6c` | `de623dd9` | 2026-08-10 |
@@ -46,6 +46,14 @@ design, but they are not tracked parity targets.
 ## Latest Audit / Port Update — 2026-08-12
 
 ### nanobot
+
+Audited 19 linear commits from `3778e7e62` through `abfcdd481`. Tool JSON Schema validation now
+rejects non-finite `number` values after casting and at nested paths (`99e07e138`). Matrix thread
+session isolation is also portable and remains the next focused channel item. Provider environment
+isolation, weather workflow portability, MCP runtime status, and OpenRouter server-tool merging are
+recorded for follow-up against their local owners. The Agent Plugins/marketplace and React PWA work
+remain intentional architecture/product divergences: Hahobot keeps its workspace skill lifecycle,
+explicit MCP config, and server-rendered WebUI instead of adding a second package-market surface.
 
 Follow-up audited 16 commits from `55ecda27` through `3778e7e62`, after the prior 188-commit pass.
 The portable deltas are adapted onto local owners:
@@ -84,7 +92,10 @@ architecture-specific. See
 
 ### GenericAgent
 
-Audited 30 linear commits through `d426d45e`. Responses terminal-event handling and maximum
+Audited 7 linear commits from `d426d45e` through `63f9db74e`. The new changes are Hub/P2P,
+conductor, and world-model-specific; overload retry behavior remains covered by Hahobot's provider
+retry layer and no portable local delta was identified. The prior 30-commit pass's Responses
+terminal-event handling and maximum
 reasoning effort map to Hahobot's existing provider normalization plus the newly updated Anthropic
 capability matrix. The 60-second oversized `Retry-After` guard is useful, but remains a watchlist
 item until Hahobot defines one policy across finite and persistent retry modes. Hub/P2P, desktop,
@@ -113,7 +124,7 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 
 | Area | Status | Current local disposition |
 | --- | --- | --- |
-| Tool/runtime policy | `synced` | Central policy controls tool availability, hot reload, doctor output, and explicit exec environment passthrough. |
+| Tool/runtime policy | `synced` | Central policy controls tool availability, hot reload, doctor output, explicit exec environment passthrough, and finite-number validation before dispatch. |
 | File editing | `synced` | Exact replacements reject identical old/new text before I/O; oversized reads fail from metadata before allocation. |
 | File/config durability | `synced` | Oversized reads fail before allocation; config/admin and cron commits use mode-preserving atomic replacement. |
 | Exec isolation | `synced` | Segment-wise allow rules, deny-first matching, assignment/home-path guards, bounded-at-read one-shot output, bounded execution, and robust process cleanup remain local invariants. |
@@ -167,6 +178,9 @@ The detailed historical matrix remains searchable in
 | Upstream | Revisit when | Candidate |
 | --- | --- | --- |
 | nanobot | Channel identity or provider breadth is touched | DingTalk DM gating/sender labels; demand-driven provider/channel additions. |
+| nanobot | Matrix channel behavior is touched | Isolate Matrix thread conversations with `channel:room:thread:root-event` session keys. |
+| nanobot | Provider construction or CLI child processes are touched | Stop process-global credential mutation and audit minimal child-process environments. |
+| nanobot | OpenRouter server tools or provider `extraBody` are exposed locally | Merge configured server tools without replacing Hahobot function tools. |
 | nanobot | Session retention is redesigned | Session-file retention/archiving and cross-session references adapted to Hahobot's incremental JSONL and session-authority model. |
 | nanobot | Reasoning model routing expands | Kimi/MiMo and other model-specific reasoning parameters not already covered locally. |
 | nanobot | Remote authenticated MCP becomes an operator requirement | Browser OAuth with explicit callback binding, token storage/redaction, refresh, revocation, and admin-session security. |

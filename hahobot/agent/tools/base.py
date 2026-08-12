@@ -1,5 +1,6 @@
 """Base class for agent tools."""
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import deepcopy
@@ -58,6 +59,8 @@ class Schema(ABC):
             not isinstance(val, _JSON_TYPE_MAP["number"]) or isinstance(val, bool)
         ):
             return [f"{label} should be number"]
+        if t == "number" and isinstance(val, float) and not math.isfinite(val):
+            return [f"{label} must be finite"]
         if (
             t in _JSON_TYPE_MAP
             and t not in ("integer", "number")

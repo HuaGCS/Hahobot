@@ -905,6 +905,10 @@ This is distinct from `channels.xiaoyi`, which speaks Huawei Xiaoyi's separate A
 
 ### Built-in tools
 
+Tool-call parameters are schema-cast and validated before execution. JSON `number` fields reject
+non-finite values such as `NaN` and positive/negative infinity, including values produced while
+casting model-supplied strings and values nested inside arrays or objects.
+
 The runtime can expose:
 
 - web search and fetch
