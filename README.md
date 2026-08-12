@@ -921,6 +921,9 @@ Workspace restrictions for shell/file tools can be enforced through config.
 reporting a successful edit and rewriting the file unnecessarily.
 The shell tool can also forward a narrow allowlist of environment variables through
 `tools.exec.allowedEnvKeys`.
+One-shot shell execution drains stdout and stderr concurrently and retains only bounded head/tail
+previews while the process runs. A noisy command therefore cannot make Hahobot buffer its complete
+output before applying the existing 10,000-character response cap.
 Shell execution uses `tools.exec.confirmationMode: "model"` by default. Commands selected for
 review are held without spawning a process; `/approve` executes the next command for the same
 chat, session, and sender, while `/approve all` consumes only that origin's current pending queue.

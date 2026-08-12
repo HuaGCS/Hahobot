@@ -43,7 +43,7 @@ design, but they are not tracked parity targets.
 - `intentional_divergence`: local behavior deliberately differs from upstream.
 - `watchlist`: re-evaluate when the related local surface or upstream behavior changes.
 
-## Latest Audit / Port Update — 2026-08-11
+## Latest Audit / Port Update — 2026-08-12
 
 ### nanobot
 
@@ -70,7 +70,10 @@ The portable deltas are adapted onto local owners:
   explicit **Save copy** creates a normal persisted session (`c9a614587`, `a5bc3bfbb`, `75e333a3c`,
   `af52fbcbc`);
 - `edit_file` rejects identical old/new text before reading or rewriting an existing file, so a
-  malformed no-op request cannot report false success (`b3b051761`).
+  malformed no-op request cannot report false success (`b3b051761`);
+- nanobot's bounded persistent-exec buffer is adapted to Hahobot's one-shot shell path: stdout and
+  stderr are drained concurrently with incremental UTF-8 decoding and fixed head/tail retention
+  before the combined response cap (`5e67fbf93`).
 
 The new React settings/runtime refactors remain architecture-specific. Browser OAuth for remote MCP
 servers is useful but remains a security-sensitive watchlist item until Hahobot defines local token
@@ -113,7 +116,7 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 | Tool/runtime policy | `synced` | Central policy controls tool availability, hot reload, doctor output, and explicit exec environment passthrough. |
 | File editing | `synced` | Exact replacements reject identical old/new text before I/O; oversized reads fail from metadata before allocation. |
 | File/config durability | `synced` | Oversized reads fail before allocation; config/admin and cron commits use mode-preserving atomic replacement. |
-| Exec isolation | `synced` | Segment-wise allow rules, deny-first matching, assignment/home-path guards, bounded execution, and robust process cleanup remain local invariants. |
+| Exec isolation | `synced` | Segment-wise allow rules, deny-first matching, assignment/home-path guards, bounded-at-read one-shot output, bounded execution, and robust process cleanup remain local invariants. |
 | Provider normalization | `synced` | Empty content, malformed surrogates, reasoning fields, versioned Anthropic adaptive effort, model-specific thinking, and provider error detail are normalized before transport. |
 | Image generation | `synced` | Gemini Flash uses live `imageConfig`; generated-image downloads are redirect-safe, DNS-pinned, byte-capped, and content-verified while persona `/scene` keeps local reference-image behavior. |
 | Length recovery | `synced` | Truncated provider segments are retried/merged and streamed as one visible response without losing already-produced text. |
@@ -165,7 +168,6 @@ The detailed historical matrix remains searchable in
 | nanobot | Channel identity or provider breadth is touched | DingTalk DM gating/sender labels; demand-driven provider/channel additions. |
 | nanobot | Session retention is redesigned | Session-file retention/archiving and cross-session references adapted to Hahobot's incremental JSONL and session-authority model. |
 | nanobot | Reasoning model routing expands | Kimi/MiMo and other model-specific reasoning parameters not already covered locally. |
-| nanobot | Exec/session tooling expands | Bounded-at-source subprocess capture instead of post-`communicate()` truncation. |
 | nanobot | Remote authenticated MCP becomes an operator requirement | Browser OAuth with explicit callback binding, token storage/redaction, refresh, revocation, and admin-session security. |
 | GenericAgent | Workflow or unattended background behavior becomes concrete | Reviewable planning/memory SOPs without copying desktop/conductor structure. |
 | GenericAgent | Retry policy is redesigned | One bounded policy for oversized `Retry-After` across finite and persistent modes. |

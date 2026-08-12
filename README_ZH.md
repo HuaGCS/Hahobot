@@ -1160,6 +1160,8 @@ HTTP 示例：
 
 `read_file` 会在实际读入文本、图片或 OOXML 前先用文件元数据拒绝超过 100 MiB 的输入；
 `edit_file` 会拒绝 `old_text` 与 `new_text` 完全相同的空操作，避免误报编辑成功和无意义地重写文件；
+一次性 shell 执行会并发排空 stdout / stderr，并在运行期间只保留有界的头尾预览；高噪声命令不会再
+先把完整输出装进内存、最后才截断到现有的 10,000 字符响应上限；
 workspace 限制下的 shell 路径检查也覆盖 `--output=/tmp/file` 这类等号赋值形式。
 
 其中 `self_inspect` 故意保持只读，不提供上游那类运行时自修改能力；`notebook_edit`

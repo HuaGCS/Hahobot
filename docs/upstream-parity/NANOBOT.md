@@ -36,6 +36,7 @@ own architecture; file-for-file mirroring is not required.
 | `f45436b61` | Unknown slash commands are rejected before model dispatch with localized nearest-command suggestions. |
 | `c9a614587`, `a5bc3bfbb`, `75e333a3c`, `af52fbcbc` | Temporary chat semantics are adapted onto the server-rendered WebUI: process-local session state, no persistence/memory/cron ownership, and an explicit persisted **Save copy**. |
 | `b3b051761` | `edit_file` rejects identical old/new text before any existing-file read or rewrite. |
+| `5e67fbf93` (adapted follow-up) | Nanobot's bounded persistent-session buffer is mapped to Hahobot's one-shot exec: stdout/stderr are drained concurrently with incremental UTF-8 decoding and fixed head/tail retention before the combined response cap. |
 
 ## Established Local Mapping
 
@@ -68,8 +69,6 @@ own architecture; file-for-file mirroring is not required.
 - Kimi/MiMo and other model-scoped reasoning parameters when provider routing expands.
 - A Hahobot-native retention/archival design if incremental session stores need bounded history.
 - New channel/provider surfaces only when operator demand and local config/admin/test coverage exist.
-- Bounded-at-source one-shot exec capture; Hahobot has no upstream-style persistent exec sessions,
-  but `communicate()` can still buffer before the local response cap is applied.
 - Browser OAuth for remote MCP servers, once Hahobot has an explicit contract for callback binding,
   token storage/redaction, refresh/revocation, and authenticated admin initiation.
 

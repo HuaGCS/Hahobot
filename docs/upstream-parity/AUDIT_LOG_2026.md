@@ -70,6 +70,16 @@ This file therefore records both:
 
 ## Dated Audit Log (Newest First)
 
+- `nanobot` (`2026-08-12` follow-up adaptation; audit boundary unchanged at
+  `main@3778e7e62`): closed the one-shot exec-output watchlist item by adapting the bounded
+  persistent-session buffer from `5e67fbf93` onto Hahobot's simpler one-shot runtime.
+  `hahobot/agent/tools/shell.py` now concurrently drains real stdout/stderr `StreamReader`s,
+  incrementally decodes UTF-8, retains only fixed head/tail previews per stream, preserves the
+  existing combined 10,000-character truncation/exit-code response, and retains timeout/cancellation
+  process cleanup. Lightweight test doubles keep a `communicate()` compatibility fallback; real
+  subprocesses never buffer full output there. Evidence lives in `tests/tools/test_exec_output.py`,
+  including a real two-stream 2 MiB subprocess plus UTF-8, timeout, and cancellation regressions.
+  Final verification passed the complete suite: 2380 tests, with 4 environment skips.
 - `nanobot` (`2026-08-11` second pass): fetched without tags and audited 16 commits from
   `55ecda27` through `main@3778e7e62` (`2026-08-10`). Ported `b3b051761` into
   `hahobot/agent/tools/filesystem.py`: `edit_file` now rejects identical old/new text before file

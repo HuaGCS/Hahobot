@@ -1,6 +1,7 @@
 """Shell execution tool."""
 
 import asyncio
+import codecs
 import os
 import re
 import shutil
@@ -26,6 +27,60 @@ from hahobot.agent.tools.schema import (
 from hahobot.config.paths import get_media_dir
 
 _IS_WINDOWS = sys.platform == "win32"
+_STREAM_READ_SIZE = 8192
+
+
+class _BoundedTextCapture:
+    """Retain a fixed-size head/tail preview while counting all decoded characters."""
+
+    def __init__(self, max_chars: int) -> None:
+        self.max_chars = max(1, max_chars)
+        self._head_limit = self.max_chars // 2
+        self._tail_limit = self.max_chars - self._head_limit
+        self._whole: str | None = ""
+        self._head = ""
+        self._tail = ""
+        self.total_chars = 0
+        self.has_non_whitespace = False
+
+    def feed(self, text: str) -> None:
+        if not text:
+            return
+        self.total_chars += len(text)
+        if not self.has_non_whitespace and any(not char.isspace() for char in text):
+            self.has_non_whitespace = True
+
+        if self._whole is not None:
+            combined = self._whole + text
+            if len(combined) <= self.max_chars:
+                self._whole = combined
+                return
+            self._head = combined[: self._head_limit]
+            self._tail = combined[-self._tail_limit :]
+            self._whole = None
+            return
+
+        self._tail = (self._tail + text)[-self._tail_limit :]
+
+    @property
+    def preview(self) -> str:
+        if self._whole is not None:
+            return self._whole
+        return self._head + self._tail
+
+
+async def _read_stream_bounded(
+    stream: asyncio.StreamReader,
+    *,
+    max_chars: int,
+) -> _BoundedTextCapture:
+    """Drain one subprocess pipe without retaining its complete output in memory."""
+    capture = _BoundedTextCapture(max_chars)
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    while chunk := await stream.read(_STREAM_READ_SIZE):
+        capture.feed(decoder.decode(chunk))
+    capture.feed(decoder.decode(b"", final=True))
+    return capture
 
 
 def _reap_pid(pid: int) -> None:
@@ -330,7 +385,7 @@ class ExecTool(Tool):
 
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
+                    self._communicate_bounded(process),
                     timeout=effective_timeout,
                 )
             except TimeoutError:
@@ -340,33 +395,77 @@ class ExecTool(Tool):
                 await self._kill_process(process)
                 raise
 
-            output_parts = []
-
-            if stdout:
-                output_parts.append(stdout.decode("utf-8", errors="replace"))
-
-            if stderr:
-                stderr_text = stderr.decode("utf-8", errors="replace")
-                if stderr_text.strip():
-                    output_parts.append(f"STDERR:\n{stderr_text}")
-
-            output_parts.append(f"\nExit code: {process.returncode}")
-
-            result = "\n".join(output_parts) if output_parts else "(no output)"
-
-            max_len = self._MAX_OUTPUT
-            if len(result) > max_len:
-                half = max_len // 2
-                result = (
-                    result[:half]
-                    + f"\n\n... ({len(result) - max_len:,} chars truncated) ...\n\n"
-                    + result[-half:]
-                )
-
-            return result
+            return self._format_captured_output(stdout, stderr, process.returncode)
 
         except Exception as e:
             return f"Error executing command: {str(e)}"
+
+    async def _communicate_bounded(
+        self,
+        process: asyncio.subprocess.Process,
+    ) -> tuple[_BoundedTextCapture, _BoundedTextCapture]:
+        """Drain stdout/stderr concurrently while retaining only bounded previews.
+
+        Real asyncio subprocess pipes are ``StreamReader`` instances. The
+        ``communicate`` fallback exists only for lightweight SDK/test doubles
+        that do not expose real pipe readers; production subprocesses always use
+        the bounded path.
+        """
+        stdout_stream = process.stdout
+        stderr_stream = process.stderr
+        if not isinstance(stdout_stream, asyncio.StreamReader) or not isinstance(
+            stderr_stream, asyncio.StreamReader
+        ):
+            stdout_bytes, stderr_bytes = await process.communicate()
+            stdout = _BoundedTextCapture(self._MAX_OUTPUT)
+            stderr = _BoundedTextCapture(self._MAX_OUTPUT)
+            stdout.feed(stdout_bytes.decode("utf-8", errors="replace"))
+            stderr.feed(stderr_bytes.decode("utf-8", errors="replace"))
+            return stdout, stderr
+
+        async with asyncio.TaskGroup() as tasks:
+            stdout_task = tasks.create_task(
+                _read_stream_bounded(stdout_stream, max_chars=self._MAX_OUTPUT)
+            )
+            stderr_task = tasks.create_task(
+                _read_stream_bounded(stderr_stream, max_chars=self._MAX_OUTPUT)
+            )
+            tasks.create_task(process.wait())
+        return stdout_task.result(), stderr_task.result()
+
+    def _format_captured_output(
+        self,
+        stdout: _BoundedTextCapture,
+        stderr: _BoundedTextCapture,
+        returncode: int | None,
+    ) -> str:
+        """Format bounded previews while reporting omissions from the logical full output."""
+        output_parts: list[str] = []
+        logical_lengths: list[int] = []
+
+        if stdout.total_chars:
+            output_parts.append(stdout.preview)
+            logical_lengths.append(stdout.total_chars)
+
+        if stderr.total_chars and stderr.has_non_whitespace:
+            prefix = "STDERR:\n"
+            output_parts.append(prefix + stderr.preview)
+            logical_lengths.append(len(prefix) + stderr.total_chars)
+
+        exit_text = f"\nExit code: {returncode}"
+        output_parts.append(exit_text)
+        logical_lengths.append(len(exit_text))
+
+        result = "\n".join(output_parts)
+        logical_length = sum(logical_lengths) + max(0, len(output_parts) - 1)
+        if logical_length > self._MAX_OUTPUT:
+            half = self._MAX_OUTPUT // 2
+            result = (
+                result[:half]
+                + f"\n\n... ({logical_length - self._MAX_OUTPUT:,} chars truncated) ...\n\n"
+                + result[-half:]
+            )
+        return result
 
     @staticmethod
     async def _spawn(
