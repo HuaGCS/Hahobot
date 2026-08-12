@@ -797,6 +797,9 @@ Notable gateway features:
     - inline media (images served from `workspace/out` via `/app/media/...`), restored from
       persisted history after refresh even when a message contains media but no text
     - an in-chat persona selector, a live working-checkpoint panel, and conversation forking
+    - resilient connection recovery: per-session drafts stay in browser session storage, sending is
+      disabled while offline/reconnecting, reconnects use bounded exponential backoff, and a
+      request-id receipt reattaches to an in-flight turn without submitting it twice
     - voice input (mic → `/app/transcribe`, using the configured transcription provider)
     - proactive/scheduled delivery: cron, heartbeat, and the `message` tool push into an open
       conversation (and persist so they show on reload) — ask the agent to "remind me in 10 minutes"

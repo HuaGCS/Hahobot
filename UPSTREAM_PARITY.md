@@ -134,6 +134,7 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 | Matrix joins | `synced` | Invite joins send `{}` for strict homeservers and retry allowed pending invites from the same sync response. |
 | Slack/Feishu rendering | `synced` | Fenced tables stay intact and malformed/null rich-message fields degrade safely. |
 | WebUI persisted media | `synced` | Initial history and live frames share the traversal-guarded `workspace/out` media mapping. |
+| WebUI connection recovery | `local_extension` | Per-session drafts, offline send gating, capped reconnect backoff, and request-id turn receipts reattach safely without duplicate model calls. |
 | Slash-command UX | `synced` | Unknown or mistyped slash commands are rejected before model dispatch with localized nearest-command guidance. |
 | Proactive delivery | `local_extension` | Cron, heartbeat, and cross-session messages persist into the destination session and can push to an open WebUI connection. |
 | Server-rendered operations UI | `intentional_divergence` | WebUI/admin/status remain in the aiohttp/Jinja gateway instead of adopting a React/Vite or desktop stack. |

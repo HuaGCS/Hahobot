@@ -379,6 +379,9 @@ async def webui_index(request: web.Request) -> web.Response:
         composer_placeholder=_t(request, "webui_composer_placeholder"),
         send_label=_t(request, "webui_send"),
         connecting_label=_t(request, "webui_connecting"),
+        reconnecting_label=_t(request, "webui_reconnecting"),
+        offline_label=_t(request, "webui_offline"),
+        busy_label=_t(request, "webui_busy"),
         processing_label=_t(request, "webui_processing"),
         scroll_latest_label=_t(request, "webui_scroll_latest"),
         config_path=str(_current_config_path(request)),
@@ -603,10 +606,17 @@ async def webui_chat_ws(request: web.Request) -> web.WebSocketResponse:
     broadcaster = _broadcaster(request)
     conn = WebUIConnection(session_key) if broadcaster is not None else None
 
-    async def _emit(frame: dict[str, Any]) -> None:
-        """Single-writer sink: every outbound frame goes through the per-conn queue."""
+    async def _emit_local(frame: dict[str, Any]) -> None:
+        """Queue a connection-scoped frame such as ready/busy state."""
         if conn is not None:
             conn.enqueue(frame)
+        else:
+            await ws.send_json(frame)
+
+    async def _emit(frame: dict[str, Any]) -> None:
+        """Fan a turn frame to every live view of the bound conversation."""
+        if broadcaster is not None:
+            await broadcaster.broadcast(session_key, frame)
         else:
             await ws.send_json(frame)
 
@@ -638,7 +648,17 @@ async def webui_chat_ws(request: web.Request) -> web.WebSocketResponse:
     if broadcaster is not None and conn is not None:
         broadcaster.register(conn)
 
-    await _emit({"event": "ready"})
+    await _emit_local(
+        {
+            "event": "ready",
+            "active_turn": broadcaster.active_turn(session_key)
+            if broadcaster is not None
+            else None,
+            "completed_request_id": (
+                broadcaster.completed_request_id(session_key) if broadcaster is not None else None
+            ),
+        }
+    )
 
     try:
         async for msg in ws:
@@ -656,50 +676,111 @@ async def webui_chat_ws(request: web.Request) -> web.WebSocketResponse:
             text = str(data.get("text") or data.get("content") or "").strip()
             if not text:
                 continue
-
-            async def on_stream(delta: str) -> None:
-                if delta:
-                    await _emit({"event": "delta", "text": delta})
-
-            async def on_progress(hint: str, tool_hint: bool = False) -> None:
-                if hint:
-                    await _emit({"event": "progress", "text": hint, "tool_hint": tool_hint})
-                # The in-flight working checkpoint is written to session metadata as
-                # the turn advances; surface it live so the panel reflects progress
-                # instead of only catching up at stream_end (or on a manual refresh).
-                await _emit_checkpoint(_working_checkpoint(request, session_key))
-
-            try:
-                resp = await agent.process_direct(
-                    text,
-                    session_key=session_key,
-                    channel="webui",
-                    chat_id=chat_id,
-                    on_progress=on_progress,
-                    on_stream=on_stream,
+            request_id = str(data.get("request_id") or "").strip()[:128]
+            if not request_id:
+                request_id = secrets.token_hex(12)
+            display_user = data.get("display_user") is not False
+            if broadcaster is not None:
+                active_turn = broadcaster.active_turn(session_key)
+                if active_turn is not None and active_turn.get("request_id") == request_id:
+                    await _emit_local({"event": "accepted", **active_turn})
+                    continue
+                if broadcaster.completed_request_id(session_key) == request_id:
+                    await _emit_local({"event": "completed", "request_id": request_id})
+                    continue
+            turn_claimed = (
+                broadcaster.begin_turn(
+                    session_key,
+                    request_id=request_id,
+                    text=text,
+                    display_user=display_user,
                 )
-            except Exception as exc:  # noqa: BLE001 - report failures to the client
-                logger.exception("webui chat turn failed")
-                await _emit({"event": "error", "text": str(exc)})
+                if broadcaster is not None
+                else True
+            )
+            if not turn_claimed:
+                await _emit_local({"event": "busy"})
                 continue
-
-            media = _media_urls(
-                getattr(resp, "media", None) if resp else None, _media_root(request)
-            )
-            final_checkpoint = _working_checkpoint(request, session_key)
-            cp_cursor["sig"] = (
-                json.dumps(final_checkpoint, sort_keys=True, ensure_ascii=False)
-                if final_checkpoint
-                else None
-            )
             await _emit(
                 {
-                    "event": "stream_end",
-                    "text": resp.content if resp else "",
-                    "media": media,
-                    "checkpoint": final_checkpoint,
+                    "event": "accepted",
+                    "request_id": request_id,
+                    "text": text,
+                    "display_user": display_user,
                 }
             )
+
+            async def _run_turn(turn_text: str = text, turn_request_id: str = request_id) -> None:
+                turn_released = False
+
+                async def on_stream(delta: str) -> None:
+                    if delta:
+                        await _emit({"event": "delta", "text": delta})
+
+                async def on_progress(hint: str, tool_hint: bool = False) -> None:
+                    if hint:
+                        await _emit({"event": "progress", "text": hint, "tool_hint": tool_hint})
+                    # The in-flight working checkpoint is written to session metadata as
+                    # the turn advances; surface it live so the panel reflects progress
+                    # instead of only catching up at stream_end (or on a manual refresh).
+                    await _emit_checkpoint(_working_checkpoint(request, session_key))
+
+                try:
+                    try:
+                        resp = await agent.process_direct(
+                            turn_text,
+                            session_key=session_key,
+                            channel="webui",
+                            chat_id=chat_id,
+                            on_progress=on_progress,
+                            on_stream=on_stream,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - report failures to the client
+                        logger.exception("webui chat turn failed")
+                        if broadcaster is not None:
+                            broadcaster.end_turn(session_key)
+                            turn_released = True
+                        await _emit(
+                            {
+                                "event": "error",
+                                "text": str(exc),
+                                "request_id": turn_request_id,
+                            }
+                        )
+                        return
+
+                    media = _media_urls(
+                        getattr(resp, "media", None) if resp else None, _media_root(request)
+                    )
+                    final_checkpoint = _working_checkpoint(request, session_key)
+                    cp_cursor["sig"] = (
+                        json.dumps(final_checkpoint, sort_keys=True, ensure_ascii=False)
+                        if final_checkpoint
+                        else None
+                    )
+                    # Publish the completion receipt before the terminal frame.
+                    # A connection opened in this tiny interval will reload the
+                    # persisted result instead of attaching to a turn whose final
+                    # broadcast already happened.
+                    if broadcaster is not None:
+                        broadcaster.end_turn(session_key, completed=True)
+                        turn_released = True
+                    await _emit(
+                        {
+                            "event": "stream_end",
+                            "text": resp.content if resp else "",
+                            "media": media,
+                            "checkpoint": final_checkpoint,
+                            "request_id": turn_request_id,
+                        }
+                    )
+                finally:
+                    if broadcaster is not None and not turn_released:
+                        broadcaster.end_turn(session_key)
+
+            turn_task = asyncio.create_task(_run_turn(), name=f"webui-turn:{session_key}")
+            if broadcaster is not None:
+                broadcaster.track_turn_task(session_key, turn_task)
     finally:
         if broadcaster is not None and conn is not None:
             broadcaster.unregister(conn)
@@ -727,8 +808,15 @@ def register_webui_routes(
         app[_WEBUI_AGENT_KEY] = agent
     if session_manager is not None:
         app[_WEBUI_SESSION_MANAGER_KEY] = session_manager
-    if broadcaster is not None:
-        app[_WEBUI_BROADCASTER_KEY] = broadcaster
+    active_broadcaster = broadcaster or WebUIBroadcaster()
+    app[_WEBUI_BROADCASTER_KEY] = active_broadcaster
+
+    if broadcaster is None:
+
+        async def _close_webui_turns(_app: web.Application) -> None:
+            await active_broadcaster.close()
+
+        app.on_cleanup.append(_close_webui_turns)
     if cron_service is not None:
         app[_WEBUI_CRON_KEY] = cron_service
     app.router.add_get("/app", webui_index)

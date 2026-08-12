@@ -444,6 +444,8 @@ def gateway(
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         finally:
+            if webui_broadcaster is not None:
+                await webui_broadcaster.close()
             await agent.close_mcp()
             heartbeat.stop()
             cron.stop()

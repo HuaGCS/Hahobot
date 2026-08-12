@@ -112,7 +112,7 @@
             <button type="submit" class="ghost" title="{{ clear_label }}">{{ clear_label }}</button>
           </form>
           <label class="persona-picker" title="{{ persona_label }}">
-            <select id="persona-select">
+            <select id="persona-select" disabled>
               {% for p in personas %}
               <option value="{{ p }}"{% if p == current_persona %} selected{% endif %}>{{ p }}</option>
               {% endfor %}
@@ -122,9 +122,9 @@
                   data-recording="{{ mic_recording }}" data-transcribing="{{ mic_transcribing }}"
                   data-error="{{ mic_error }}">🎤</button>
           <textarea id="composer-input" rows="1" placeholder="{{ composer_placeholder }}"></textarea>
-          <button id="composer-send" type="button">{{ send_label }}</button>
+          <button id="composer-send" type="button" disabled>{{ send_label }}</button>
         </div>
-        <div class="status-line" id="status-line">{{ connecting_label }}</div>
+        <div class="status-line" id="status-line" role="status" aria-live="polite">{{ connecting_label }}</div>
       </main>
     </div>
   </div>
@@ -142,8 +142,14 @@
       const scrollLatestBtn = document.getElementById("scroll-latest");
       const sessionKey = chat.getAttribute("data-session");
       const CONNECTING = {{ connecting_label | tojson }};
+      const RECONNECTING = {{ reconnecting_label | tojson }};
+      const OFFLINE = {{ offline_label | tojson }};
+      const BUSY = {{ busy_label | tojson }};
       const PROCESSING = {{ processing_label | tojson }};
       const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+      const DRAFT_KEY = "hahobot:webui:draft:" + sessionKey;
+      const PENDING_KEY = "hahobot:webui:pending:" + sessionKey;
+      const PENDING_TEXT_KEY = PENDING_KEY + ":text";
 
       function esc(s) {
         const d = document.createElement("div");
@@ -169,6 +175,58 @@
       let ws = null;
       let assistantBubble = null;
       let thinkingEl = null;
+      let reconnectTimer = null;
+      let reconnectAttempts = 0;
+      let connected = false;
+      let turnBusy = false;
+      let pendingRequestId = null;
+      let pendingRequestText = "";
+      const displayedRequestIds = new Set();
+
+      try {
+        input.value = sessionStorage.getItem(DRAFT_KEY) || "";
+        pendingRequestId = sessionStorage.getItem(PENDING_KEY);
+        pendingRequestText = sessionStorage.getItem(PENDING_TEXT_KEY) || "";
+      } catch (e) {}
+
+      function saveDraft() {
+        try {
+          if (input.value) sessionStorage.setItem(DRAFT_KEY, input.value);
+          else sessionStorage.removeItem(DRAFT_KEY);
+        } catch (e) {}
+      }
+
+      function setPendingRequest(id, text) {
+        pendingRequestId = id || null;
+        pendingRequestText = pendingRequestId ? (text || pendingRequestText) : "";
+        try {
+          if (pendingRequestId) {
+            sessionStorage.setItem(PENDING_KEY, pendingRequestId);
+            sessionStorage.setItem(PENDING_TEXT_KEY, pendingRequestText);
+          } else {
+            sessionStorage.removeItem(PENDING_KEY);
+            sessionStorage.removeItem(PENDING_TEXT_KEY);
+          }
+        } catch (e) {}
+      }
+
+      function clearSubmittedDraft() {
+        if (pendingRequestText && input.value.trim() === pendingRequestText.trim()) {
+          input.value = "";
+          input.style.height = "auto";
+          saveDraft();
+        }
+      }
+
+      function updateControls() {
+        sendBtn.disabled = !connected || turnBusy;
+        if (personaSelect) personaSelect.disabled = !connected || turnBusy;
+      }
+
+      function setTurnBusy(value) {
+        turnBusy = value;
+        updateControls();
+      }
 
       function scrollToBottom() { scroll.scrollTop = scroll.scrollHeight; }
 
@@ -241,16 +299,90 @@
         scrollToBottom();
       }
 
+      function requestId() {
+        if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+        return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+      }
+
+      function acceptTurn(turn, renderUser) {
+        if (!turn || !turn.request_id) return;
+        if (renderUser !== false && turn.display_user !== false && !displayedRequestIds.has(turn.request_id)) {
+          addMessage("user", turn.text || "");
+          displayedRequestIds.add(turn.request_id);
+        }
+        if (pendingRequestId === turn.request_id) {
+          clearSubmittedDraft();
+        }
+        setPendingRequest(turn.request_id, turn.text || "");
+        assistantBubble = null;
+        setTurnBusy(true);
+        showThinking();
+        statusLine.textContent = PROCESSING;
+      }
+
+      function scheduleReconnect() {
+        if (reconnectTimer) return;
+        const base = Math.min(30000, 750 * Math.pow(2, reconnectAttempts));
+        const delay = Math.round(base * (0.85 + Math.random() * 0.3));
+        reconnectAttempts += 1;
+        reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, delay);
+      }
+
       function connect() {
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
-        ws = new WebSocket(proto + "//" + location.host + "/app/ws?session=" + encodeURIComponent(sessionKey));
-        ws.onopen = () => { statusLine.textContent = ""; };
-        ws.onclose = () => { statusLine.textContent = CONNECTING; setTimeout(connect, 2000); };
-        ws.onerror = () => { statusLine.textContent = CONNECTING; };
-        ws.onmessage = (evt) => {
+        const socket = new WebSocket(proto + "//" + location.host + "/app/ws?session=" + encodeURIComponent(sessionKey));
+        ws = socket;
+        connected = false;
+        updateControls();
+        statusLine.textContent = reconnectAttempts ? RECONNECTING : CONNECTING;
+        socket.onopen = () => { statusLine.textContent = CONNECTING; };
+        socket.onclose = () => {
+          if (ws !== socket) return;
+          connected = false;
+          updateControls();
+          statusLine.textContent = navigator.onLine === false ? OFFLINE : RECONNECTING;
+          scheduleReconnect();
+        };
+        socket.onerror = () => {
+          if (ws === socket) statusLine.textContent = navigator.onLine === false ? OFFLINE : RECONNECTING;
+        };
+        socket.onmessage = (evt) => {
+          if (ws !== socket) return;
           let data;
           try { data = JSON.parse(evt.data); } catch (e) { return; }
-          if (data.event === "delta") {
+          if (data.event === "ready") {
+            connected = true;
+            reconnectAttempts = 0;
+            if (data.active_turn) acceptTurn(data.active_turn, false);
+            else if (pendingRequestId && data.completed_request_id === pendingRequestId) {
+              clearSubmittedDraft();
+              setPendingRequest(null);
+              location.reload();
+              return;
+            } else {
+              if (pendingRequestId && !input.value && pendingRequestText) {
+                input.value = pendingRequestText;
+                saveDraft();
+              }
+              setPendingRequest(null);
+              setTurnBusy(false);
+              clearThinking();
+              statusLine.textContent = "";
+            }
+            updateControls();
+          } else if (data.event === "accepted") {
+            acceptTurn(data, true);
+          } else if (data.event === "completed") {
+            if (!pendingRequestId || data.request_id === pendingRequestId) {
+              clearSubmittedDraft();
+              setPendingRequest(null);
+              location.reload();
+            }
+          } else if (data.event === "busy") {
+            setTurnBusy(true);
+            statusLine.textContent = BUSY;
+          } else if (data.event === "delta") {
             clearThinking();
             if (!assistantBubble) assistantBubble = addMessage("assistant", "");
             assistantBubble.textContent += data.text || "";
@@ -267,8 +399,9 @@
             renderMedia(assistantBubble, data.media);
             updateCheckpoint(data.checkpoint);
             assistantBubble = null;
+            setPendingRequest(null);
             statusLine.textContent = "";
-            sendBtn.disabled = false;
+            setTurnBusy(false);
           } else if (data.event === "push") {
             // Proactive server-initiated message (cron / heartbeat / message tool).
             const bubble = data.text ? addMessage("assistant", data.text) : addMessage("assistant", "");
@@ -280,31 +413,39 @@
             clearThinking();
             statusLine.textContent = data.text || "error";
             assistantBubble = null;
-            sendBtn.disabled = false;
+            if (!input.value && pendingRequestText) {
+              input.value = pendingRequestText;
+              saveDraft();
+            }
+            setPendingRequest(null);
+            setTurnBusy(false);
           }
         };
       }
 
       function send() {
         const text = input.value.trim();
-        if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-        addMessage("user", text);
-        assistantBubble = null;
-        sendBtn.disabled = true;
-        showThinking();
-        statusLine.textContent = PROCESSING;
-        ws.send(JSON.stringify({ event: "message", text: text, session: sessionKey }));
-        input.value = "";
-        input.style.height = "auto";
+        if (!text || !connected || turnBusy || !ws || ws.readyState !== WebSocket.OPEN) return;
+        const id = requestId();
+        setPendingRequest(id, text);
+        setTurnBusy(true);
+        try {
+          ws.send(JSON.stringify({ event: "message", text: text, session: sessionKey, request_id: id, display_user: true }));
+          statusLine.textContent = PROCESSING;
+        } catch (e) {
+          setPendingRequest(null);
+          setTurnBusy(false);
+          statusLine.textContent = RECONNECTING;
+        }
       }
 
       function sendCommand(text) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
-        assistantBubble = null;
-        sendBtn.disabled = true;
-        showThinking();
+        if (!connected || turnBusy || !ws || ws.readyState !== WebSocket.OPEN) return;
+        const id = requestId();
+        setPendingRequest(id, text);
+        setTurnBusy(true);
+        ws.send(JSON.stringify({ event: "message", text: text, session: sessionKey, request_id: id, display_user: false }));
         statusLine.textContent = PROCESSING;
-        ws.send(JSON.stringify({ event: "message", text: text, session: sessionKey }));
       }
 
       if (personaSelect) {
@@ -321,6 +462,17 @@
       input.addEventListener("input", () => {
         input.style.height = "auto";
         input.style.height = Math.min(input.scrollHeight, 160) + "px";
+        saveDraft();
+      });
+
+      window.addEventListener("online", () => {
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        connect();
+      });
+      window.addEventListener("offline", () => {
+        connected = false;
+        updateControls();
+        statusLine.textContent = OFFLINE;
       });
 
       // --- voice input (MediaRecorder → /app/transcribe) ---
@@ -381,6 +533,8 @@
       }
 
       connect();
+      updateControls();
+      input.dispatchEvent(new Event("input"));
       scrollToBottom();
     })();
   </script>

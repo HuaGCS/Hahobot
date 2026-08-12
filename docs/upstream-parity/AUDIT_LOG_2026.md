@@ -70,6 +70,15 @@ This file therefore records both:
 
 ## Dated Audit Log (Newest First)
 
+- `local_extension` (`2026-08-12` WebUI recovery): implemented the project-aligned resilience idea
+  identified while reviewing nanobot `71a99b078` / `05d73803e` without porting its React event
+  projection or settings stack. Hahobot's server-rendered WebUI now keeps per-session drafts in
+  browser session storage, disables send/persona switching until connected, uses jittered capped
+  exponential reconnect backoff, and reconciles requests through accepted/active/completed ids.
+  `WebUIBroadcaster` owns one detached turn per session so replacing a socket neither cancels nor
+  duplicates the model call; it fans subsequent frames to the replacement connection and cancels
+  outstanding turns on gateway cleanup. Evidence: `tests/test_webui.py` (45 focused tests) and the
+  full suite (`2383 passed, 4 skipped`).
 - `nanobot` (`2026-08-12` follow-up adaptation; audit boundary unchanged at
   `main@3778e7e62`): closed the one-shot exec-output watchlist item by adapting the bounded
   persistent-session buffer from `5e67fbf93` onto Hahobot's simpler one-shot runtime.

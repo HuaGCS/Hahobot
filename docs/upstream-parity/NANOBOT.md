@@ -50,7 +50,9 @@ own architecture; file-for-file mirroring is not required.
   delivery IDs provide retry identity across streaming channels.
 - Web surfaces: useful behavior is adapted into the aiohttp/Jinja gateway rather than copying
   nanobot's React/Vite frontend. Temporary chats therefore use `SessionManager`'s bounded in-memory
-  namespace and Jinja forms instead of browser-local SPA state.
+  namespace and Jinja forms instead of browser-local SPA state. Connection recovery stays local to
+  this server-rendered architecture: request-id receipts and `WebUIBroadcaster` own detached turns
+  across socket replacement, rather than adopting nanobot's React event-projection layer.
 
 ## Intentional Divergences
 

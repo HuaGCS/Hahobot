@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import unquote
@@ -67,6 +68,24 @@ class _FakeCron:
 
     async def run_store_io(self, operation, /, *args, **kwargs):
         return operation(*args, **kwargs)
+
+
+class _BlockingAgent(_StreamingAgent):
+    """Hold one WebUI turn open so reconnect and duplicate-submit state can be asserted."""
+
+    def __init__(self) -> None:
+        super().__init__(reply="finished")
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def process_direct(self, content: str, **kwargs):
+        self.calls.append((content, kwargs["session_key"]))
+        self.started.set()
+        await self.release.wait()
+        on_stream = kwargs.get("on_stream")
+        if on_stream is not None:
+            await on_stream("finished")
+        return SimpleNamespace(content="finished", media=[])
 
 
 def _make_app(
@@ -381,6 +400,150 @@ async def test_webui_chat_ws_streams(tmp_path: Path, client_factory) -> None:
     assert streamed == "Hello"
     assert events[-1]["text"] == "Hello"
     assert agent.calls == [("hi", "webui:default")]
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_page_includes_reconnect_and_draft_recovery_contract(
+    tmp_path: Path, client_factory
+) -> None:
+    app = _make_app(tmp_path, webui_enabled=True, agent=_StreamingAgent())
+    client = await client_factory(app)
+
+    body = await (await client.get("/app", cookies=_auth_cookies())).text()
+
+    assert "sessionStorage.getItem(DRAFT_KEY)" in body
+    assert "sessionStorage.setItem(DRAFT_KEY" in body
+    assert "sessionStorage.getItem(PENDING_KEY)" in body
+    assert "sessionStorage.setItem(PENDING_KEY" in body
+    assert "sessionStorage.removeItem(PENDING_KEY)" in body
+    assert "sessionStorage.getItem(PENDING_TEXT_KEY)" in body
+    assert "clearSubmittedDraft()" in body
+    assert "Math.min(30000, 750 * Math.pow(2, reconnectAttempts))" in body
+    assert 'window.addEventListener("online"' in body
+    assert 'window.addEventListener("offline"' in body
+    assert "request_id: id" in body
+    assert "Connection lost. Reconnecting\\u2026 Your draft is preserved." in body
+    assert 'id="composer-send" type="button" disabled' in body
+    assert 'id="status-line" role="status" aria-live="polite"' in body
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_webui_reconnect_reattaches_to_active_turn_without_duplicate_agent_call(
+    tmp_path: Path, client_factory
+) -> None:
+    agent = _BlockingAgent()
+    app = _make_app(tmp_path, webui_enabled=True, agent=agent)
+    client = await client_factory(app)
+    path = "/app/ws?session=webui:default"
+    headers = {"Cookie": _cookie_header()}
+
+    first = await client.ws_connect(path, headers=headers)
+    first_ready = await first.receive_json()
+    assert first_ready == {"event": "ready", "active_turn": None, "completed_request_id": None}
+    await first.send_json(
+        {
+            "event": "message",
+            "text": "one turn",
+            "request_id": "req-1",
+            "display_user": True,
+        }
+    )
+    accepted = await first.receive_json()
+    assert accepted["event"] == "accepted"
+    assert accepted["request_id"] == "req-1"
+    await asyncio.wait_for(agent.started.wait(), timeout=1)
+    await first.close()
+
+    second = await client.ws_connect(path, headers=headers)
+    ready = await second.receive_json()
+    assert ready["event"] == "ready"
+    assert ready["active_turn"] == {
+        "request_id": "req-1",
+        "text": "one turn",
+        "display_user": True,
+    }
+    await second.send_json(
+        {
+            "event": "message",
+            "text": "one turn",
+            "request_id": "req-1",
+            "display_user": True,
+        }
+    )
+    duplicate_receipt = await second.receive_json()
+    assert duplicate_receipt["event"] == "accepted"
+    assert agent.calls == [("one turn", "webui:default")]
+
+    agent.release.set()
+    terminal = None
+    while terminal is None:
+        frame = await asyncio.wait_for(second.receive_json(), timeout=2)
+        if frame["event"] == "stream_end":
+            terminal = frame
+    assert terminal["request_id"] == "req-1"
+    assert terminal["text"] == "finished"
+    assert agent.calls == [("one turn", "webui:default")]
+    await second.close()
+
+    third = await client.ws_connect(path, headers=headers)
+    ready = await third.receive_json()
+    assert ready["active_turn"] is None
+    assert ready["completed_request_id"] == "req-1"
+    await third.send_json(
+        {
+            "event": "message",
+            "text": "one turn",
+            "request_id": "req-1",
+            "display_user": True,
+        }
+    )
+    completed = await third.receive_json()
+    assert completed == {"event": "completed", "request_id": "req-1"}
+    assert agent.calls == [("one turn", "webui:default")]
+    await third.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_broadcaster_close_cancels_detached_turn() -> None:
+    from hahobot.gateway.webui.broadcast import WebUIBroadcaster
+
+    broadcaster = WebUIBroadcaster()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def detached_turn() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    assert broadcaster.begin_turn(
+        "webui:default",
+        request_id="req-close",
+        text="still running",
+        display_user=True,
+    )
+    task = asyncio.create_task(detached_turn())
+    broadcaster.track_turn_task("webui:default", task)
+    await started.wait()
+
+    await broadcaster.close()
+
+    assert task.cancelled()
+    assert cancelled.is_set()
+    assert broadcaster.turn_active("webui:default") is False
+    assert (
+        broadcaster.begin_turn(
+            "webui:default",
+            request_id="req-after-close",
+            text="too late",
+            display_user=True,
+        )
+        is False
+    )
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")

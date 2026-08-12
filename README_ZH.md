@@ -1491,6 +1491,8 @@ allowlist、SSRF 检查、workspace 边界、超时或 sandbox；真正执行前
 - 带实时工作检查点面板（读取会话 `working_checkpoint`），以及语音输入（麦克风 → `/app/transcribe`，
   复用已配置的转写 provider：`channels.transcriptionProvider` + `providers.openai`/`groq` 的 key）
 - 支持会话分叉（`/app/session/fork` 复制当前会话为新分支）、回到最新按钮与移动端自适应布局
+- 支持断线恢复：按会话把输入草稿保存在浏览器 session storage 中，离线/重连期间禁用发送，使用有界
+  指数退避重连，并通过 request-id 回执重新附着到仍在执行的 turn，避免重复提交同一条消息
 - 支持仅保存在当前进程内的临时聊天：不写 session JSONL，不进入 Dream/历史归档、共享记忆提交或
   skill 使用统计，也不能绑定定时任务；关闭或 gateway 重启后即消失。需要保留时可显式点击“保存副本”
   转成普通持久会话。工具创建的文件和外部副作用仍是明确的持久操作，不会因关闭临时聊天自动撤销
