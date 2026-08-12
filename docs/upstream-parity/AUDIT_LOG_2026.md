@@ -70,6 +70,19 @@ This file therefore records both:
 
 ## Dated Audit Log (Newest First)
 
+- `nanobot` (`2026-08-11` second pass): fetched without tags and audited 16 commits from
+  `55ecda27` through `main@3778e7e62` (`2026-08-10`). Ported `b3b051761` into
+  `hahobot/agent/tools/filesystem.py`: `edit_file` now rejects identical old/new text before file
+  I/O, with regression coverage in `tests/tools/test_filesystem_tools.py`. Failed HTTP MCP cleanup
+  (`e62094415`) is already covered by Hahobot's same-task `_MCPConnectionOwner` lifecycle and
+  timeout/registration-failure cleanup tests. Weixin forced-login fixes and QR dependency
+  (`7b1646f58`, `8dd2059be`, `43511decc`) map to Hahobot's explicit saved-state deletion, fresh
+  credential-free QR request, and existing `qrcode[pil]` dependency. React settings decomposition,
+  authenticated-WebSocket mutation transport, event projection, and focus-ring changes are
+  architecture-specific to nanobot's SPA; Hahobot keeps authenticated server-rendered POST routes
+  and its shared accessible material system. Remote MCP browser OAuth (`8e77f3f8a`) remains a
+  security-sensitive watchlist item pending local callback/token-storage/admin-session contracts.
+  Final verification passed the complete suite: 2374 tests, with 4 environment skips.
 - `nanobot` (`2026-08-11` follow-up port; audit boundary unchanged at `main@55ecda27`): superseded
   two dispositions from the 2026-08-10 pass. Unknown slash commands now stop in
   `hahobot/command/router.py` before model dispatch and use session-localized nearest-command

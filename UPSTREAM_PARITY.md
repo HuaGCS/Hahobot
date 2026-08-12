@@ -24,7 +24,7 @@ The current ledger is authoritative when an older audit entry describes a supers
 
 | Upstream | Tracking role | Audited ref | Previous boundary | Audit date |
 | --- | --- | --- | --- | --- |
-| `HKUDS/nanobot` | Primary behavior-parity target | `main@55ecda27` | `cf1e801a` | 2026-08-10 |
+| `HKUDS/nanobot` | Primary behavior-parity target | `main@3778e7e62` | `55ecda27` | 2026-08-11 |
 | `lsdefine/GenericAgent` | Architecture/workflow ideas | `main@d426d45e` | `5c3fc72d` | 2026-08-10 |
 | `thedotmack/claude-mem` | Memory-architecture ideas | `main@4702c337` | `132b4634` | 2026-08-10 |
 | `Dataojitori/nocturne_memory` | Memory-architecture ideas | `main@54c48eea` | `2cbfb8a` | 2026-08-10 |
@@ -47,7 +47,8 @@ design, but they are not tracked parity targets.
 
 ### nanobot
 
-Audited 188 commits through `55ecda27`. The portable delta was adapted onto local owners:
+Follow-up audited 16 commits from `55ecda27` through `3778e7e62`, after the prior 188-commit pass.
+The portable deltas are adapted onto local owners:
 
 - generated-image URL downloads now pin validated DNS, revalidate every redirect, honor explicit
   proxy DNS without trusting private literals, reject IPv6 unspecified targets, stream with a
@@ -67,10 +68,15 @@ Audited 188 commits through `55ecda27`. The portable delta was adapted onto loca
 - temporary WebUI chats adapt nanobot's ephemeral-chat behavior onto the server-rendered gateway:
   process-local sessions skip persistence, memory/skill writeback, and cron ownership, while an
   explicit **Save copy** creates a normal persisted session (`c9a614587`, `a5bc3bfbb`, `75e333a3c`,
-  `af52fbcbc`).
+  `af52fbcbc`);
+- `edit_file` rejects identical old/new text before reading or rewriting an existing file, so a
+  malformed no-op request cannot report false success (`b3b051761`).
 
-The React/Vite marketplace, cross-session mention UI, pairing/triggers, provider breadth, and
-whole-file session retention remain demand-driven or architecture-specific. See
+The new React settings/runtime refactors remain architecture-specific. Browser OAuth for remote MCP
+servers is useful but remains a security-sensitive watchlist item until Hahobot defines local token
+storage, callback, and admin-session boundaries. The React/Vite marketplace, cross-session mention
+UI, pairing/triggers, provider breadth, and whole-file session retention remain demand-driven or
+architecture-specific. See
 [`NANOBOT.md`](docs/upstream-parity/NANOBOT.md).
 
 ### GenericAgent
@@ -105,6 +111,7 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 | Area | Status | Current local disposition |
 | --- | --- | --- |
 | Tool/runtime policy | `synced` | Central policy controls tool availability, hot reload, doctor output, and explicit exec environment passthrough. |
+| File editing | `synced` | Exact replacements reject identical old/new text before I/O; oversized reads fail from metadata before allocation. |
 | File/config durability | `synced` | Oversized reads fail before allocation; config/admin and cron commits use mode-preserving atomic replacement. |
 | Exec isolation | `synced` | Segment-wise allow rules, deny-first matching, assignment/home-path guards, bounded execution, and robust process cleanup remain local invariants. |
 | Provider normalization | `synced` | Empty content, malformed surrogates, reasoning fields, versioned Anthropic adaptive effort, model-specific thinking, and provider error detail are normalized before transport. |
@@ -159,6 +166,7 @@ The detailed historical matrix remains searchable in
 | nanobot | Session retention is redesigned | Session-file retention/archiving and cross-session references adapted to Hahobot's incremental JSONL and session-authority model. |
 | nanobot | Reasoning model routing expands | Kimi/MiMo and other model-specific reasoning parameters not already covered locally. |
 | nanobot | Exec/session tooling expands | Bounded-at-source subprocess capture instead of post-`communicate()` truncation. |
+| nanobot | Remote authenticated MCP becomes an operator requirement | Browser OAuth with explicit callback binding, token storage/redaction, refresh, revocation, and admin-session security. |
 | GenericAgent | Workflow or unattended background behavior becomes concrete | Reviewable planning/memory SOPs without copying desktop/conductor structure. |
 | GenericAgent | Retry policy is redesigned | One bounded policy for oversized `Retry-After` across finite and persistent modes. |
 | claude-mem | Archive sidecar schema changes | `filesRead` / `filesModified` evidence with migration and query semantics. |

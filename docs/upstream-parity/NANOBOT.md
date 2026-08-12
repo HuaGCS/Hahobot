@@ -6,9 +6,9 @@ own architecture; file-for-file mirroring is not required.
 
 ## Current Boundary
 
-- Audited ref: `main@55ecda27` (2026-08-09; audited 2026-08-10)
-- Previous boundary: `cf1e801a`
-- Range reviewed: 188 commits
+- Audited ref: `main@3778e7e62` (2026-08-10; audited 2026-08-11)
+- Previous boundary: `55ecda27`
+- Range reviewed: 16 commits
 - Remote rule: keep `remote.nanobot-upstream.tagOpt = --no-tags`
 
 ## Latest Adopted Clusters
@@ -35,6 +35,7 @@ own architecture; file-for-file mirroring is not required.
 | `a13e29bf`, `170c7083`, `5c4c2cb8` | Telegram fenced code and strict Matrix invite joins retain interoperable channel behavior. |
 | `f45436b61` | Unknown slash commands are rejected before model dispatch with localized nearest-command suggestions. |
 | `c9a614587`, `a5bc3bfbb`, `75e333a3c`, `af52fbcbc` | Temporary chat semantics are adapted onto the server-rendered WebUI: process-local session state, no persistence/memory/cron ownership, and an explicit persisted **Save copy**. |
+| `b3b051761` | `edit_file` rejects identical old/new text before any existing-file read or rewrite. |
 
 ## Established Local Mapping
 
@@ -69,6 +70,8 @@ own architecture; file-for-file mirroring is not required.
 - New channel/provider surfaces only when operator demand and local config/admin/test coverage exist.
 - Bounded-at-source one-shot exec capture; Hahobot has no upstream-style persistent exec sessions,
   but `communicate()` can still buffer before the local response cap is applied.
+- Browser OAuth for remote MCP servers, once Hahobot has an explicit contract for callback binding,
+  token storage/redaction, refresh/revocation, and authenticated admin initiation.
 
 See the [current root ledger](../../UPSTREAM_PARITY.md) and the
 [complete 2026 audit log](AUDIT_LOG_2026.md) for dated commit-by-commit rationale.

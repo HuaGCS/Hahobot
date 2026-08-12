@@ -285,7 +285,7 @@ class EditFileTool(_FsTool):
     @property
     def description(self) -> str:
         return (
-            "Edit a file by replacing old_text with new_text. "
+            "Edit a file by replacing old_text with new_text; the two values must differ. "
             "Tolerates minor whitespace/indentation differences. "
             "If old_text matches multiple times, you must provide more context "
             "or set replace_all=true. Shows a diff of the closest match on failure."
@@ -310,6 +310,8 @@ class EditFileTool(_FsTool):
             fp = self._resolve(path)
             if not fp.exists():
                 return f"Error: File not found: {path}"
+            if old_text == new_text:
+                return "Error: new_text must be different from old_text."
 
             raw = fp.read_bytes()
             uses_crlf = b"\r\n" in raw

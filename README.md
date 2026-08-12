@@ -917,6 +917,8 @@ The runtime can expose:
 - subagent spawning with `explore` / `implement` / `verify` execution modes
 
 Workspace restrictions for shell/file tools can be enforced through config.
+`edit_file` rejects replacements whose `old_text` and `new_text` are identical instead of
+reporting a successful edit and rewriting the file unnecessarily.
 The shell tool can also forward a narrow allowlist of environment variables through
 `tools.exec.allowedEnvKeys`.
 Shell execution uses `tools.exec.confirmationMode: "model"` by default. Commands selected for

@@ -1159,6 +1159,7 @@ HTTP 示例：
 - `notebook_edit`：受控的 `.ipynb` 单元格编辑工具，支持 `replace` / `insert` / `delete`
 
 `read_file` 会在实际读入文本、图片或 OOXML 前先用文件元数据拒绝超过 100 MiB 的输入；
+`edit_file` 会拒绝 `old_text` 与 `new_text` 完全相同的空操作，避免误报编辑成功和无意义地重写文件；
 workspace 限制下的 shell 路径检查也覆盖 `--output=/tmp/file` 这类等号赋值形式。
 
 其中 `self_inspect` 故意保持只读，不提供上游那类运行时自修改能力；`notebook_edit`

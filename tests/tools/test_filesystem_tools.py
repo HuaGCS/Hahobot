@@ -245,6 +245,27 @@ class TestEditFileTool:
         assert f.read_text() == "hello earth"
 
     @pytest.mark.asyncio
+    async def test_identical_replacement_returns_error_without_writing(
+        self, tool, tmp_path, monkeypatch
+    ):
+        f = tmp_path / "a.py"
+        f.write_text("hello world", encoding="utf-8")
+
+        def fail_write_bytes(_self, _content):
+            raise AssertionError("no-op edit must not rewrite the file")
+
+        def fail_read_bytes(_self):
+            raise AssertionError("no-op edit must be rejected before reading the file")
+
+        monkeypatch.setattr(type(f), "read_bytes", fail_read_bytes)
+        monkeypatch.setattr(type(f), "write_bytes", fail_write_bytes)
+
+        result = await tool.execute(path=str(f), old_text="world", new_text="world")
+
+        assert result == "Error: new_text must be different from old_text."
+        assert f.read_text(encoding="utf-8") == "hello world"
+
+    @pytest.mark.asyncio
     async def test_crlf_normalisation(self, tool, tmp_path):
         f = tmp_path / "crlf.py"
         f.write_bytes(b"line1\r\nline2\r\nline3")
