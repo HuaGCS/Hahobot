@@ -141,6 +141,10 @@ hahobot onboard --wizard
 }
 ```
 
+从配置文件读取的 provider key 只会显式传给对应 SDK 客户端，不会再复制到进程全局环境变量中。
+因此一个 provider 不会覆盖另一个 provider 的凭据，Hook 或子进程也不会通过环境继承意外获得配置
+中的 key；运维人员在启动前自行设置的环境变量保持不变。
+
 ### 3. 对话
 
 ```bash

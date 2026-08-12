@@ -30,6 +30,8 @@ chmod 600 ~/.hahobot/config.json
 **Recommendations:**
 - Store API keys in `~/.hahobot/config.json` with file permissions set to `0600`
 - Consider using environment variables for sensitive keys
+- Keys loaded from provider config are passed directly to the selected SDK client; Hahobot does
+  not publish them into process-global environment variables for other providers or child processes
 - Use OS keyring/credential manager for production deployments
 - Rotate API keys regularly
 - Use separate API keys for development and production

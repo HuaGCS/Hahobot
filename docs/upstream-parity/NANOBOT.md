@@ -39,6 +39,7 @@ own architecture; file-for-file mirroring is not required.
 | `5e67fbf93` (adapted follow-up) | Nanobot's bounded persistent-session buffer is mapped to Hahobot's one-shot exec: stdout/stderr are drained concurrently with incremental UTF-8 decoding and fixed head/tail retention before the combined response cap. |
 | `99e07e138` | Tool JSON Schema `number` fields reject non-finite values after casting, including nested object/array paths. |
 | `057e8f7af` | Matrix text and media thread replies use room + root-event session overrides while keeping room-scoped delivery. |
+| `f5cf4dcd2` | Configured OpenAI-compatible provider keys go directly to the SDK client and never mutate process-global environment variables or aliases. |
 
 ## Established Local Mapping
 

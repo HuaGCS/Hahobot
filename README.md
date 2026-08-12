@@ -161,6 +161,10 @@ Minimal config example:
 Provider requests keep a finite wall-clock timeout through `HAHOBOT_LLM_TIMEOUT_S` (`0` disables
 it). Streaming requests use the wider `max(300, 2 * timeout)` budget in addition to provider idle
 timeouts, allowing healthy long reasoning to finish while still bounding trickle streams.
+Provider keys loaded from config are passed directly to their SDK client and are never copied into
+process-global environment variables, so one configured provider cannot overwrite another or leak
+its credential into hooks and child processes through environment inheritance. Environment keys
+that the operator set before startup remain untouched.
 For direct Moonshot requests, Kimi K2.5/K2.6 leave `temperature` to the server's thinking mode;
 K2.7 variants keep the provider-required `1.0` override.
 Qwen thinking controls are selected by model family rather than applied to every model on an
