@@ -653,6 +653,8 @@ pip install -e ".[matrix]"
 
 - 请保持稳定的 `deviceId`
 - 多实例模式下会自动隔离到各自的 `matrix-store/<instance>`
+- 同一房间里的每个 Matrix thread 会按根事件隔离会话；不同 thread 不再共享对话上下文，普通非
+  thread 消息仍使用原有房间会话
 
 ### WhatsApp
 

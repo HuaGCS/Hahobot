@@ -74,8 +74,13 @@ This file therefore records both:
   commits from `3778e7e62` to `main@abfcdd481`; GenericAgent advanced linearly by 7 commits from
   `d426d45e` to `main@63f9db74e`. Ported nanobot `99e07e138`: shared tool JSON Schema validation now
   rejects `NaN` and positive/negative infinity after schema-driven number casts, including nested
-  array/object paths (`hahobot/agent/tools/base.py`, `tests/tools/test_tool_validation.py`). Matrix
-  thread session isolation (`057e8f7af`) is the next focused channel candidate. Provider credential
+  array/object paths (`hahobot/agent/tools/base.py`, `tests/tools/test_tool_validation.py`). Follow-up
+  ported Matrix thread session isolation (`057e8f7af`): inbound text and media events now pass
+  `matrix[/instance]:<room>:thread:<root-event>` as the session override while retaining the room id
+  for delivery; non-threaded room messages keep their prior session. Evidence: 69 focused Matrix
+  adapter tests using a temporary non-E2EE dependency set (the locked E2EE `python-olm` build is
+  incompatible with this environment's CMake), plus the full suite (`2390 passed, 4 skipped`).
+  Provider credential
   environment isolation (`f5cf4dcd2`), CLI-child environment filtering (`ec3dfb21b` / `a0e60116a` /
   `abfcdd481`), OpenRouter configured-tool merging (`57d81bc1c`), weather workflow portability
   (`b14ac4c40` / `72d3ce6b2`), and MCP runtime failure visibility (`d45c893f6`) remain follow-ups

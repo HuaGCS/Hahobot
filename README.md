@@ -741,6 +741,9 @@ Recent upstream nanobot syncs already included here:
   text fallback.
 - Feishu topic replies keep every split outbound part in the same thread instead of only replying
   with the first segment.
+- Matrix thread replies use a thread-root-scoped session key, so separate threads in one room keep
+  independent conversation history while non-threaded room messages retain the existing room
+  session.
 - Slack and Feishu leave fenced pipe-delimited code intact instead of converting it to a table;
   Feishu also tolerates null text/list fields in post and card payloads.
 - `read_file` can extract text from Office Open XML documents (`.docx`, `.xlsx`, `.pptx`) without

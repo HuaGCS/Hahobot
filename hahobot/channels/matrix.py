@@ -844,6 +844,12 @@ class MatrixChannel(BaseChannel):
             meta["thread_reply_to_event_id"] = reply_to
         return meta
 
+    def _thread_session_key(self, room_id: str, event: RoomMessage) -> str | None:
+        """Keep each Matrix thread's conversation history independent."""
+        if not (root_id := self._event_thread_root_id(event)):
+            return None
+        return f"{self.name}:{room_id}:thread:{root_id}"
+
     @staticmethod
     def _build_thread_relates_to(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
         if not metadata:
@@ -1013,6 +1019,7 @@ class MatrixChannel(BaseChannel):
                 chat_id=room.room_id,
                 content=event.body,
                 metadata=self._base_metadata(room, event),
+                session_key=self._thread_session_key(room.room_id, event),
             )
         except Exception:
             await self._stop_typing_keepalive(room.room_id, clear_typing=True)
@@ -1047,6 +1054,7 @@ class MatrixChannel(BaseChannel):
                 content="\n".join(parts),
                 media=[attachment["path"]] if attachment else [],
                 metadata=meta,
+                session_key=self._thread_session_key(room.room_id, event),
             )
         except Exception:
             await self._stop_typing_keepalive(room.room_id, clear_typing=True)

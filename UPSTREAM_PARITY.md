@@ -47,11 +47,11 @@ design, but they are not tracked parity targets.
 
 ### nanobot
 
-Audited 19 linear commits from `3778e7e62` through `abfcdd481`. Tool JSON Schema validation now
-rejects non-finite `number` values after casting and at nested paths (`99e07e138`). Matrix thread
-session isolation is also portable and remains the next focused channel item. Provider environment
-isolation, weather workflow portability, MCP runtime status, and OpenRouter server-tool merging are
-recorded for follow-up against their local owners. The Agent Plugins/marketplace and React PWA work
+Audited 19 linear commits from `3778e7e62` through `abfcdd481`. Tool JSON Schema validation rejects
+non-finite `number` values after casting and at nested paths (`99e07e138`); Matrix text and media
+thread replies now use root-event-scoped sessions (`057e8f7af`). Provider environment isolation,
+weather workflow portability, MCP runtime status, and OpenRouter server-tool merging are recorded
+for follow-up against their local owners. The Agent Plugins/marketplace and React PWA work
 remain intentional architecture/product divergences: Hahobot keeps its workspace skill lifecycle,
 explicit MCP config, and server-rendered WebUI instead of adding a second package-market surface.
 
@@ -143,6 +143,7 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 | Cron persistence | `synced` | Syntax validation, cross-process transactions, expiring claims, merged history, worker-pool I/O, cancellation linearization, and safe store rebinding prevent common invalid/duplicate/lost-update paths. |
 | Channel streaming | `synced` | Stateful delivery IDs, retry cursors, special-character-safe Telegram fences, and channel-specific overflow handling preserve exactly-once chunk progress within a delivery attempt. |
 | Matrix joins | `synced` | Invite joins send `{}` for strict homeservers and retry allowed pending invites from the same sync response. |
+| Matrix thread sessions | `synced` | Text and media replies isolate conversation state by room + thread root while delivery remains room-scoped. |
 | Slack/Feishu rendering | `synced` | Fenced tables stay intact and malformed/null rich-message fields degrade safely. |
 | WebUI persisted media | `synced` | Initial history and live frames share the traversal-guarded `workspace/out` media mapping. |
 | WebUI connection recovery | `local_extension` | Per-session drafts, offline send gating, capped reconnect backoff, and request-id turn receipts reattach safely without duplicate model calls. |
@@ -178,7 +179,6 @@ The detailed historical matrix remains searchable in
 | Upstream | Revisit when | Candidate |
 | --- | --- | --- |
 | nanobot | Channel identity or provider breadth is touched | DingTalk DM gating/sender labels; demand-driven provider/channel additions. |
-| nanobot | Matrix channel behavior is touched | Isolate Matrix thread conversations with `channel:room:thread:root-event` session keys. |
 | nanobot | Provider construction or CLI child processes are touched | Stop process-global credential mutation and audit minimal child-process environments. |
 | nanobot | OpenRouter server tools or provider `extraBody` are exposed locally | Merge configured server tools without replacing Hahobot function tools. |
 | nanobot | Session retention is redesigned | Session-file retention/archiving and cross-session references adapted to Hahobot's incremental JSONL and session-authority model. |

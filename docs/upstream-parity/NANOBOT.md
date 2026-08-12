@@ -38,6 +38,7 @@ own architecture; file-for-file mirroring is not required.
 | `b3b051761` | `edit_file` rejects identical old/new text before any existing-file read or rewrite. |
 | `5e67fbf93` (adapted follow-up) | Nanobot's bounded persistent-session buffer is mapped to Hahobot's one-shot exec: stdout/stderr are drained concurrently with incremental UTF-8 decoding and fixed head/tail retention before the combined response cap. |
 | `99e07e138` | Tool JSON Schema `number` fields reject non-finite values after casting, including nested object/array paths. |
+| `057e8f7af` | Matrix text and media thread replies use room + root-event session overrides while keeping room-scoped delivery. |
 
 ## Established Local Mapping
 
