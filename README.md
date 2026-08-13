@@ -979,6 +979,14 @@ Built-in skills currently include:
 The built-in `weather` skill selects one scope-matched wttr.in request, uses `curl.exe` on Windows
 PowerShell, and writes optional PNG output to the current directory instead of a Unix-only path.
 
+`/skill install`, `/skill list`, and `/skill update` invoke `npx clawhub@latest` with a fixed minimal
+environment and a random owner-only npm cache. Platform runtime variables plus common proxy, CA,
+npm registry settings, and standard ClawHub config locations are preserved, but unrelated provider
+keys, auth tokens, arbitrary parent variables, and Node loader-injection options are not copied
+directly from the parent environment. This is not a filesystem sandbox: npm and ClawHub can still
+read files available to the hahobot account, including its home-directory `.npmrc` and ClawHub
+config, which are treated as trusted operator inputs.
+
 `workflow-core` is now an always-on workflow guide. `plan`, `verify`, and `skill-derive` stay
 available as opt-in built-ins for planning, validation, and turning repeatable workflows into
 workspace skills. Subagents can also be spawned in explicit `explore`, `implement`, or `verify`

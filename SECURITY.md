@@ -132,6 +132,16 @@ File operations have path traversal protection, but:
 - MCP server URLs may embed credentials (`https://user:token@host/sse` or a `?token=`
   query). Such URLs are redacted (origin only, path masked) before being written to logs.
 
+**ClawHub subprocesses:**
+- `/skill install`, `list`, and `update` run `npx clawhub@latest` with a fixed minimal environment
+  and a random owner-only npm cache. Unrelated provider/API keys, auth tokens, arbitrary parent
+  variables, and loader-injection variables are not copied directly; platform essentials plus
+  explicit proxy, CA, npm registry, and standard ClawHub config locations are preserved.
+- Environment filtering is not a filesystem sandbox. npm can still read files available to the
+  hahobot process, including the home-directory `.npmrc` and ClawHub config; those files are trusted
+  operator inputs. Use a container or VM when executing third-party packages under a stronger
+  isolation requirement.
+
 **WhatsApp Bridge:**
 - The bridge binds to `127.0.0.1:3001` (localhost only, not accessible from external network)
 - Set `bridgeToken` in config to enable shared-secret authentication between Python and Node.js

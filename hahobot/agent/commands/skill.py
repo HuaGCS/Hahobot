@@ -7,6 +7,8 @@ import json
 import os
 import re
 import shutil
+import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,11 +24,46 @@ from hahobot.agent.working_checkpoint import (
     tool_names,
 )
 from hahobot.bus.events import InboundMessage, OutboundMessage
-from hahobot.utils.helpers import ensure_dir
 
 if TYPE_CHECKING:
     from hahobot.agent.loop import AgentLoop
     from hahobot.session.manager import Session
+
+
+_CLAWHUB_PASSTHROUGH_ENV_KEYS = frozenset(
+    {
+        "ALL_PROXY",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NODE_EXTRA_CA_CERTS",
+        "NO_PROXY",
+        "NPM_CONFIG_CAFILE",
+        "CLAWDHUB_DISABLE_TELEMETRY",
+        "CLAWDHUB_REGISTRY",
+        "CLAWDHUB_SITE",
+        "CLAWHUB_DISABLE_TELEMETRY",
+        "CLAWHUB_REGISTRY",
+        "CLAWHUB_SITE",
+        "NPM_CONFIG_HTTPS_PROXY",
+        "NPM_CONFIG_HTTP_PROXY",
+        "NPM_CONFIG_NOPROXY",
+        "NPM_CONFIG_PROXY",
+        "NPM_CONFIG_REGISTRY",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "XDG_CONFIG_HOME",
+        "all_proxy",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "npm_config_cafile",
+        "npm_config_https_proxy",
+        "npm_config_http_proxy",
+        "npm_config_noproxy",
+        "npm_config_proxy",
+        "npm_config_registry",
+    }
+)
 
 
 class SkillCommandHandler:
@@ -209,19 +246,114 @@ class SkillCommandHandler:
         return 0, self._format_clawhub_search_results(language, query, skills, total)
 
     def _clawhub_env(self) -> dict[str, str]:
-        """Configure npm so ClawHub fails fast and uses a writable cache directory."""
-        env = os.environ.copy()
-        env.setdefault("NO_COLOR", "1")
-        env.setdefault("FORCE_COLOR", "0")
-        env.setdefault("npm_config_cache", str(ensure_dir(self.loop._clawhub_npm_cache_dir)))
-        env.setdefault("npm_config_update_notifier", "false")
-        env.setdefault("npm_config_audit", "false")
-        env.setdefault("npm_config_fund", "false")
-        env.setdefault("npm_config_fetch_retries", "0")
-        env.setdefault("npm_config_fetch_timeout", "5000")
-        env.setdefault("npm_config_fetch_retry_mintimeout", "1000")
-        env.setdefault("npm_config_fetch_retry_maxtimeout", "5000")
+        """Build a minimal npm environment without unrelated parent-process secrets."""
+        cache_dir = self._ensure_clawhub_cache_dir()
+        if sys.platform == "win32":
+            system_root = os.environ.get("SYSTEMROOT") or r"C:\Windows"
+            user_profile = os.environ.get("USERPROFILE") or self._account_home(cache_dir)
+            env = {
+                "SYSTEMROOT": system_root,
+                "COMSPEC": os.environ.get("COMSPEC") or f"{system_root}\\system32\\cmd.exe",
+                "USERPROFILE": user_profile,
+                "HOMEDRIVE": os.environ.get("HOMEDRIVE") or "C:",
+                "HOMEPATH": os.environ.get("HOMEPATH") or "\\",
+                "HOME": os.environ.get("HOME") or user_profile,
+                "TEMP": os.environ.get("TEMP") or f"{system_root}\\Temp",
+                "TMP": os.environ.get("TMP") or f"{system_root}\\Temp",
+                "PATHEXT": os.environ.get("PATHEXT") or ".COM;.EXE;.BAT;.CMD",
+                "PATH": os.environ.get("PATH") or f"{system_root}\\system32;{system_root}",
+                "APPDATA": os.environ.get("APPDATA", ""),
+                "LOCALAPPDATA": os.environ.get("LOCALAPPDATA", ""),
+                "ProgramData": os.environ.get("ProgramData", ""),
+                "ProgramFiles": os.environ.get("ProgramFiles", ""),
+                "ProgramFiles(x86)": os.environ.get("ProgramFiles(x86)", ""),
+                "ProgramW6432": os.environ.get("ProgramW6432", ""),
+            }
+            for key in _CLAWHUB_PASSTHROUGH_ENV_KEYS:
+                if key != key.upper():
+                    continue
+                value = os.environ.get(key)
+                if value is not None:
+                    env[key] = value
+        else:
+            env = {
+                "HOME": os.environ.get("HOME") or self._account_home(cache_dir),
+                "LANG": os.environ.get("LANG", "C.UTF-8"),
+                "TERM": os.environ.get("TERM", "dumb"),
+                "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+            }
+            for key in ("LC_ALL", "LC_CTYPE", "TMPDIR"):
+                value = os.environ.get(key)
+                if value is not None:
+                    env[key] = value
+            env.update(
+                {
+                    key: value
+                    for key, value in os.environ.items()
+                    if key in _CLAWHUB_PASSTHROUGH_ENV_KEYS
+                }
+            )
+
+        # These values are owned by Hahobot. Never let the parent process redirect
+        # cache cleanup or relax the bounded, non-interactive npm behavior.
+        env.update(
+            {
+                "PYTHONUNBUFFERED": "1",
+                "NO_COLOR": "1",
+                "FORCE_COLOR": "0",
+                "npm_config_cache": str(cache_dir),
+                "npm_config_update_notifier": "false",
+                "npm_config_audit": "false",
+                "npm_config_fund": "false",
+                "npm_config_fetch_retries": "0",
+                "npm_config_fetch_timeout": "5000",
+                "npm_config_fetch_retry_mintimeout": "1000",
+                "npm_config_fetch_retry_maxtimeout": "5000",
+                "npm_config_strict_ssl": "true",
+            }
+        )
         return env
+
+    def _ensure_clawhub_cache_dir(self) -> Path:
+        """Create the process-private npm cache lazily with owner-only permissions."""
+        existing = self.loop._clawhub_npm_cache_dir
+        if existing is not None:
+            existing.mkdir(mode=0o700, parents=True, exist_ok=True)
+            existing.chmod(0o700)
+            return existing
+
+        owner = tempfile.TemporaryDirectory(prefix="hahobot-clawhub-npm-")
+        cache_dir = Path(owner.name)
+        try:
+            cache_dir.chmod(0o700)
+        except BaseException:
+            owner.cleanup()
+            raise
+        self.loop._clawhub_npm_cache_owner = owner
+        self.loop._clawhub_npm_cache_dir = cache_dir
+        return cache_dir
+
+    @staticmethod
+    def _account_home(cache_dir: Path) -> str:
+        """Resolve the OS account home without falling back to shared `/tmp`."""
+        try:
+            home = Path.home()
+        except (KeyError, RuntimeError):
+            home = cache_dir / "home"
+            home.mkdir(mode=0o700, parents=True, exist_ok=True)
+            home.chmod(0o700)
+        return str(home)
+
+    def cleanup_clawhub_cache(self) -> None:
+        """Release the private npm cache owned by this agent loop."""
+        owner = self.loop._clawhub_npm_cache_owner
+        self.loop._clawhub_npm_cache_owner = None
+        self.loop._clawhub_npm_cache_dir = None
+        if owner is not None:
+            try:
+                owner.cleanup()
+            except OSError as exc:
+                logger.warning("Could not remove private ClawHub npm cache: {}", exc)
 
     def _is_clawhub_cache_error(self, output: str) -> bool:
         lowered = output.lower()

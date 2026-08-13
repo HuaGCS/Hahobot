@@ -41,6 +41,7 @@ own architecture; file-for-file mirroring is not required.
 | `057e8f7af` | Matrix text and media thread replies use room + root-event session overrides while keeping room-scoped delivery. |
 | `f5cf4dcd2` | Configured OpenAI-compatible provider keys go directly to the SDK client and never mutate process-global environment variables or aliases. |
 | `b14ac4c40`, `72d3ce6b2` | The bundled weather workflow uses one scope-matched HTTPS request, PowerShell-safe `curl.exe`, and a platform-neutral PNG output path. |
+| `ec3dfb21b`, `a0e60116a`, `abfcdd481` | The CLI-child environment boundary is adapted to Hahobot's ClawHub `npx` owner: platform/network/npm essentials remain available while unrelated secrets and loader injection are excluded. |
 
 ## Established Local Mapping
 

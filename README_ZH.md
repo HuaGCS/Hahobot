@@ -476,6 +476,12 @@ OpenAI 兼容 TTS 示例：
 内置 `weather` 技能会按“当前 / 今天 / 完整预报”只选择一次匹配范围的 wttr.in 请求；在
 Windows PowerShell 使用 `curl.exe`，可选 PNG 输出写入当前目录，不依赖 Unix 的 `/tmp`。
 
+`/skill install`、`/skill list` 和 `/skill update` 调用 `npx clawhub@latest` 时使用固定的最小
+环境和随机的仅所有者可访问 npm 缓存：保留平台运行所需变量、常见代理、CA、npm registry 设置和
+标准 ClawHub 配置位置，但不会从父进程环境直接复制无关的 provider 密钥、认证 token、任意变量或
+Node loader 注入选项。这不是文件系统沙箱；npm 和 ClawHub 仍能读取 hahobot 账户可访问的文件，
+包括主目录 `.npmrc` 和 ClawHub 配置，这些文件属于受信任的操作员输入。
+
 这些技能复用了当前仓库已有的：
 
 - persona

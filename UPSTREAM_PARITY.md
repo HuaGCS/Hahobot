@@ -43,16 +43,18 @@ design, but they are not tracked parity targets.
 - `intentional_divergence`: local behavior deliberately differs from upstream.
 - `watchlist`: re-evaluate when the related local surface or upstream behavior changes.
 
-## Latest Audit / Port Update — 2026-08-12
+## Latest Audit / Port Update — 2026-08-13
 
 ### nanobot
 
 Audited 19 linear commits from `3778e7e62` through `abfcdd481`. Tool JSON Schema validation rejects
 non-finite `number` values after casting and at nested paths (`99e07e138`); Matrix text and media
 thread replies now use root-event-scoped sessions (`057e8f7af`). Provider construction also keeps
-configured API keys out of process-global environment state (`f5cf4dcd2`). Weather workflow
-portability, MCP runtime status, CLI-child environment filtering, and OpenRouter server-tool merging
-remain recorded for follow-up against their local owners. The Agent Plugins/marketplace and React PWA work
+configured API keys out of process-global environment state (`f5cf4dcd2`). The weather workflow is
+cross-platform (`b14ac4c40` / `72d3ce6b2`), and Hahobot's ClawHub `npx` subprocess now adapts the
+upstream CLI-child minimal-environment boundary (`ec3dfb21b` / `a0e60116a` / `abfcdd481`). MCP
+runtime status and OpenRouter server-tool merging remain follow-ups against their local owners. The
+Agent Plugins/marketplace and React PWA work
 remain intentional architecture/product divergences: Hahobot keeps its workspace skill lifecycle,
 explicit MCP config, and server-rendered WebUI instead of adding a second package-market surface.
 
@@ -129,6 +131,7 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 | File editing | `synced` | Exact replacements reject identical old/new text before I/O; oversized reads fail from metadata before allocation. |
 | File/config durability | `synced` | Oversized reads fail before allocation; config/admin and cron commits use mode-preserving atomic replacement. |
 | Exec isolation | `synced` | Segment-wise allow rules, deny-first matching, assignment/home-path guards, bounded-at-read one-shot output, bounded execution, and robust process cleanup remain local invariants. |
+| External CLI isolation | `synced` | ClawHub `npx` subprocesses receive a fixed platform/network/npm allowlist instead of inheriting provider keys, tokens, arbitrary parent variables, or loader injection. |
 | Provider normalization | `synced` | Empty content, malformed surrogates, reasoning fields, versioned Anthropic adaptive effort, model-specific thinking, provider error detail, and process-global credential isolation are enforced before transport. |
 | Image generation | `synced` | Gemini Flash uses live `imageConfig`; generated-image downloads are redirect-safe, DNS-pinned, byte-capped, and content-verified while persona `/scene` keeps local reference-image behavior. |
 | Length recovery | `synced` | Truncated provider segments are retried/merged and streamed as one visible response without losing already-produced text. |
@@ -181,7 +184,6 @@ The detailed historical matrix remains searchable in
 | Upstream | Revisit when | Candidate |
 | --- | --- | --- |
 | nanobot | Channel identity or provider breadth is touched | DingTalk DM gating/sender labels; demand-driven provider/channel additions. |
-| nanobot | CLI child-process execution is touched | Audit installed/app subprocesses for minimal environments that cannot inherit unrelated secrets. |
 | nanobot | OpenRouter server tools or provider `extraBody` are exposed locally | Merge configured server tools without replacing Hahobot function tools. |
 | nanobot | Session retention is redesigned | Session-file retention/archiving and cross-session references adapted to Hahobot's incremental JSONL and session-authority model. |
 | nanobot | Reasoning model routing expands | Kimi/MiMo and other model-specific reasoning parameters not already covered locally. |

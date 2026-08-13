@@ -70,6 +70,22 @@ This file therefore records both:
 
 ## Dated Audit Log (Newest First)
 
+- `nanobot` (`2026-08-13` follow-up adaptation; audit boundary unchanged at
+  `main@abfcdd481`): ported the CLI-child environment isolation cluster (`ec3dfb21b` /
+  `a0e60116a` / `abfcdd481`) onto Hahobot's local external-package owner. `/skill install`, `list`,
+  and `update` still execute `npx clawhub@latest`, but the child now receives a fixed
+  platform-aware environment instead of `os.environ.copy()`: runtime basics, common proxy/CA/npm
+  registry settings, and standard ClawHub config locations remain available, while unrelated
+  provider keys, auth tokens, arbitrary parent variables, and Node/loader injection are excluded
+  from direct inheritance. Hahobot uses a random owner-only cache and forces color, TLS, retry, and
+  timeout values so cache recovery cannot be redirected or TLS disabled by the parent env.
+  Environment filtering intentionally does not claim filesystem, `.npmrc`, or ClawHub-config
+  isolation; those files remain trusted operator inputs. All 26 focused regressions in
+  `tests/test_skill_commands.py` pass. The repository-wide suite cannot complete in the current
+  restricted runner: pre-existing Mem0/Cron/Admin async tests wait indefinitely, while aiohttp A2A
+  tests cannot bind local sockets (`PermissionError: [Errno 1] Operation not permitted`). MCP
+  runtime failure visibility
+  (`d45c893f6`) and OpenRouter configured-tool merging (`57d81bc1c`) remain follow-ups.
 - `nanobot` / `GenericAgent` (`2026-08-12`): fetched without tags. Nanobot advanced linearly by 19
   commits from `3778e7e62` to `main@abfcdd481`; GenericAgent advanced linearly by 7 commits from
   `d426d45e` to `main@63f9db74e`. Ported nanobot `99e07e138`: shared tool JSON Schema validation now

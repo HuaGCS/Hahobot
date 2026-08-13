@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -175,6 +177,192 @@ async def test_skill_retries_after_clearing_corrupted_npx_cache(tmp_path: Path) 
     remove_tree.assert_called_once_with(Path(env["npm_config_cache"]) / "_npx", ignore_errors=True)
 
 
+def test_clawhub_env_filters_secrets_and_preserves_network_config(
+    tmp_path: Path,
+) -> None:
+    loop = _make_loop(tmp_path)
+    loop._clawhub_npm_cache_dir = tmp_path / "npm-cache"
+    parent_env = {
+        "HOME": "/home/tester",
+        "LANG": "en_US.UTF-8",
+        "PATH": "/opt/node/bin:/usr/bin:/bin",
+        "TERM": "xterm-256color",
+        "HTTPS_PROXY": "http://proxy.example:8080",
+        "no_proxy": "localhost,127.0.0.1",
+        "NODE_EXTRA_CA_CERTS": "/etc/company-ca.pem",
+        "npm_config_registry": "https://registry.example/",
+        "CLAWHUB_SITE": "https://skills.example/",
+        "CLAWHUB_REGISTRY": "https://registry.skills.example/",
+        "XDG_CONFIG_HOME": "/home/tester/.config-company",
+        "NPM_CONFIG_USERCONFIG": "/home/tester/.npmrc-untrusted",
+        "NPM_CONFIG_STRICT_SSL": "false",
+        "OPENAI_API_KEY": "sk-openai-secret",
+        "ANTHROPIC_API_KEY": "sk-anthropic-secret",
+        "GITHUB_TOKEN": "github-secret",
+        "NPM_TOKEN": "npm-secret",
+        "NODE_AUTH_TOKEN": "node-secret",
+        "CLAWHUB_TOKEN": "clawhub-secret",
+        "NODE_OPTIONS": "--require=/tmp/inject.js",
+        "LD_PRELOAD": "/tmp/inject.so",
+        "CUSTOM_SECRET": "custom-secret",
+        "NO_COLOR": "0",
+        "FORCE_COLOR": "1",
+        "npm_config_cache": "/tmp/untrusted-cache",
+        "npm_config_fetch_timeout": "999999",
+    }
+
+    with (
+        patch("hahobot.agent.commands.skill.sys.platform", "linux"),
+        patch.dict(os.environ, parent_env, clear=True),
+    ):
+        env = loop._skill_commands._clawhub_env()
+
+    assert env["HOME"] == "/home/tester"
+    assert env["PATH"] == "/opt/node/bin:/usr/bin:/bin"
+    assert env["HTTPS_PROXY"] == "http://proxy.example:8080"
+    assert env["no_proxy"] == "localhost,127.0.0.1"
+    assert env["NODE_EXTRA_CA_CERTS"] == "/etc/company-ca.pem"
+    assert env["npm_config_registry"] == "https://registry.example/"
+    assert env["CLAWHUB_SITE"] == "https://skills.example/"
+    assert env["CLAWHUB_REGISTRY"] == "https://registry.skills.example/"
+    assert env["XDG_CONFIG_HOME"] == "/home/tester/.config-company"
+    assert env["NO_COLOR"] == "1"
+    assert env["FORCE_COLOR"] == "0"
+    assert env["npm_config_cache"] == str(tmp_path / "npm-cache")
+    assert env["npm_config_fetch_timeout"] == "5000"
+    assert env["npm_config_strict_ssl"] == "true"
+    assert {
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GITHUB_TOKEN",
+        "NPM_TOKEN",
+        "NODE_AUTH_TOKEN",
+        "CLAWHUB_TOKEN",
+        "NODE_OPTIONS",
+        "LD_PRELOAD",
+        "CUSTOM_SECRET",
+        "NPM_CONFIG_USERCONFIG",
+    }.isdisjoint(env)
+
+
+def test_clawhub_env_has_windows_safe_defaults(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    loop._clawhub_npm_cache_dir = tmp_path / "npm-cache"
+    parent_env = {
+        "SYSTEMROOT": r"D:\Windows",
+        "PATH": r"C:\Node;D:\Windows\system32",
+        "APPDATA": r"C:\Users\tester\AppData\Roaming",
+        "LOCALAPPDATA": r"C:\Users\tester\AppData\Local",
+        "HTTP_PROXY": "http://proxy.example:8080",
+        "OPENROUTER_API_KEY": "sk-openrouter-secret",
+    }
+
+    with (
+        patch("hahobot.agent.commands.skill.sys.platform", "win32"),
+        patch.dict(os.environ, parent_env, clear=True),
+    ):
+        env = loop._skill_commands._clawhub_env()
+
+    assert env["SYSTEMROOT"] == r"D:\Windows"
+    assert env["COMSPEC"] == r"D:\Windows\system32\cmd.exe"
+    assert env["PATH"] == r"C:\Node;D:\Windows\system32"
+    assert env["APPDATA"] == r"C:\Users\tester\AppData\Roaming"
+    assert env["LOCALAPPDATA"] == r"C:\Users\tester\AppData\Local"
+    assert env["HTTP_PROXY"] == "http://proxy.example:8080"
+    assert env["TEMP"] == r"D:\Windows\Temp"
+    assert env["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
+    assert env["npm_config_cache"] == str(tmp_path / "npm-cache")
+    assert "OPENROUTER_API_KEY" not in env
+    assert all(isinstance(value, str) for value in env.values())
+
+
+def test_clawhub_env_treats_empty_windows_runtime_values_as_missing(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    loop._clawhub_npm_cache_dir = tmp_path / "npm-cache"
+    parent_env = {
+        "SYSTEMROOT": "",
+        "COMSPEC": "",
+        "USERPROFILE": "",
+        "HOME": "",
+        "TEMP": "",
+        "TMP": "",
+        "PATHEXT": "",
+        "PATH": "",
+    }
+
+    with (
+        patch("hahobot.agent.commands.skill.sys.platform", "win32"),
+        patch("hahobot.agent.commands.skill.Path.home", return_value=tmp_path / "account-home"),
+        patch.dict(os.environ, parent_env, clear=True),
+    ):
+        env = loop._skill_commands._clawhub_env()
+
+    assert env["SYSTEMROOT"] == r"C:\Windows"
+    assert env["COMSPEC"] == r"C:\Windows\system32\cmd.exe"
+    assert env["USERPROFILE"] == str(tmp_path / "account-home")
+    assert env["HOME"] == env["USERPROFILE"]
+    assert env["TEMP"] == r"C:\Windows\Temp"
+    assert env["TMP"] == r"C:\Windows\Temp"
+    assert env["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
+    assert env["PATH"] == r"C:\Windows\system32;C:\Windows"
+
+
+def test_clawhub_env_uses_private_cache_and_account_home_when_home_is_missing(
+    tmp_path: Path,
+) -> None:
+    loop = _make_loop(tmp_path)
+    account_home = tmp_path / "account-home"
+
+    with (
+        patch("hahobot.agent.commands.skill.sys.platform", "linux"),
+        patch("hahobot.agent.commands.skill.Path.home", return_value=account_home),
+        patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True),
+    ):
+        env = loop._skill_commands._clawhub_env()
+
+    cache_dir = Path(env["npm_config_cache"])
+    assert env["HOME"] == str(account_home)
+    assert cache_dir.is_dir()
+    assert stat.S_IMODE(cache_dir.stat().st_mode) == 0o700
+    assert cache_dir != Path("/tmp") / "hahobot-npm-cache" / str(os.getpid())
+
+    loop._skill_commands.cleanup_clawhub_cache()
+
+    assert not cache_dir.exists()
+    assert loop._clawhub_npm_cache_dir is None
+
+
+def test_clawhub_env_reuses_private_home_when_account_lookup_fails(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+
+    with (
+        patch("hahobot.agent.commands.skill.sys.platform", "linux"),
+        patch("hahobot.agent.commands.skill.Path.home", side_effect=RuntimeError),
+        patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True),
+    ):
+        first_env = loop._skill_commands._clawhub_env()
+        second_env = loop._skill_commands._clawhub_env()
+
+    private_home = Path(first_env["HOME"])
+    assert second_env["HOME"] == str(private_home)
+    assert private_home.parent == Path(first_env["npm_config_cache"])
+    assert stat.S_IMODE(private_home.stat().st_mode) == 0o700
+
+    loop._skill_commands.cleanup_clawhub_cache()
+
+
+@pytest.mark.asyncio
+async def test_agent_close_cleans_private_clawhub_cache(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    env = loop._skill_commands._clawhub_env()
+    cache_dir = Path(env["npm_config_cache"])
+
+    await loop.close_mcp()
+
+    assert not cache_dir.exists()
+    assert loop._clawhub_npm_cache_dir is None
+
+
 @pytest.mark.asyncio
 async def test_skill_search_surfaces_registry_request_errors(tmp_path: Path) -> None:
     loop = _make_loop(tmp_path)
@@ -256,10 +444,12 @@ async def test_skill_search_empty_output_returns_no_results(tmp_path: Path) -> N
 )
 async def test_skill_commands_use_active_workspace(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     command: str,
     expected_args: tuple[str, ...],
     expected_output: str,
 ) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-reach-clawhub")
     loop = _make_loop(tmp_path)
     proc = _FakeProcess(stdout=expected_output)
     create_proc = AsyncMock(return_value=proc)
@@ -275,8 +465,10 @@ async def test_skill_commands_use_active_workspace(
     assert response is not None
     assert expected_output in response.content
     args = create_proc.await_args.args
+    env = create_proc.await_args.kwargs["env"]
     assert args[:3] == ("/usr/bin/npx", "--yes", "clawhub@latest")
     assert args[3:] == ("--workdir", str(tmp_path), "--no-input", *expected_args)
+    assert "OPENAI_API_KEY" not in env
     if command != "/skill list":
         assert f"Applied to workspace: {tmp_path}" in response.content
 
