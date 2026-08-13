@@ -104,13 +104,14 @@ uv build
 info "commit + tag $tag"
 git add "$PYPROJECT" "$INIT" "$LOCK"
 git commit -q -m "chore(release): $tag"
-git tag -a "$tag" -m "$tag"
+git tag -a "$tag" -m "hahobot $tag — release"
 
 info "push main + $tag"
 git push -q origin main
 git push -q origin "$tag"
 
 info "gh release create $tag"
-printf '%s\n' "$notes" | gh release create "$tag" --title "$tag" --notes-file -
+printf '%s\n' "$notes" | gh release create "$tag" \
+  --title "hahobot $tag" --notes-file - --latest
 
 info "released $tag  ->  https://github.com/HuaGCS/Hahobot/releases/tag/$tag"
