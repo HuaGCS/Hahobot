@@ -976,6 +976,9 @@ Built-in skills currently include:
 - `clawhub`
 - `skill-creator`
 
+The built-in `weather` skill selects one scope-matched wttr.in request, uses `curl.exe` on Windows
+PowerShell, and writes optional PNG output to the current directory instead of a Unix-only path.
+
 `workflow-core` is now an always-on workflow guide. `plan`, `verify`, and `skill-derive` stay
 available as opt-in built-ins for planning, validation, and turning repeatable workflows into
 workspace skills. Subagents can also be spawned in explicit `explore`, `implement`, or `verify`

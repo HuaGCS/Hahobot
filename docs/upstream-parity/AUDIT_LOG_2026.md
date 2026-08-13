@@ -85,10 +85,14 @@ This file therefore records both:
   no longer writes the provider registry's primary env key or compatibility aliases into
   `os.environ`; existing operator-provided env values remain unchanged. Evidence lives in
   `tests/providers/test_provider_env_isolation.py`, 47 focused provider tests, and the full suite
-  (`2393 passed, 4 skipped`). CLI-child
+  (`2393 passed, 4 skipped`). Follow-up ported weather workflow portability (`b14ac4c40` /
+  `72d3ce6b2`): the built-in skill now selects one current/today/forecast request, uses absolute
+  HTTPS wttr.in URLs, calls `curl.exe` explicitly on PowerShell, and writes optional PNG output to
+  the current directory instead of `/tmp`. Evidence lives in
+  `tests/agent/test_builtin_weather_skill.py`; the full suite passed with 2394 tests and 4
+  environment skips. CLI-child
   environment filtering (`ec3dfb21b` / `a0e60116a` / `abfcdd481`), OpenRouter configured-tool
-  merging (`57d81bc1c`), weather workflow portability
-  (`b14ac4c40` / `72d3ce6b2`), and MCP runtime failure visibility (`d45c893f6`) remain follow-ups
+  merging (`57d81bc1c`), and MCP runtime failure visibility (`d45c893f6`) remain follow-ups
   pending comparison with their local owners. Agent Plugins (`d5e0df696`..`247c474e6`) and React PWA
   (`43ca12960`..`1edfd268d`) are intentional divergences: they duplicate Hahobot's workspace skill /
   explicit MCP lifecycle or require the upstream SPA. GenericAgent's delta remains Hub/P2P,

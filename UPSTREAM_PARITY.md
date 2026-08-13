@@ -140,6 +140,7 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 | Memory/archive | `local_extension` | Markdown remains source of truth; JSON sidecars and optional SQLite FTS are rebuildable recall indexes. |
 | Dream maintenance | `local_extension` | Two-phase reflection updates local memory layers, advances only after completed phase 2, preserves all pending history, and emits real Git object IDs. |
 | Skill lifecycle | `local_extension` | Query-aware summaries, usage metadata, derive/supersede/lint commands, and operator review govern local skill growth. |
+| Bundled skill portability | `synced` | The weather workflow uses one scope-matched HTTPS request, PowerShell-safe `curl.exe`, and platform-neutral PNG output. |
 | Subagent modes | `local_extension` | Explore/implement/verify tool boundaries and durable completion announcements extend the local runtime. |
 | Cron persistence | `synced` | Syntax validation, cross-process transactions, expiring claims, merged history, worker-pool I/O, cancellation linearization, and safe store rebinding prevent common invalid/duplicate/lost-update paths. |
 | Channel streaming | `synced` | Stateful delivery IDs, retry cursors, special-character-safe Telegram fences, and channel-specific overflow handling preserve exactly-once chunk progress within a delivery attempt. |

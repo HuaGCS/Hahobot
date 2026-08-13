@@ -473,6 +473,9 @@ OpenAI 兼容 TTS 示例：
 - `emotional-companion`
   情绪感知、记忆跟进、heartbeat 主动关怀
 
+内置 `weather` 技能会按“当前 / 今天 / 完整预报”只选择一次匹配范围的 wttr.in 请求；在
+Windows PowerShell 使用 `curl.exe`，可选 PNG 输出写入当前目录，不依赖 Unix 的 `/tmp`。
+
 这些技能复用了当前仓库已有的：
 
 - persona
