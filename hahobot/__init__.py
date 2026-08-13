@@ -24,7 +24,7 @@ def _resolve_version() -> str:
     try:
         return _pkg_version("hahobot-ai")
     except PackageNotFoundError:
-        return "0.1.9"
+        return "0.1.10"
 
 
 __version__ = _resolve_version()

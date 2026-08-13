@@ -9,9 +9,9 @@
 #
 # What it does (in order, aborting on the first failure):
 #   1. Preflight: on `main`, clean working tree, up to date with origin.
-#   2. Compute the new version and bump it in pyproject.toml + hahobot/__init__.py.
+#   2. Compute the new version and bump pyproject.toml, the package fallback, and uv.lock.
 #   3. Require a matching `## [X.Y.Z]` section in CHANGELOG.md (add it first).
-#   4. Gate on `ruff check`, `ruff format --check`, and the full pytest suite.
+#   4. Gate on lint, format, the full pytest suite, and package build.
 #   5. Commit `chore(release): vX.Y.Z`, tag `vX.Y.Z`, push main + tag.
 #   6. Create the GitHub release with notes lifted from the CHANGELOG section.
 #
@@ -23,6 +23,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 PYPROJECT="pyproject.toml"
 INIT="hahobot/__init__.py"
+LOCK="uv.lock"
 CHANGELOG="CHANGELOG.md"
 
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -62,7 +63,7 @@ notes="$(awk -v ver="## [$new]" '
 [[ -n "$notes" ]] || die "CHANGELOG section for $new is empty"
 
 if $DRY_RUN; then
-  info "[dry-run] would bump $PYPROJECT and $INIT to $new"
+  info "[dry-run] would bump $PYPROJECT, $INIT, and $LOCK to $new"
   info "[dry-run] release notes would be:"
   printf '%s\n' "$notes"
   info "[dry-run] would: test -> commit -> tag $tag -> push -> gh release"
@@ -78,9 +79,16 @@ git fetch -q origin main
 
 # --- bump version ---------------------------------------------------------
 sed -i -E "s/^version = \"$current\"/version = \"$new\"/" "$PYPROJECT"
-sed -i -E "s/(_read_pyproject_version\(\) or \")$current(\")/\1$new\2/" "$INIT"
+sed -i -E "s/(return \")$current(\")/\1$new\2/" "$INIT"
+uv lock
 grep -q "version = \"$new\"" "$PYPROJECT" || die "failed to bump $PYPROJECT"
-grep -q "or \"$new\"" "$INIT" || die "failed to bump $INIT"
+grep -q "return \"$new\"" "$INIT" || die "failed to bump $INIT"
+awk -v version="$new" '
+  $0 == "name = \"hahobot-ai\"" {root=1; next}
+  root && $0 == "version = \"" version "\"" {found=1; exit}
+  root && /^\[\[package\]\]$/ {exit}
+  END {exit !found}
+' "$LOCK" || die "failed to bump $LOCK"
 
 # --- gates ----------------------------------------------------------------
 info "ruff check"
@@ -89,10 +97,12 @@ info "ruff format --check"
 uv run ruff format --check .
 info "pytest"
 uv run pytest -q
+info "build"
+uv build
 
 # --- commit, tag, push, release -------------------------------------------
 info "commit + tag $tag"
-git add "$PYPROJECT" "$INIT"
+git add "$PYPROJECT" "$INIT" "$LOCK"
 git commit -q -m "chore(release): $tag"
 git tag -a "$tag" -m "$tag"
 

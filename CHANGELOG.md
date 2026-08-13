@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-08-13
+
+### Added
+- **Recoverable WebUI conversations:** add bounded temporary chats, explicit save-copy
+  transitions, unknown slash-command correction, and session-scoped recovery of active turns after
+  reconnecting.
+
+### Fixed
+- **Tool and file safety:** bound shell output while it is being read, reject identical file-edit
+  replacements before I/O, and reject non-finite numeric tool arguments after schema-driven casts.
+- **Channel and credential isolation:** keep Matrix thread replies in root-event sessions, pass
+  configured provider credentials directly to their clients, and run ClawHub's `npx` child with a
+  minimal environment plus a private owner-only npm cache.
+- **Built-in skill portability:** make the weather workflow scope-aware and portable across Unix
+  shells and Windows PowerShell.
+
+### Changed
+- **Audited upstream parity:** record the latest nanobot behavior adaptations while retaining
+  Hahobot's server-rendered WebUI and workspace-scoped skill architecture.
+
+## [0.1.9] - 2026-07-30
+
+### Fixed
+- **Mem0 delivery hardening:** preserve durable shared-memory delivery and recovery behavior across
+  construction, shutdown, and retry boundaries.
+- **Version reporting:** prefer the adjacent source-tree `pyproject.toml` version over stale
+  installed metadata, while retaining a packaged fallback for installed wheels.
+
 ## [0.1.8] - 2026-07-28
 
 ### Added
@@ -117,6 +145,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Initial tagged release of Hahobot, the workspace-first local agent runtime
   (CLI agent, multi-channel gateway, OpenAI-compatible API).
 
+[0.1.10]: https://github.com/HuaGCS/Hahobot/compare/v0.1.9...v0.1.10
+[0.1.9]: https://github.com/HuaGCS/Hahobot/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/HuaGCS/Hahobot/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/HuaGCS/Hahobot/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/HuaGCS/Hahobot/compare/v0.1.5...v0.1.6
