@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-09-03
+
+### Fixed
+- **Channel resilience:** supervise stale Telegram long polling with bounded reconnects and make
+  outbound sends wait briefly for channel readiness, honor startup flood limits, bound teardown, and
+  redact dependency/error credentials while joining each complete supervisor before restart; use
+  UIDVALIDITY-aware stable IMAP UIDs and header-first filtering with bounded socket I/O, strict
+  sender/authentication parsing, and cancellation-safe serialized poll shutdown so rejected email
+  never downloads message bodies or attachments and committed mail is not lost during stop/restart.
+- **Bounded recovery and search:** cap provider retry hints at 60 seconds, let standard provider
+  pools fail over on excessive delays, and move recursive glob/grep scans off the event loop with
+  path, time, symlink, special-file, regex-backtracking, and four-worker concurrency boundaries.
+- **Process and repository safety:** terminate complete shell child trees on POSIX and Windows, and
+  stage same-size GitStore changes even when coarse filesystem timestamps are unchanged.
+
+### Security
+- **Private web fetches:** keep credential-bearing URLs and redirect chains away from third-party
+  Jina delegation, validate direct redirects hop by hop, and redact fetch failures to URL origins.
+
 ## [0.1.10] - 2026-08-13
 
 ### Added
@@ -145,6 +164,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Initial tagged release of Hahobot, the workspace-first local agent runtime
   (CLI agent, multi-channel gateway, OpenAI-compatible API).
 
+[0.1.11]: https://github.com/HuaGCS/Hahobot/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/HuaGCS/Hahobot/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/HuaGCS/Hahobot/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/HuaGCS/Hahobot/compare/v0.1.7...v0.1.8
