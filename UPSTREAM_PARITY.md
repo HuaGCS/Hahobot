@@ -24,11 +24,11 @@ The current ledger is authoritative when an older audit entry describes a supers
 
 | Upstream | Tracking role | Audited ref | Previous boundary | Audit date |
 | --- | --- | --- | --- | --- |
-| `HKUDS/nanobot` | Primary behavior-parity target | `main@abfcdd481` | `3778e7e62` | 2026-08-12 |
-| `lsdefine/GenericAgent` | Architecture/workflow ideas | `main@63f9db74e` | `d426d45e` | 2026-08-12 |
-| `thedotmack/claude-mem` | Memory-architecture ideas | `main@4702c337` | `132b4634` | 2026-08-10 |
-| `Dataojitori/nocturne_memory` | Memory-architecture ideas | `main@54c48eea` | `2cbfb8a` | 2026-08-10 |
-| `openJiuwen/jiuwenswarm` | Architecture/channel ideas | `develop@fb43da6c` | `de623dd9` | 2026-08-10 |
+| `HKUDS/nanobot` | Primary behavior-parity target | `main@d81aa5a4a` | `abfcdd481` | 2026-09-03 |
+| `lsdefine/GenericAgent` | Architecture/workflow ideas | `main@71cf559fa` | `63f9db74e` | 2026-09-03 |
+| `thedotmack/claude-mem` | Memory-architecture ideas | `main@18b3dab76` | `4702c337` | 2026-09-03 |
+| `Dataojitori/nocturne_memory` | Memory-architecture ideas | `main@ffb5c709b` | `54c48eea` | 2026-09-03 |
+| `openJiuwen/jiuwenswarm` | Architecture/channel ideas | `develop@896664ce0` | `fb43da6c` | 2026-09-03 |
 
 `nanobot` and `GenericAgent` remotes must retain `tagOpt = --no-tags`. Hahobot owns its independent
 `v0.x` release line; upstream tags are not imported into the local `v*` namespace.
@@ -43,96 +43,81 @@ design, but they are not tracked parity targets.
 - `intentional_divergence`: local behavior deliberately differs from upstream.
 - `watchlist`: re-evaluate when the related local surface or upstream behavior changes.
 
-## Latest Audit / Port Update — 2026-08-13
+## Latest Audit / Port Update — 2026-09-03
 
 ### nanobot
 
-Audited 19 linear commits from `3778e7e62` through `abfcdd481`. Tool JSON Schema validation rejects
-non-finite `number` values after casting and at nested paths (`99e07e138`); Matrix text and media
-thread replies now use root-event-scoped sessions (`057e8f7af`). Provider construction also keeps
-configured API keys out of process-global environment state (`f5cf4dcd2`). The weather workflow is
-cross-platform (`b14ac4c40` / `72d3ce6b2`), and Hahobot's ClawHub `npx` subprocess now adapts the
-upstream CLI-child minimal-environment boundary (`ec3dfb21b` / `a0e60116a` / `abfcdd481`). MCP
-runtime status and OpenRouter server-tool merging remain follow-ups against their local owners. The
-Agent Plugins/marketplace and React PWA work
-remain intentional architecture/product divergences: Hahobot keeps its workspace skill lifecycle,
-explicit MCP config, and server-rendered WebUI instead of adding a second package-market surface.
+Audited 362 linear commits from `abfcdd481` through `d81aa5a4a`; the old boundary is an ancestor, so
+no rewrite reconciliation was needed. Three portable reliability/security clusters are adapted to
+Hahobot's existing owners:
 
-Follow-up audited 16 commits from `55ecda27` through `3778e7e62`, after the prior 188-commit pass.
-The portable deltas are adapted onto local owners:
+- detectably credential-bearing `web_fetch` URLs (userinfo or credential-like query keys), including
+  any such redirect hop, are never delegated to the third-party Jina reader; fragments are stripped
+  from eligible Jina requests and fetch failures log only the origin (`31a71d6cd`, `5f916bbd3`,
+  `76f629e92`);
+- Git-backed Dream snapshots stage their explicit tracked paths before change detection, so a rapid
+  same-size rewrite is committed even when coarse filesystem timestamps do not move
+  (`9f5a56f1e`);
+- one-shot exec owns the complete subprocess tree: POSIX launches in a new session and kills its
+  process group, while Windows uses a kill-on-close Job Object with a `taskkill /T` fallback
+  (`d64b84604`, `bcf5d8a6e`).
 
-- generated-image URL downloads now pin validated DNS, revalidate every redirect, honor explicit
-  proxy DNS without trusting private literals, reject IPv6 unspecified targets, stream with a
-  32 MiB cap, and verify image bytes (`4408cde0..b3d3a3e6`);
-- Dream history compaction never drops entries beyond its processed cursor; malformed idle-summary
-  timestamps/metadata and raw-archive message fields degrade safely (`7fd28c9f`, `e633f867`,
-  `39bb20c7`, `4c387f66`);
-- real Dulwich object IDs cross the `/dream-log` and restore boundary (`92361cbe`), blank
-  `finish_reason=length` responses enter continuation (`511c764f`), and cron expressions are
-  validated before persistence (`73a00804`);
-- Gemini Flash hints use live `generationConfig.imageConfig` syntax (`08fe9f7b`); Anthropic's
-  versioned adaptive-thinking/effort rules cover Opus 4.7+ and Opus/Sonnet 5 (`4e8702a4`);
-- Telegram preserves special-character and single-line fences (`a13e29bf`, `170c7083`), while
-  Matrix sends a non-empty join body and retries eligible sync invites (`5c4c2cb8`);
-- unknown slash commands are rejected locally with session-language wording and a nearest-command
-  suggestion instead of reaching the model (`f45436b61`);
-- temporary WebUI chats adapt nanobot's ephemeral-chat behavior onto the server-rendered gateway:
-  process-local sessions skip persistence, memory/skill writeback, and cron ownership, while an
-  explicit **Save copy** creates a normal persisted session (`c9a614587`, `a5bc3bfbb`, `75e333a3c`,
-  `af52fbcbc`);
-- `edit_file` rejects identical old/new text before reading or rewriting an existing file, so a
-  malformed no-op request cannot report false success (`b3b051761`);
-- nanobot's bounded persistent-exec buffer is adapted to Hahobot's one-shot shell path: stdout and
-  stderr are drained concurrently with incremental UTF-8 decoding and fixed head/tail retention
-  before the combined response cap (`5e67fbf93`).
-
-The new React settings/runtime refactors remain architecture-specific. Browser OAuth for remote MCP
-servers is useful but remains a security-sensitive watchlist item until Hahobot defines local token
-storage, callback, and admin-session boundaries. The React/Vite marketplace, cross-session mention
-UI, pairing/triggers, provider breadth, and whole-file session retention remain demand-driven or
-architecture-specific. See
+The larger range is dominated by the upstream React WebUI/TUI, event-projection, plugin-marketplace,
+session-backend, pairing, and runner/context refactors. These remain architecture-specific or
+intentional divergences from Hahobot's aiohttp/Jinja gateway, incremental JSONL sessions, workspace
+skills, and decomposed runtime owners. Three portable reliability clusters are now adapted locally:
+strict UID/header-first email filtering with cancellation-safe committed-batch delivery
+(`f573ecfe5`, `5c71ef6e4`), bounded off-loop recursive search (`649e3958c`), and single-owner
+supervised Telegram polling (`cc05fe6ed`, `302015fde`, `8a928592c`,
+`2b4a04fb7`). Cron recovery, MCP readiness, Slack file-download SSRF, and Dream prompt
+de-duplication were checked but are already covered locally or do not map to Hahobot's execution
+path. See
 [`NANOBOT.md`](docs/upstream-parity/NANOBOT.md).
 
 ### GenericAgent
 
-Audited 7 linear commits from `d426d45e` through `63f9db74e`. The new changes are Hub/P2P,
-conductor, and world-model-specific; overload retry behavior remains covered by Hahobot's provider
-retry layer and no portable local delta was identified. The prior 30-commit pass's Responses
-terminal-event handling and maximum
-reasoning effort map to Hahobot's existing provider normalization plus the newly updated Anthropic
-capability matrix. The 60-second oversized `Retry-After` guard is useful, but remains a watchlist
-item until Hahobot defines one policy across finite and persistent retry modes. Hub/P2P, desktop,
-TUI, and conductor changes remain architecture-specific. See
+Audited 31 commits (22 first-parent) from `63f9db74e` through `71cf559fa`; history advanced linearly.
+The range is primarily conductor/desktop/Streamlit, Hub/P2P, and upstream loop-shape work. Its
+summary heuristic, history trimming, stream-abort handling, and native Claude header changes do not
+map cleanly onto Hahobot's Dream/compaction, provider normalization, cancellation, and retry owners.
+The portable `Retry-After` safety boundary from `7ffc95823` is now adapted across both local retry
+modes: finite retries stop immediately rather than sleeping on a server hint above 60 seconds,
+while persistent retries retain recovery semantics with a 60-second cap. See
 [`GENERICAGENT.md`](docs/upstream-parity/GENERICAGENT.md).
 
 ### Memory upstreams
 
-`claude-mem` added 11 commits through `4702c337`: Chroma write-storm control, sensitive
-observations, a custom-mode creator, and hosted/install work. Local WAL/worker serialization,
-privacy tags, and reviewed skill/subagent modes already cover the portable concepts.
-`nocturne_memory` added 7 commits through `54c48eea`; bloat diagnostics and block-matched patching
-are worth revisiting through local doctor/Dream surfaces, without adopting its graph store. See
+`claude-mem` advanced linearly by 142 commits through `18b3dab76`. Bounded startup-context
+injection is already covered by Hahobot's ranked/top-k memory limits; hosted trials, telemetry,
+marketplace, installer, and Chroma-specific lifecycle work remain outside the local file-first
+boundary. `nocturne_memory` advanced linearly by 7 commits through `ffb5c709b`; the only portable
+direction is richer memory performance/bloat diagnostics, retained for doctor/admin rather than
+copying its frontend build manager or graph store. See
 [`MEMORY_UPSTREAMS.md`](docs/upstream-parity/MEMORY_UPSTREAMS.md).
 
 ### jiuwenswarm
 
-Audited 271 commits through `develop@fb43da6c`. Relevant deltas—session-delete traversal guards,
-config secret masking, cancellation cleanup, context compression, cron crash recovery, and stream
-whitespace—are already covered by Hahobot's collision-safe session store, redacted admin/config
-surfaces, task/tool lifecycle, bounded memory pipeline, claimed atomic cron store, and streaming
-tests. Team/warm-pool, desktop/TUI, Symphony, PDF/PPT skills, and sandbox infrastructure remain
-ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
+Audited 348 commits (335 first-parent) from `fb43da6c` through `develop@896664ce0`; history advanced
+linearly. MCP prewarming/per-server failure isolation and context-window accounting are already
+covered by Hahobot's turn preparation and compaction paths. Orphaned process-group cleanup reinforces
+the exec tree-ownership port above. Local-path skill-import hardening is not applicable because
+Hahobot exposes no arbitrary-path skill installer. One-gateway-per-workspace ownership is retained
+as a future deployment guard; Team/desktop/Web/plugin-marketplace work remains ideas-only. See
+[`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 
 ## Current Snapshot
 
 | Area | Status | Current local disposition |
 | --- | --- | --- |
 | Tool/runtime policy | `synced` | Central policy controls tool availability, hot reload, doctor output, explicit exec environment passthrough, and finite-number validation before dispatch. |
+| Recursive file search | `synced` | Glob/grep traversal runs off the event loop, skips directory symlink descent and special files, and fails after 500,000 paths or a caller-enforced 30-second wall clock; a four-slot gate bounds non-cooperative daemon workers, while timeout-capable concurrent regex matching and a 10,000-character pattern cap prevent GIL-bound backtracking. |
 | File editing | `synced` | Exact replacements reject identical old/new text before I/O; oversized reads fail from metadata before allocation. |
-| File/config durability | `synced` | Oversized reads fail before allocation; config/admin and cron commits use mode-preserving atomic replacement. |
-| Exec isolation | `synced` | Segment-wise allow rules, deny-first matching, assignment/home-path guards, bounded-at-read one-shot output, bounded execution, and robust process cleanup remain local invariants. |
+| File/config durability | `synced` | Oversized reads fail before allocation; config/admin and cron commits use mode-preserving atomic replacement; Git snapshots detect staged content even across same-size, same-mtime rewrites. |
+| Exec isolation | `synced` | Segment-wise allow rules, deny-first matching, assignment/home-path guards, bounded-at-read one-shot output, bounded execution, and POSIX/Windows process-tree ownership remain local invariants. |
 | External CLI isolation | `synced` | ClawHub `npx` subprocesses receive a fixed platform/network/npm allowlist instead of inheriting provider keys, tokens, arbitrary parent variables, or loader injection. |
 | Provider normalization | `synced` | Empty content, malformed surrogates, reasoning fields, versioned Anthropic adaptive effort, model-specific thinking, provider error detail, and process-global credential isolation are enforced before transport. |
+| Provider retry safety | `synced` | Server retry hints up to 60 seconds are honored; oversized/non-finite positive hints stop finite retries and are capped only for persistent recovery. |
+| Web fetching | `synced` | Every direct redirect hop is SSRF-validated and DNS-pinned; detectable credential-bearing URLs/chains stay local rather than reaching Jina, and failure logs retain only the origin. |
 | Image generation | `synced` | Gemini Flash uses live `imageConfig`; generated-image downloads are redirect-safe, DNS-pinned, byte-capped, and content-verified while persona `/scene` keeps local reference-image behavior. |
 | Length recovery | `synced` | Truncated provider segments are retried/merged and streamed as one visible response without losing already-produced text. |
 | Hook streaming ownership | `synced` | Composite hooks fan out safely; only the primary output owner suppresses runner-side delta accumulation. |
@@ -147,6 +132,8 @@ ideas-only. See [`JIUWENSWARM.md`](docs/upstream-parity/JIUWENSWARM.md).
 | Subagent modes | `local_extension` | Explore/implement/verify tool boundaries and durable completion announcements extend the local runtime. |
 | Cron persistence | `synced` | Syntax validation, cross-process transactions, expiring claims, merged history, worker-pool I/O, cancellation linearization, and safe store rebinding prevent common invalid/duplicate/lost-update paths. |
 | Channel streaming | `synced` | Stateful delivery IDs, retry cursors, special-character-safe Telegram fences, and channel-specific overflow handling preserve exactly-once chunk progress within a delivery attempt. |
+| Email polling | `synced` | Stable UID search and header-first self/auth/allowlist checks reject unwanted mail before body or attachment download, with 30-second socket I/O, structurally strict From parsing, serialized stop/restart, committed-batch draining, and bounded dedupe reset on UIDVALIDITY namespace changes. Authentication-Results is only a receiving-service policy hint: the nearest field is parsed outside quoted/comment text, exact From-domain matches are required, explicit DMARC failure is rejected, and Seen failures never discard accepted delivery. |
+| Telegram polling | `synced` | Completed getUpdates round trips feed a liveness watchdog; stale polling rebuilds with bounded, RetryAfter-aware backoff, readiness-gated sends, credential-free terminal propagation/dependency logs, incrementally owned request pools, and per-step-bounded serialized teardown. |
 | Matrix joins | `synced` | Invite joins send `{}` for strict homeservers and retry allowed pending invites from the same sync response. |
 | Matrix thread sessions | `synced` | Text and media replies isolate conversation state by room + thread root while delivery remains room-scoped. |
 | Slack/Feishu rendering | `synced` | Fenced tables stay intact and malformed/null rich-message fields degrade safely. |
@@ -189,11 +176,11 @@ The detailed historical matrix remains searchable in
 | nanobot | Reasoning model routing expands | Kimi/MiMo and other model-specific reasoning parameters not already covered locally. |
 | nanobot | Remote authenticated MCP becomes an operator requirement | Browser OAuth with explicit callback binding, token storage/redaction, refresh, revocation, and admin-session security. |
 | GenericAgent | Workflow or unattended background behavior becomes concrete | Reviewable planning/memory SOPs without copying desktop/conductor structure. |
-| GenericAgent | Retry policy is redesigned | One bounded policy for oversized `Retry-After` across finite and persistent modes. |
 | claude-mem | Archive sidecar schema changes | `filesRead` / `filesModified` evidence with migration and query semantics. |
 | nocturne_memory | Memory diagnostics are expanded | Bloat reporting and stable per-entry IDs without replacing Markdown as source of truth. |
 | jiuwenswarm | Config concurrency/security work begins | Cross-process config transactions and secret redaction. |
 | jiuwenswarm | Local exec or orchestration requirements materially expand | `jiuwenbox` isolation or Team concepts, only with explicit authority boundaries. |
+| jiuwenswarm | Multiple gateway processes may share one workspace | Explicit single-owner or lease semantics in addition to existing cron job claims. |
 
 ## Update Protocol
 

@@ -84,6 +84,38 @@ async def test_pool_failover_uses_next_provider_after_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pool_fails_over_without_sleeping_on_oversized_retry_hint(monkeypatch) -> None:
+    first_error = LLMResponse(
+        content="429 rate limit",
+        finish_reason="error",
+        retry_after=61.0,
+    )
+    first = ScriptedProvider([first_error])
+    second = ScriptedProvider([LLMResponse(content="recovered")])
+    pool = ProviderPoolProvider(
+        [
+            ProviderPoolEntry(name="primary", provider=first),
+            ProviderPoolEntry(name="secondary", provider=second),
+        ],
+        strategy="failover",
+        default_model="shared-model",
+    )
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("hahobot.providers.base.asyncio.sleep", _fake_sleep)
+
+    response = await pool.chat_with_retry(messages=[{"role": "user", "content": "hello"}])
+
+    assert response.content == "recovered"
+    assert first.calls == 1
+    assert second.calls == 1
+    assert delays == []
+
+
+@pytest.mark.asyncio
 async def test_agent_runner_can_pass_retry_contract_through_provider_pool() -> None:
     concrete = ScriptedProvider([LLMResponse(content="pool reply")])
     pool = ProviderPoolProvider(

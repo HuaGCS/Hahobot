@@ -161,6 +161,10 @@ Minimal config example:
 Provider requests keep a finite wall-clock timeout through `HAHOBOT_LLM_TIMEOUT_S` (`0` disables
 it). Streaming requests use the wider `max(300, 2 * timeout)` budget in addition to provider idle
 timeouts, allowing healthy long reasoning to finish while still bounding trickle streams.
+Provider-supplied retry delays are also bounded: hints through 60 seconds are honored, but standard
+finite retry returns the current transient error immediately for a larger or infinite hint so a
+provider pool can fail over instead of hanging. Explicit persistent retry keeps recovering with each
+wait capped at 60 seconds.
 Provider keys loaded from config are passed directly to their SDK client and are never copied into
 process-global environment variables, so one configured provider cannot overwrite another or leak
 its credential into hooks and child processes through environment inheritance. Environment keys
@@ -732,6 +736,14 @@ Several channels support multi-instance configuration through `channels.<name>.i
 
 Recent upstream nanobot syncs already included here:
 
+- Telegram long polling has a liveness supervisor. If no completed `getUpdates` round trip is seen
+  for 120 seconds, Hahobot rebuilds the application and HTTP pools with a 5–300 second bounded
+  startup backoff. Sends briefly wait for rebuild readiness so the channel manager can retry rather
+  than counting a dropped message as delivered; invalid tokens remain terminal. Startup flood
+  limits honor PTB's integer or `timedelta` `RetryAfter` hint within that bound, each teardown step
+  is capped at 5 seconds, dependency request logs that would contain Bot API token URLs are
+  suppressed, and surfaced errors redact both bot tokens and proxy userinfo. Stop/restart owns one
+  complete supervisor run at a time and joins the old watchdog before a replacement can start.
 - Telegram progressive reply editing now uses `channels.telegram.streamEditInterval` to throttle
   `edit_message_text` frequency instead of a hardcoded interval.
 - Long Telegram streams are split while generation is still in progress: rendered HTML chunks stay
@@ -750,6 +762,19 @@ Recent upstream nanobot syncs already included here:
   session.
 - Slack and Feishu leave fenced pipe-delimited code intact instead of converting it to a table;
   Feishu also tolerates null text/list fields in post and card payloads.
+- Email polling uses stable IMAP UIDs and fetches headers first. Self-sent, SPF/DKIM-rejected, or
+  `allowFrom`-rejected mail is filtered and process-deduplicated before its body or attachments are
+  downloaded; only accepted mail reaches body parsing and attachment storage. The optional
+  SPF/DKIM switches inspect only the nearest `Authentication-Results` field, parse only top-level
+  result/property pairs outside quoted reasons and nested comments, require an exact identity-domain
+  match with `From`, and reject an explicit DMARC failure. This trusts the receiving mail service to
+  remove forged authentication headers; it is not local cryptographic verification, and `allowFrom`
+  remains a header policy rather than proof of a mailbox user's identity. IMAP sockets use a
+  30-second network timeout, missing, duplicate, group-form, or otherwise invalid `From` mail is
+  process-deduplicated,
+  and a mailbox `UIDVALIDITY` namespace change clears old UIDs so reuse cannot hide a new message.
+  Stop/restart serializes an in-flight poll and shields the complete bus delivery of any batch whose
+  UID was already committed, including cancellation during publication.
 - `read_file` can extract text from Office Open XML documents (`.docx`, `.xlsx`, `.pptx`) without
   adding a second document service, and rejects files over 100 MiB from metadata before loading.
 - Channel audio transcription can pass an optional `channels.transcriptionLanguage` ISO-639 hint to
@@ -931,13 +956,22 @@ The runtime can expose:
 - subagent spawning with `explore` / `implement` / `verify` execution modes
 
 Workspace restrictions for shell/file tools can be enforced through config.
+Recursive `glob` / `grep` traversal runs outside the event loop, does not descend through directory
+symlinks, skips special files, and stops with an actionable error after 500,000 visited paths or 30
+seconds. The async caller enforces the wall-clock return even when a filesystem or regex operation
+cannot cooperate, and at most four daemon scan workers may exist; additional calls fail fast until
+a slot is released. Grep uses a timeout-capable regex engine with concurrent matching and rejects
+patterns over 10,000 characters, so pathological backtracking cannot hold the interpreter past the
+scan deadline. Narrow the root or filters and retry if a repository reaches either safety budget.
 `edit_file` rejects replacements whose `old_text` and `new_text` are identical instead of
 reporting a successful edit and rewriting the file unnecessarily.
 The shell tool can also forward a narrow allowlist of environment variables through
 `tools.exec.allowedEnvKeys`.
 One-shot shell execution drains stdout and stderr concurrently and retains only bounded head/tail
 previews while the process runs. A noisy command therefore cannot make Hahobot buffer its complete
-output before applying the existing 10,000-character response cap.
+output before applying the existing 10,000-character response cap. Timeout and cancellation clean
+up the complete child process tree: POSIX commands run in their own session/process group and
+Windows commands use a kill-on-close Job Object when available.
 Shell execution uses `tools.exec.confirmationMode: "model"` by default. Commands selected for
 review are held without spawning a process; `/approve` executes the next command for the same
 chat, session, and sender, while `/approve all` consumes only that origin's current pending queue.
@@ -949,6 +983,11 @@ all guards are checked again immediately before execution.
 `web_search` supports `brave`, `searxng`, and `duckduckgo`; DuckDuckGo needs no extra
 credentials and is executed exclusively so concurrent tool turns do not batch multiple
 DuckDuckGo searches together.
+`web_fetch` validates each direct redirect hop against the SSRF policy. URLs containing userinfo or
+credential-like query parameters—and redirect chains that encounter them—stay on the local direct
+fetch path and are never sent to the third-party Jina reader; failures log only the URL
+origin. Fragments are removed before credential-free URLs are delegated to Jina. Secrets embedded
+in URL paths cannot be identified reliably, so do not pass path-secret URLs to `web_fetch`.
 `self_inspect` is intentionally read-only and returns a JSON snapshot of the active runtime,
 registered tools, actual session key, and currently running subagents. `notebook_edit` stays
 limited to `.ipynb` files; `spawn(mode="implement")` workers also receive it, while `explore` and

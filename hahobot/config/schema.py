@@ -237,8 +237,10 @@ class EmailConfig(Base):
     max_body_chars: int = 12000
     subject_prefix: str = "Re: "
     allow_from: list[str] = Field(default_factory=list)  # Allowed sender email addresses
-    verify_dkim: bool = True  # Require Authentication-Results with dkim=pass
-    verify_spf: bool = True  # Require Authentication-Results with spf=pass
+    # Mailbox policy hints: trust only a receiving service that sanitizes the
+    # nearest Authentication-Results header; this is not local cryptography.
+    verify_dkim: bool = True  # Require an aligned dkim=pass result
+    verify_spf: bool = True  # Require an aligned spf=pass result
     allowed_attachment_types: list[str] = Field(default_factory=list)
     max_attachment_size: int = 2_000_000  # 2MB per attachment
     max_attachments_per_email: int = 5

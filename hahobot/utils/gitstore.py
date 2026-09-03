@@ -98,14 +98,19 @@ class GitStore:
         try:
             from dulwich import porcelain
 
-            # .gitignore excludes everything except tracked files,
-            # so any staged/unstaged change must be in our files.
+            # Stage first so Dulwich refreshes content hashes. A status-only
+            # check can miss a rapid same-size rewrite when its mtime is also
+            # unchanged. Use explicit tracked paths so unrelated user files are
+            # never swept into a Dream commit.
+            staging_paths = [
+                str((self._workspace / path).absolute()) for path in self._tracked_files
+            ]
+            porcelain.add(str(self._workspace), paths=staging_paths)
             st = porcelain.status(str(self._workspace))
-            if not st.unstaged and not any(st.staged.values()) and not st.untracked:
+            if not any(st.staged.values()):
                 return None
 
             msg_bytes = message.encode("utf-8") if isinstance(message, str) else message
-            porcelain.add(str(self._workspace), paths=["."])
             sha_bytes = porcelain.commit(
                 str(self._workspace),
                 message=msg_bytes,

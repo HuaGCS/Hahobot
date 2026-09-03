@@ -7,6 +7,7 @@ import mimetypes
 import re
 import smtplib
 import ssl
+import threading
 from datetime import date
 from email import policy
 from email.header import decode_header, make_header
@@ -70,6 +71,8 @@ class EmailChannel(BaseChannel):
         "can't open mailbox",
         "does not exist",
     )
+    _IMAP_TIMEOUT_SECONDS = 30.0
+    _IMAP_STOP_TIMEOUT_SECONDS = 35.0
 
     @classmethod
     def default_config(cls) -> dict[str, object]:
@@ -78,9 +81,16 @@ class EmailChannel(BaseChannel):
     def __init__(self, config: EmailConfig | EmailInstanceConfig, bus: MessageBus):
         super().__init__(config, bus)
         self.config: EmailConfig | EmailInstanceConfig = config
+        self._self_addresses = self._collect_self_addresses()
         self._last_subject_by_chat: dict[str, str] = {}
         self._last_message_id_by_chat: dict[str, str] = {}
         self._processed_uids: set[str] = set()  # Capped to prevent unbounded growth
+        self._selected_mailbox: str | None = None
+        self._imap_uid_validity: tuple[str, str] | None = None
+        self._poll_stop_event: threading.Event | None = None
+        self._stop_wakeup = asyncio.Event()
+        self._lifecycle_lock = asyncio.Lock()
+        self._start_task: asyncio.Task[None] | None = None
         self._MAX_PROCESSED_UIDS = 100000
 
     @staticmethod
@@ -105,44 +115,136 @@ class EmailChannel(BaseChannel):
         if not self._validate_config():
             return
 
-        self._running = True
-        if not self.config.verify_dkim and not self.config.verify_spf:
-            logger.warning(
-                "Email channel: DKIM and SPF verification are both DISABLED. "
-                "Emails with spoofed From headers will be accepted. "
-                "Set verify_dkim=true and verify_spf=true for anti-spoofing protection."
-            )
-        logger.info("Starting Email channel (IMAP polling mode)...")
+        if self._running:
+            return
 
-        poll_seconds = max(5, int(self.config.poll_interval_seconds))
-        while self._running:
+        async with self._lifecycle_lock:
+            if self._running:
+                return
+            owner_task = asyncio.current_task()
+            stop_event = threading.Event()
+            self._start_task = owner_task
+            self._poll_stop_event = stop_event
+            self._stop_wakeup.clear()
+            self._running = True
             try:
-                inbound_items = await self._run_blocking(self._fetch_new_messages)
-                for item in inbound_items:
-                    sender = item["sender"]
-                    subject = item.get("subject", "")
-                    message_id = item.get("message_id", "")
-
-                    if subject:
-                        self._last_subject_by_chat[sender] = subject
-                    if message_id:
-                        self._last_message_id_by_chat[sender] = message_id
-
-                    await self._handle_message(
-                        sender_id=sender,
-                        chat_id=sender,
-                        content=item["content"],
-                        media=item.get("media") or None,
-                        metadata=item.get("metadata", {}),
+                if not self.config.verify_dkim and not self.config.verify_spf:
+                    logger.warning(
+                        "Email channel: DKIM and SPF verification are both DISABLED. "
+                        "Messages will be filtered only by their From header and allowFrom."
                     )
-            except Exception as e:
-                logger.error("Email polling error: {}", e)
+                logger.info("Starting Email channel (IMAP polling mode)...")
 
-            await asyncio.sleep(poll_seconds)
+                poll_seconds = max(5, int(self.config.poll_interval_seconds))
+                while self._running and not stop_event.is_set():
+                    try:
+                        poll_task = asyncio.create_task(
+                            self._run_blocking(
+                                self._fetch_new_messages,
+                                stop_event,
+                            )
+                        )
+                        try:
+                            inbound_items = await asyncio.shield(poll_task)
+                        except asyncio.CancelledError:
+                            # Keep ownership of the underlying to_thread call
+                            # until it observes this run's stop flag. This
+                            # prevents an immediate restart from overlapping an
+                            # orphaned poll and drains any already-committed UID.
+                            stop_event.set()
+                            try:
+                                inbound_items = await poll_task
+                                await self._publish_committed_items(inbound_items, stop_event)
+                            except Exception as exc:
+                                logger.error("Email polling cleanup error: {}", exc)
+                            raise
+                        # A returned item has already entered UID dedupe and may
+                        # be marked Seen. Drain that committed batch into the
+                        # bus even when stop raced with the worker's return.
+                        await self._publish_committed_items(inbound_items, stop_event)
+                    except Exception as e:
+                        logger.error("Email polling error: {}", e)
+
+                    if not self._running or stop_event.is_set():
+                        break
+                    try:
+                        await asyncio.wait_for(self._stop_wakeup.wait(), timeout=poll_seconds)
+                    except TimeoutError:
+                        pass
+            finally:
+                stop_event.set()
+                self._running = False
+                if self._poll_stop_event is stop_event:
+                    self._poll_stop_event = None
+                if self._start_task is owner_task:
+                    self._start_task = None
+
+    async def _publish_committed_items(
+        self,
+        inbound_items: list[dict[str, Any]],
+        stop_event: threading.Event,
+    ) -> None:
+        """Drain a locally committed worker batch even if the owner is cancelled."""
+        if not inbound_items:
+            return
+
+        publish_task = asyncio.create_task(self._publish_inbound_items(inbound_items))
+        try:
+            await asyncio.shield(publish_task)
+        except asyncio.CancelledError:
+            # The worker has already entered these UIDs into the local dedupe
+            # set and may have marked them Seen. Cancellation must therefore
+            # stop future polling but cannot abandon this committed batch.
+            stop_event.set()
+            try:
+                await publish_task
+            except Exception as exc:
+                logger.error("Email committed-batch delivery error during shutdown: {}", exc)
+            raise
+
+    async def _publish_inbound_items(self, inbound_items: list[dict[str, Any]]) -> None:
+        """Publish a worker batch whose UIDs are already committed locally."""
+        for item in inbound_items:
+            sender = item["sender"]
+            subject = item.get("subject", "")
+            message_id = item.get("message_id", "")
+
+            if subject:
+                self._last_subject_by_chat[sender] = subject
+            if message_id:
+                self._last_message_id_by_chat[sender] = message_id
+
+            await self._handle_message(
+                sender_id=sender,
+                chat_id=sender,
+                content=item["content"],
+                media=item.get("media") or None,
+                metadata=item.get("metadata", {}),
+            )
 
     async def stop(self) -> None:
         """Stop polling loop."""
         self._running = False
+        if self._poll_stop_event is not None:
+            self._poll_stop_event.set()
+        self._stop_wakeup.set()
+
+        owner_task = self._start_task
+        if owner_task is None or owner_task is asyncio.current_task() or owner_task.done():
+            return
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(owner_task),
+                timeout=self._IMAP_STOP_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Email polling did not stop within {:.0f}s; waiting for bounded socket I/O",
+                self._IMAP_STOP_TIMEOUT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            if not owner_task.cancelled():
+                raise
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send email via SMTP."""
@@ -303,13 +405,17 @@ class EmailChannel(BaseChannel):
             smtp.login(self.config.smtp_username, self.config.smtp_password)
             smtp.send_message(msg)
 
-    def _fetch_new_messages(self) -> list[dict[str, Any]]:
+    def _fetch_new_messages(
+        self,
+        stop_event: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
         """Poll IMAP and return parsed unread messages."""
         return self._fetch_messages(
             search_criteria=("UNSEEN",),
             mark_seen=self.config.mark_seen,
             dedupe=True,
             limit=0,
+            stop_event=stop_event,
         )
 
     def fetch_messages_between_dates(
@@ -344,11 +450,14 @@ class EmailChannel(BaseChannel):
         mark_seen: bool,
         dedupe: bool,
         limit: int,
+        stop_event: threading.Event | None = None,
     ) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         cycle_uids: set[str] = set()
 
         for attempt in range(2):
+            if stop_event is not None and stop_event.is_set():
+                return messages
             try:
                 self._fetch_messages_once(
                     search_criteria,
@@ -357,6 +466,7 @@ class EmailChannel(BaseChannel):
                     limit,
                     messages,
                     cycle_uids,
+                    stop_event,
                 )
                 return messages
             except Exception as exc:
@@ -374,17 +484,37 @@ class EmailChannel(BaseChannel):
         limit: int,
         messages: list[dict[str, Any]],
         cycle_uids: set[str],
+        stop_event: threading.Event | None,
     ) -> None:
-        """Fetch messages by arbitrary IMAP search criteria."""
+        """Fetch messages by arbitrary IMAP search criteria.
+
+        Resolve stable UIDs before fetching message data, then fetch only headers
+        until sender, authentication, and allowlist checks pass.  This prevents
+        rejected mail from downloading bodies or writing attachments as a side
+        effect of polling.
+        """
         mailbox = self.config.imap_mailbox or "INBOX"
 
+        if stop_event is not None and stop_event.is_set():
+            return
+
         if self.config.imap_use_ssl:
-            client = imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port)
+            client = imaplib.IMAP4_SSL(
+                self.config.imap_host,
+                self.config.imap_port,
+                timeout=self._IMAP_TIMEOUT_SECONDS,
+            )
         else:
-            client = imaplib.IMAP4(self.config.imap_host, self.config.imap_port)
+            client = imaplib.IMAP4(
+                self.config.imap_host,
+                self.config.imap_port,
+                timeout=self._IMAP_TIMEOUT_SECONDS,
+            )
 
         try:
             client.login(self.config.imap_username, self.config.imap_password)
+            if stop_event is not None and stop_event.is_set():
+                return
             try:
                 status, _ = client.select(mailbox)
             except Exception as exc:
@@ -392,42 +522,61 @@ class EmailChannel(BaseChannel):
                     logger.warning(
                         "Email mailbox unavailable, skipping poll for {}: {}", mailbox, exc
                     )
-                    return messages
+                    return
                 raise
             if status != "OK":
                 logger.warning(
                     "Email mailbox select returned {}, skipping poll for {}", status, mailbox
                 )
-                return messages
+                return
+            if stop_event is not None and stop_event.is_set():
+                return
+            self._refresh_uid_validity(client, mailbox, cycle_uids)
 
-            status, data = client.search(None, *search_criteria)
-            if status != "OK" or not data:
-                return messages
+            status, data = client.uid("SEARCH", None, *search_criteria)
+            if stop_event is not None and stop_event.is_set():
+                return
+            if status != "OK" or not data or not data[0]:
+                return
 
-            ids = data[0].split()
-            if limit > 0 and len(ids) > limit:
-                ids = ids[-limit:]
-            for imap_id in ids:
-                status, fetched = client.fetch(imap_id, "(BODY.PEEK[] UID)")
+            uids = [raw.decode("ascii", errors="ignore") for raw in data[0].split()]
+            if limit > 0 and len(uids) > limit:
+                uids = uids[-limit:]
+
+            uid_store_supported: bool | None = None
+            for uid in uids:
+                if stop_event is not None and stop_event.is_set():
+                    return
+                if not uid or uid in cycle_uids:
+                    continue
+                if dedupe and uid in self._processed_uids:
+                    continue
+
+                status, fetched = client.uid("FETCH", uid, "(BODY.PEEK[HEADER])")
+                if stop_event is not None and stop_event.is_set():
+                    return
                 if status != "OK" or not fetched:
                     continue
 
-                raw_bytes = self._extract_message_bytes(fetched)
-                if raw_bytes is None:
+                header_bytes = self._extract_message_bytes(fetched)
+                if header_bytes is None:
                     continue
 
-                uid = self._extract_uid(fetched)
-                if uid and uid in cycle_uids:
-                    continue
-                if dedupe and uid and uid in self._processed_uids:
-                    continue
-
-                parsed = BytesParser(policy=policy.default).parsebytes(raw_bytes)
-                sender = parseaddr(parsed.get("From", ""))[1].strip().lower()
+                parsed = BytesParser(policy=policy.default).parsebytes(header_bytes)
+                sender = self._parse_from_address(parsed)
                 if not sender:
+                    self._remember_processed_uid(uid, dedupe, cycle_uids)
+                    continue
+                if self._is_self_address(sender):
+                    logger.info("Email from {} ignored: matches bot-owned address", sender)
+                    self._remember_processed_uid(uid, dedupe, cycle_uids)
+                    if mark_seen:
+                        uid_store_supported = self._mark_seen_uid(client, uid, uid_store_supported)
                     continue
 
-                # --- Anti-spoofing: verify Authentication-Results ---
+                # Treat the receiving service's nearest Authentication-Results
+                # header as a mailbox policy signal, not as local cryptographic
+                # verification.  See _check_authentication_results.
                 spf_pass, dkim_pass = self._check_authentication_results(parsed)
                 if self.config.verify_spf and not spf_pass:
                     logger.warning(
@@ -435,6 +584,7 @@ class EmailChannel(BaseChannel):
                         "(no 'spf=pass' in Authentication-Results header)",
                         sender,
                     )
+                    self._remember_processed_uid(uid, dedupe, cycle_uids)
                     continue
                 if self.config.verify_dkim and not dkim_pass:
                     logger.warning(
@@ -442,7 +592,27 @@ class EmailChannel(BaseChannel):
                         "(no 'dkim=pass' in Authentication-Results header)",
                         sender,
                     )
+                    self._remember_processed_uid(uid, dedupe, cycle_uids)
                     continue
+
+                if not self.is_allowed(sender):
+                    self._remember_processed_uid(uid, dedupe, cycle_uids)
+                    if mark_seen:
+                        uid_store_supported = self._mark_seen_uid(client, uid, uid_store_supported)
+                    continue
+
+                # Only accepted messages may download a full body or attachments.
+                if stop_event is not None and stop_event.is_set():
+                    return
+                status, full_fetched = client.uid("FETCH", uid, "(BODY.PEEK[])")
+                if stop_event is not None and stop_event.is_set():
+                    return
+                if status != "OK" or not full_fetched:
+                    continue
+                raw_bytes = self._extract_message_bytes(full_fetched)
+                if raw_bytes is None:
+                    continue
+                parsed = BytesParser(policy=policy.default).parsebytes(raw_bytes)
 
                 subject = self._decode_header_value(parsed.get("Subject", ""))
                 date_value = parsed.get("Date", "")
@@ -493,22 +663,16 @@ class EmailChannel(BaseChannel):
                     }
                 )
 
-                if uid:
-                    cycle_uids.add(uid)
-                if dedupe and uid:
-                    self._processed_uids.add(uid)
-                    # mark_seen is the primary dedup; this set is a safety net
-                    if len(self._processed_uids) > self._MAX_PROCESSED_UIDS:
-                        # Evict a random half to cap memory; mark_seen is the primary dedup
-                        self._processed_uids = set(
-                            list(self._processed_uids)[len(self._processed_uids) // 2 :]
-                        )
+                self._remember_processed_uid(uid, dedupe, cycle_uids)
 
                 if mark_seen:
-                    client.store(imap_id, "+FLAGS", "\\Seen")
+                    uid_store_supported = self._mark_seen_uid(client, uid, uid_store_supported)
         finally:
             try:
-                client.logout()
+                if stop_event is not None and stop_event.is_set():
+                    client.shutdown()
+                else:
+                    client.logout()
             except Exception:
                 pass
 
@@ -528,6 +692,194 @@ class EmailChannel(BaseChannel):
         month = cls._IMAP_MONTHS[value.month - 1]
         return f"{value.day:02d}-{month}-{value.year}"
 
+    def _collect_self_addresses(self) -> set[str]:
+        """Return normalized addresses owned by this channel instance."""
+        candidates = (
+            self.config.from_address,
+            self.config.smtp_username,
+            self.config.imap_username,
+        )
+        return {
+            address for candidate in candidates if (address := self._normalize_address(candidate))
+        }
+
+    @staticmethod
+    def _normalize_address(value: str) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        parsed = parseaddr(raw)[1].strip().lower()
+        if parsed:
+            return parsed
+        if "@" in raw:
+            return raw.lower()
+        return ""
+
+    def _is_self_address(self, sender: str) -> bool:
+        normalized = self._normalize_address(sender)
+        return bool(normalized) and normalized in self._self_addresses
+
+    @classmethod
+    def _parse_from_address(cls, message: Any) -> str:
+        """Return one structurally valid From addr-spec, or fail closed."""
+        get_all = getattr(message, "get_all", None)
+        if callable(get_all):
+            from_fields = get_all("From", [])
+            if len(from_fields) != 1:
+                return ""
+            header = from_fields[0]
+        else:
+            header = message.get("From")
+        addresses = getattr(header, "addresses", None)
+        if addresses is not None:
+            groups = getattr(header, "groups", ())
+            if (
+                getattr(header, "defects", ())
+                or len(addresses) != 1
+                or any(getattr(group, "display_name", None) is not None for group in groups)
+            ):
+                return ""
+            address = addresses[0]
+            local = str(getattr(address, "username", "") or "").strip()
+            raw_domain = str(getattr(address, "domain", "") or "").strip()
+            if not local or not raw_domain or raw_domain.startswith("["):
+                return ""
+            domain = cls._authentication_domain(raw_domain)
+            if not domain:
+                return ""
+            return str(getattr(address, "addr_spec", "") or "").strip().lower()
+
+        candidate = parseaddr(str(header or ""))[1].strip().lower()
+        if candidate.count("@") != 1:
+            return ""
+        local, raw_domain = candidate.rsplit("@", 1)
+        domain = cls._authentication_domain(raw_domain)
+        if not local or not domain or any(char.isspace() for char in local):
+            return ""
+        return f"{local}@{domain}"
+
+    def _remember_processed_uid(self, uid: str, dedupe: bool, cycle_uids: set[str]) -> None:
+        """Remember accepted and rejected UIDs without unbounded growth."""
+        if not uid:
+            return
+        cycle_uids.add(uid)
+        if not dedupe:
+            return
+        self._processed_uids.add(uid)
+        if len(self._processed_uids) > self._MAX_PROCESSED_UIDS:
+            self._processed_uids = set(list(self._processed_uids)[len(self._processed_uids) // 2 :])
+
+    @staticmethod
+    def _read_uid_validity(client: Any) -> str | None:
+        """Read the UIDVALIDITY cached by imaplib after SELECT, when available."""
+        response = getattr(client, "response", None)
+        if not callable(response):
+            return None
+        try:
+            _, data = response("UIDVALIDITY")
+        except Exception:
+            return None
+        items = [data] if isinstance(data, (bytes, str)) else data or []
+        for item in items:
+            if isinstance(item, bytes):
+                item = item.decode("ascii", errors="ignore")
+            match = re.search(r"\d+", str(item))
+            if match is not None:
+                return match.group(0)
+        return None
+
+    def _refresh_uid_validity(
+        self,
+        client: Any,
+        mailbox: str,
+        cycle_uids: set[str],
+    ) -> None:
+        """Reset process-local UID dedupe when the mailbox UID namespace changes."""
+        if self._selected_mailbox is not None and self._selected_mailbox != mailbox:
+            self._processed_uids.clear()
+            cycle_uids.clear()
+            self._imap_uid_validity = None
+        self._selected_mailbox = mailbox
+
+        validity = self._read_uid_validity(client)
+        if validity is None:
+            return
+        current = (mailbox, validity)
+        namespace_became_known = self._imap_uid_validity is None and bool(self._processed_uids)
+        namespace_changed = (
+            self._imap_uid_validity is not None and self._imap_uid_validity != current
+        )
+        if namespace_became_known or namespace_changed:
+            logger.warning(
+                "Email UIDVALIDITY namespace changed for mailbox {}; "
+                "clearing process-local UID dedupe",
+                mailbox,
+            )
+            self._processed_uids.clear()
+            cycle_uids.clear()
+        self._imap_uid_validity = current
+
+    @staticmethod
+    def _lookup_imap_id_by_uid(client: Any, uid: str) -> bytes | None:
+        """Resolve a session-local sequence number when UID STORE is unavailable."""
+        status, data = client.search(None, "UID", uid)
+        if status != "OK" or not data or not data[0]:
+            return None
+        return data[0].split()[0]
+
+    def _mark_seen_uid(
+        self,
+        client: Any,
+        uid: str,
+        uid_store_supported: bool | None,
+    ) -> bool:
+        """Mark a UID as seen, falling back to sequence STORE when necessary.
+
+        The return value records whether UID STORE works for this IMAP session so
+        later messages avoid repeating a known-unsupported command.
+        """
+        if uid_store_supported is not False:
+            try:
+                status, _ = client.uid("STORE", uid, "+FLAGS", "(\\Seen)")
+            except Exception as exc:
+                # imaplib raises IMAP4.error for BAD commands instead of
+                # returning a status.  Marking seen is best effort: never let
+                # it discard an accepted message that is already queued for
+                # delivery.
+                logger.debug(
+                    "Email UID STORE failed for UID {} ({}); trying sequence STORE",
+                    uid,
+                    type(exc).__name__,
+                )
+            else:
+                if status == "OK":
+                    return True
+
+        try:
+            imap_id = self._lookup_imap_id_by_uid(client, uid)
+        except Exception as exc:
+            logger.warning(
+                "Email could not resolve UID {} for seen flag ({}); delivery will continue",
+                uid,
+                type(exc).__name__,
+            )
+            return False
+        if imap_id is None:
+            logger.warning("Email could not locate UID {} to mark it seen", uid)
+            return False
+        try:
+            status, _ = client.store(imap_id, "+FLAGS", "\\Seen")
+        except Exception as exc:
+            logger.warning(
+                "Email failed to mark UID {} as seen ({}); delivery will continue",
+                uid,
+                type(exc).__name__,
+            )
+            return False
+        if status != "OK":
+            logger.warning("Email failed to mark UID {} as seen", uid)
+        return False
+
     @staticmethod
     def _extract_message_bytes(fetched: list[Any]) -> bytes | None:
         for item in fetched:
@@ -538,16 +890,6 @@ class EmailChannel(BaseChannel):
             ):
                 return bytes(item[1])
         return None
-
-    @staticmethod
-    def _extract_uid(fetched: list[Any]) -> str:
-        for item in fetched:
-            if isinstance(item, tuple) and item and isinstance(item[0], (bytes, bytearray)):
-                head = bytes(item[0]).decode("utf-8", errors="ignore")
-                m = re.search(r"UID\s+(\d+)", head)
-                if m:
-                    return m.group(1)
-        return ""
 
     @staticmethod
     def _decode_header_value(value: str) -> str:
@@ -599,21 +941,260 @@ class EmailChannel(BaseChannel):
         return payload.strip()
 
     @staticmethod
-    def _check_authentication_results(parsed_msg: Any) -> tuple[bool, bool]:
-        """Parse Authentication-Results headers for SPF and DKIM verdicts.
+    def _split_authentication_results(header: str) -> list[str] | None:
+        """Split top-level Authentication-Results clauses, rejecting malformed CFWS."""
+        clauses: list[str] = []
+        current: list[str] = []
+        quote: str | None = None
+        comment_depth = 0
+        escaped = False
+        for char in header:
+            if escaped:
+                current.append(char)
+                escaped = False
+                continue
+            if quote is not None:
+                current.append(char)
+                if char == "\\":
+                    escaped = True
+                elif char == quote:
+                    quote = None
+                continue
+            if comment_depth:
+                current.append(char)
+                if char == "\\":
+                    escaped = True
+                elif char == "(":
+                    comment_depth += 1
+                elif char == ")":
+                    comment_depth -= 1
+                continue
+            if char == '"':
+                quote = char
+                current.append(char)
+            elif char == "(":
+                comment_depth = 1
+                current.append(char)
+            elif char == ")":
+                return None
+            elif char == ";":
+                clauses.append("".join(current))
+                current = []
+            else:
+                current.append(char)
+        if quote is not None or comment_depth or escaped:
+            return None
+        clauses.append("".join(current))
+        return clauses
+
+    @staticmethod
+    def _strip_authentication_comments(clause: str) -> str | None:
+        """Remove nested RFC comments while preserving quoted values as single tokens."""
+        result: list[str] = []
+        quote: str | None = None
+        comment_depth = 0
+        escaped = False
+        for char in clause:
+            if escaped:
+                if not comment_depth:
+                    result.append(char)
+                escaped = False
+                continue
+            if quote is not None:
+                result.append(char)
+                if char == "\\":
+                    escaped = True
+                elif char == quote:
+                    quote = None
+                continue
+            if comment_depth:
+                if char == "\\":
+                    escaped = True
+                elif char == "(":
+                    comment_depth += 1
+                elif char == ")":
+                    comment_depth -= 1
+                result.append(" ")
+                continue
+            if char == '"':
+                quote = char
+                result.append(char)
+            elif char == "(":
+                comment_depth = 1
+                result.append(" ")
+            elif char == ")":
+                return None
+            else:
+                result.append(char)
+        if quote is not None or comment_depth or escaped:
+            return None
+        return "".join(result)
+
+    @classmethod
+    def _parse_authentication_clause(cls, clause: str) -> list[tuple[str, str]] | None:
+        """Parse top-level name=value pairs without inspecting reason/comment text."""
+        text = cls._strip_authentication_comments(clause)
+        if text is None:
+            return None
+        pairs: list[tuple[str, str]] = []
+        index = 0
+        while index < len(text):
+            while index < len(text) and text[index].isspace():
+                index += 1
+            if index == len(text):
+                break
+            name_match = re.match(r"[a-z][a-z0-9_-]*", text[index:], re.I)
+            if name_match is None:
+                return None
+            name = name_match.group(0).lower()
+            index += len(name_match.group(0))
+            while index < len(text) and text[index].isspace():
+                index += 1
+            if index < len(text) and text[index] in {"/", "."}:
+                separator = text[index]
+                index += 1
+                while index < len(text) and text[index].isspace():
+                    index += 1
+                suffix_match = re.match(r"[a-z0-9][a-z0-9_-]*", text[index:], re.I)
+                if suffix_match is None:
+                    return None
+                name += separator + suffix_match.group(0).lower()
+                index += len(suffix_match.group(0))
+                while index < len(text) and text[index].isspace():
+                    index += 1
+            if index == len(text) or text[index] != "=":
+                return None
+            index += 1
+            while index < len(text) and text[index].isspace():
+                index += 1
+            if index == len(text):
+                return None
+
+            if text[index] == '"':
+                quote = text[index]
+                index += 1
+                value_chars: list[str] = []
+                escaped = False
+                while index < len(text):
+                    char = text[index]
+                    index += 1
+                    if escaped:
+                        value_chars.append(char)
+                        escaped = False
+                    elif char == "\\":
+                        escaped = True
+                    elif char == quote:
+                        break
+                    else:
+                        value_chars.append(char)
+                else:
+                    return None
+                if escaped or (index < len(text) and not text[index].isspace()):
+                    return None
+                value = "".join(value_chars)
+            else:
+                value_start = index
+                while index < len(text) and not text[index].isspace():
+                    index += 1
+                value = text[value_start:index]
+            if not value:
+                return None
+            pairs.append((name, value))
+        if pairs:
+            trailing_names = [name for name, _ in pairs[1:]]
+            if any(name != "reason" and "." not in name for name in trailing_names):
+                return None
+            if len(trailing_names) != len(set(trailing_names)):
+                return None
+        return pairs
+
+    @staticmethod
+    def _authentication_domain(value: str) -> str:
+        """Normalize one parsed Authentication-Results identity value."""
+        value = value.strip("\"'<>[]").lower().rstrip(".")
+        if "@" in value:
+            value = value.rsplit("@", 1)[1]
+        labels = value.split(".")
+        if not value or any(
+            not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels
+        ):
+            return ""
+        return value
+
+    @staticmethod
+    def _authentication_domains_align(sender_domain: str, identity_domain: str) -> bool:
+        """Fail closed to exact alignment without a public-suffix-list dependency."""
+        return bool(sender_domain and sender_domain == identity_domain)
+
+    @classmethod
+    def _authentication_clause_passes(
+        cls,
+        clauses: list[list[tuple[str, str]]],
+        mechanism: str,
+        identity_property: str,
+        sender_domain: str,
+    ) -> bool:
+        for pairs in clauses:
+            if not pairs or pairs[0][0].split("/", 1)[0] != mechanism:
+                continue
+            if pairs[0][1].lower() != "pass":
+                continue
+            identities = [value for name, value in pairs[1:] if name == identity_property]
+            if len(identities) != 1:
+                continue
+            identity_domain = cls._authentication_domain(identities[0])
+            if cls._authentication_domains_align(sender_domain, identity_domain):
+                return True
+        return False
+
+    @classmethod
+    def _check_authentication_results(cls, parsed_msg: Any) -> tuple[bool, bool]:
+        """Evaluate the nearest mailbox Authentication-Results policy signal.
+
+        This does not perform SPF, DKIM, or DMARC cryptography.  It trusts the
+        first (nearest) Authentication-Results field to have been prepended by a
+        receiving service that removes forged copies.  Pass results count only
+        when their authenticated domain aligns with the RFC 5322 From domain;
+        an explicit DMARC failure vetoes both results.
 
         Returns:
             A tuple of (spf_pass, dkim_pass) booleans.
         """
-        spf_pass = False
-        dkim_pass = False
-        for ar_header in parsed_msg.get_all("Authentication-Results") or []:
-            ar_lower = ar_header.lower()
-            if re.search(r"\bspf\s*=\s*pass\b", ar_lower):
-                spf_pass = True
-            if re.search(r"\bdkim\s*=\s*pass\b", ar_lower):
-                dkim_pass = True
-        return spf_pass, dkim_pass
+        sender = cls._parse_from_address(parsed_msg)
+        sender_domain = sender.rsplit("@", 1)[1].rstrip(".") if "@" in sender else ""
+        headers = parsed_msg.get_all("Authentication-Results") or []
+        if not sender_domain or not headers:
+            return False, False
+
+        raw_clauses = cls._split_authentication_results(str(headers[0]))
+        if raw_clauses is None or len(raw_clauses) < 2:
+            return False, False
+        clauses: list[list[tuple[str, str]]] = []
+        for raw_clause in raw_clauses[1:]:
+            parsed_clause = cls._parse_authentication_clause(raw_clause)
+            if parsed_clause is None:
+                return False, False
+            if parsed_clause:
+                clauses.append(parsed_clause)
+
+        for pairs in clauses:
+            if pairs[0][0].split("/", 1)[0] == "dmarc" and pairs[0][1].lower() == "fail":
+                return False, False
+
+        return (
+            cls._authentication_clause_passes(
+                clauses,
+                "spf",
+                "smtp.mailfrom",
+                sender_domain,
+            ),
+            cls._authentication_clause_passes(
+                clauses,
+                "dkim",
+                "header.d",
+                sender_domain,
+            ),
+        )
 
     @classmethod
     def _extract_attachments(

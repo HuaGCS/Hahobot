@@ -243,6 +243,10 @@ provider 的嵌套消息还会在 JSON 编码前清理异常 UTF-16 surrogate。
 `finish_reason="length"` 截断输出，即使首段还没有可见文本，hahobot 也会继续生成，并把各段
 合并成同一条最终回复和同一条可见流式消息。
 
+服务端给出的重试等待也有统一安全边界：不超过 60 秒的提示会被遵守；标准有限重试遇到更大值
+或正无穷时会直接返回当前瞬时错误，让 provider pool 及时切换，而不是长时间挂起。显式
+`persistent` 重试仍会持续恢复，但单次等待最多 60 秒。
+
 对于直连 OpenAI 的请求，当前实现也已经同步了上游新逻辑：
 
 - 当模型属于 `gpt-5` / `o1` / `o3` / `o4` 系列，或显式设置了 `reasoningEffort` 时，会优先尝试 Responses API
@@ -314,6 +318,13 @@ DuckDuckGo：
 ```
 
 `duckduckgo` 不需要额外凭证；运行时会把 DuckDuckGo 搜索串行执行，避免在并发工具回合里把多个 DuckDuckGo 查询打成同一批。
+
+内置 `glob` / `grep` 的递归遍历在事件循环之外执行，不跟随目录符号链接并跳过特殊文件；每次
+调用最多访问 500,000 个路径或运行 30 秒。达到边界时工具会返回可操作的错误，可缩小搜索根目录
+或过滤条件后重试。即使文件系统或正则调用暂时无法协作退出，异步调用方也会按墙钟边界返回；
+进程最多保留 4 个 daemon 扫描 worker，额外调用会快速失败直到有空位，不会无限累积线程。
+`grep` 使用可超时且支持并发匹配的正则引擎，并拒绝超过 10,000 字符的 pattern，病态回溯不会
+持有解释器越过扫描截止时间。
 
 ### 图像生成
 
@@ -547,6 +558,12 @@ Node loader 注入选项。这不是文件系统沙箱；npm 和 ClawHub 仍能�
 
 补充说明：
 
+- 长轮询带有存活监督：若连续 120 秒没有任何一次 `getUpdates` 往返完成，会重建 Telegram
+  application 和连接池；启动瞬时故障按 5–300 秒有界退避重试。重建期间发送会短暂等待就绪，
+  超时则显式失败交给渠道管理器重试；无效 token 属于终止错误，不会无限重连。启动限流会在
+  该边界内遵守 PTB 的整数或 `timedelta` `RetryAfter`；每个 teardown 步骤最多等待 5 秒；会
+  打印 Bot API token URL 的依赖日志被抑制，向外暴露的错误同时脱敏 bot token 和代理 userinfo；
+  停止/重启会完整接管一次 supervisor 生命周期，并等待旧 watchdog 退出后才允许新一轮启动
 - `streaming` 默认就是 `true`，表示最终回复会优先走“先发一条、后续逐步编辑”的流式体验
 - `streamEditInterval` 控制 Telegram `edit_message_text` 的最小节流间隔，适合按自己的频率/限流情况调整
 - `inlineKeyboards` 开启后会把出站消息里的 `buttons` 渲染成 Telegram 原生内联按钮；关闭时会把按钮标签拼回正文，避免选项丢失
@@ -840,6 +857,17 @@ hahobot channels login whatsapp
   }
 }
 ```
+
+收件轮询使用稳定 IMAP UID，并先以 `BODY.PEEK[HEADER]` 读取头部。来自机器人自身、未通过
+SPF/DKIM 校验或不在 `allowFrom` 中的邮件，会在下载正文和附件之前被拒绝并在当前进程去重；
+只有通过检查的邮件才会进入正文解析和附件落盘。可选 SPF/DKIM 开关只检查最靠近接收端的
+`Authentication-Results`，只解析引号 reason 与嵌套注释之外的顶层结果/属性，要求身份域与
+`From` 域精确匹配，并拒绝显式 DMARC 失败；这依赖收件服务清除伪造认证头，并不等于本地
+密码学验证，`allowFrom` 也只是头部策略而非邮箱用户身份凭证。IMAP socket 使用 30 秒网络
+超时；缺少、重复、具名地址组或其他结构无效的 `From` 邮件同样会在进程内去重；邮箱
+`UIDVALIDITY` 命名空间变化时会清空旧 UID，避免复用 UID 把新邮件误判为旧邮件。停止/重启
+会串行等待在途轮询，并屏蔽取消、完整投递已经提交 UID 的返回批次，包括取消恰好发生在总线
+投递途中时，避免 Seen/去重状态领先于消息总线。
 
 ### Weixin
 
@@ -1180,7 +1208,14 @@ HTTP 示例：
 `edit_file` 会拒绝 `old_text` 与 `new_text` 完全相同的空操作，避免误报编辑成功和无意义地重写文件；
 一次性 shell 执行会并发排空 stdout / stderr，并在运行期间只保留有界的头尾预览；高噪声命令不会再
 先把完整输出装进内存、最后才截断到现有的 10,000 字符响应上限；
+超时或取消时会清理完整的子进程树：POSIX 命令运行在独立会话 / 进程组中，Windows 命令则在可用时
+使用关闭即终止的 Job Object；
 workspace 限制下的 shell 路径检查也覆盖 `--output=/tmp/file` 这类等号赋值形式。
+
+`web_fetch` 会逐跳校验直接请求的重定向。含有 URL 用户信息或凭据类查询参数的地址，以及途中出现
+这类地址的重定向链，只走本地直接抓取，绝不会发送给第三方 Jina Reader；失败日志只保留 URL
+源站。无凭据地址委托给 Jina 前也会移除 fragment。
+路径中嵌入的 secret 无法可靠识别，因此不要把这类 URL 交给 `web_fetch`。
 
 其中 `self_inspect` 故意保持只读，不提供上游那类运行时自修改能力；`notebook_edit`
 主 agent 默认可用，`spawn(mode=implement)` 的 subagent 也会拿到，而 `explore` /

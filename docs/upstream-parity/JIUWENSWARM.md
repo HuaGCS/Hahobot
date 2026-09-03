@@ -6,9 +6,9 @@ clone or AtomGit web inspection rather than GitHub APIs.
 
 ## Current Boundary
 
-- Audited ref: `develop@fb43da6c` (2026-08-10)
-- Previous boundary: `de623dd9`
-- Range reviewed: 271 commits
+- Audited ref: `develop@896664ce0` (2026-09-03)
+- Previous boundary: `fb43da6c`
+- Range reviewed: 348 commits, 335 first-parent; history advanced linearly
 
 ## Adopted Or Mapped Ideas
 
@@ -23,6 +23,9 @@ clone or AtomGit web inspection rather than GitHub APIs.
 | Self-evolving skills | `/skill derive`, lifecycle metadata, supersede/lint, and explicit review provide a bounded local analogue. | `intentional_divergence` |
 | Session/config safety deltas | Collision-safe session paths, scoped deletion, redacted config/admin output, and atomic persistence already cover the portable traversal/masking changes. | `synced` |
 | Stream/cancellation/cron reliability | Existing whitespace-preserving streams, task/tool cleanup, claimed cron transactions, and crash-ambiguity rules cover the behavioral intent. | `synced` |
+| MCP prewarm and failure isolation (`b2c8c0ca5`, `7ebebe3fe`) | Turn preparation connects servers concurrently and preserves healthy servers when one connection fails. | `synced` |
+| Context-window accounting (`f2d661384`) | Provider-aware limits and local compaction already bound assembled turn context. | `synced` |
+| Orphaned process groups (`92ff09692`) | The analogous one-shot exec boundary now owns POSIX sessions/process groups and Windows Job Objects. | `synced` |
 
 ## Intentional Divergences
 
@@ -33,6 +36,8 @@ clone or AtomGit web inspection rather than GitHub APIs.
 - Experience memory and context compression map onto Hahobot's archive, Dream, layered persona
   memory, and compaction surfaces rather than a parallel memory subsystem.
 - WebUI remains in the aiohttp/Jinja gateway instead of adopting another standalone frontend.
+- Arbitrary local-path skill import hardening (`0da7b2ce3`) is not applicable because Hahobot's
+  `/skill install` does not expose a local-path import surface.
 
 ## Active Watchlist
 
@@ -43,6 +48,8 @@ clone or AtomGit web inspection rather than GitHub APIs.
   observability contracts.
 - Warm pools and system-operation inheritance only if Hahobot introduces a concrete multi-tenant
   runtime; they are not needed for the current single-instance workspace model.
+- Explicit one-gateway-per-workspace ownership if deployment expands beyond one process; existing
+  cron claims prevent duplicate job execution but are not a general gateway ownership lease.
 
 See the [current root ledger](../../UPSTREAM_PARITY.md) and the
 [complete 2026 audit log](AUDIT_LOG_2026.md) for detailed dated analysis.

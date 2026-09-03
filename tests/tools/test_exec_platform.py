@@ -6,7 +6,8 @@ platform-specific binaries (all subprocess calls are mocked).
 """
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -124,6 +125,7 @@ class TestSpawnUnix:
         assert "-c" in args
         assert "echo hi" in args
         assert mock_exec.call_args[1]["stdin"] == asyncio.subprocess.DEVNULL
+        assert mock_exec.call_args[1]["start_new_session"] is True
 
 
 class TestSpawnWindows:
@@ -142,6 +144,31 @@ class TestSpawnWindows:
         assert "/c" in args
         assert "dir" in args
         assert mock_exec.call_args[1]["stdin"] == asyncio.subprocess.DEVNULL
+        assert mock_exec.call_args[1]["creationflags"] == 0
+
+    @pytest.mark.asyncio
+    async def test_real_windows_path_assigns_suspended_process_to_job(self):
+        env = {"COMSPEC": r"C:\Windows\system32\cmd.exe", "PATH": ""}
+        process = SimpleNamespace(pid=4321)
+        job = SimpleNamespace(
+            creation_flags=4,
+            assign_and_resume=MagicMock(),
+            release=MagicMock(),
+            terminate=MagicMock(),
+        )
+        with (
+            patch("hahobot.agent.tools.shell._IS_WINDOWS", True),
+            patch("hahobot.agent.tools.shell.sys.platform", "win32"),
+            patch.object(ExecTool, "_create_windows_job", return_value=job),
+            patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
+        ):
+            mock_exec.return_value = process
+            spawned = await ExecTool._spawn("dir", r"C:\Users", env)
+
+        assert spawned is process
+        assert mock_exec.call_args.kwargs["creationflags"] == 4
+        job.assign_and_resume.assert_called_once_with(4321)
+        assert process._hahobot_process_tree_owner is job
 
     @pytest.mark.asyncio
     async def test_falls_back_to_default_comspec(self):

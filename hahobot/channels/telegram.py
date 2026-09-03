@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import math
 import re
 import time
 import unicodedata
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from loguru import logger
 from telegram import (
@@ -19,7 +22,7 @@ from telegram import (
     ReplyParameters,
     Update,
 )
-from telegram.error import BadRequest, NetworkError, TimedOut
+from telegram.error import BadRequest, InvalidToken, NetworkError, RetryAfter, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -28,7 +31,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from telegram.request import HTTPXRequest
+from telegram.request import BaseRequest, HTTPXRequest
 
 from hahobot.agent.i18n import (
     help_lines,
@@ -53,6 +56,51 @@ TELEGRAM_HTML_MAX_LEN = 4096  # Telegram's rendered HTML payload limit
 TELEGRAM_REPLY_CONTEXT_MAX_LEN = (
     TELEGRAM_MAX_MESSAGE_LEN  # Max length for reply context in user message
 )
+
+# A healthy getUpdates long poll completes every few seconds even when idle.
+# PTB retries transport failures internally, so detect a pool that has stopped
+# completing round trips and rebuild the whole application around fresh pools.
+POLL_STALE_SECONDS = 120.0
+POLL_WATCH_INTERVAL = 1.0
+RESTART_BACKOFF_INITIAL_SECONDS = 5.0
+RESTART_BACKOFF_MAX_SECONDS = 300.0
+APP_RESTART_SEND_WAIT_SECONDS = 2.0
+TEARDOWN_STEP_TIMEOUT_SECONDS = 5.0
+_URL_USERINFO_RE = re.compile(r"\b([a-z][a-z0-9+.-]*://)[^/@\s]+@", re.IGNORECASE)
+_SENSITIVE_LIBRARY_LOG_LEVELS = {
+    "telegram.Bot": logging.INFO,
+    "telegram.ext.ExtBot": logging.INFO,
+    # httpx logs full request URLs at INFO; Telegram embeds the bot token in
+    # every Bot API URL. httpcore may include proxy credentials at DEBUG.
+    "httpx": logging.WARNING,
+    "httpcore": logging.WARNING,
+}
+
+
+class _LivenessTrackedRequest(BaseRequest):
+    """Wrap the getUpdates request pool and report completed round trips."""
+
+    __slots__ = ("inner", "_on_round_trip")
+
+    def __init__(self, inner: BaseRequest, on_round_trip: Callable[[], None]) -> None:
+        super().__init__()
+        self.inner = inner
+        self._on_round_trip = on_round_trip
+
+    @property
+    def read_timeout(self) -> float | None:
+        return self.inner.read_timeout
+
+    async def initialize(self) -> None:
+        await self.inner.initialize()
+
+    async def shutdown(self) -> None:
+        await self.inner.shutdown()
+
+    async def do_request(self, *args: Any, **kwargs: Any) -> tuple[int, bytes]:
+        result = await self.inner.do_request(*args, **kwargs)
+        self._on_round_trip()
+        return result
 
 
 def _split_telegram_markdown(content: str, max_len: int) -> list[str]:
@@ -352,6 +400,7 @@ class TelegramChannel(BaseChannel):
         super().__init__(config, bus)
         self.config: TelegramConfig | TelegramInstanceConfig = config
         self._app: Application | None = None
+        self._app_requests: list[BaseRequest] = []
         self._chat_ids: dict[str, int] = {}  # Map sender_id to chat_id for replies
         self._typing_tasks: dict[str, asyncio.Task] = {}  # chat_id -> typing loop task
         self._media_group_buffers: dict[str, dict] = {}
@@ -363,6 +412,13 @@ class TelegramChannel(BaseChannel):
         self._command_capabilities = frozenset(command_capabilities or ())
         self._command_menu_registered = False
         self._command_refresh_task: asyncio.Task[None] | None = None
+        self._last_poll_ok = 0.0
+        self._app_ready = asyncio.Event()
+        self._teardown_lock = asyncio.Lock()
+        self._lifecycle_lock = asyncio.Lock()
+        self._run_stop_event: asyncio.Event | None = None
+        self._start_task: asyncio.Task[None] | None = None
+        self._startup_task: asyncio.Task[None] | None = None
 
     def is_allowed(self, sender_id: str) -> bool:
         """Preserve Telegram's legacy id|username allowlist matching."""
@@ -404,23 +460,30 @@ class TelegramChannel(BaseChannel):
         )
         return commands
 
-    async def _register_bot_commands(self, capabilities: Collection[str]) -> bool:
+    async def _register_bot_commands(
+        self,
+        capabilities: Collection[str],
+        *,
+        app: Application | None = None,
+    ) -> bool:
         """Register both localized command menus for one capability snapshot."""
-        if self._app is None:
+        target = app or self._app
+        if target is None:
             return False
         try:
-            await self._app.bot.set_my_commands(
+            await target.bot.set_my_commands(
                 self._build_bot_commands("en", capabilities=capabilities)
             )
-            await self._app.bot.set_my_commands(
+            await target.bot.set_my_commands(
                 self._build_bot_commands("zh", capabilities=capabilities),
                 language_code="zh-hans",
             )
-            self._command_menu_registered = True
+            if target is self._app:
+                self._command_menu_registered = True
             logger.debug("Telegram bot commands registered")
             return True
         except Exception as e:
-            logger.warning("Failed to register bot commands: {}", e)
+            logger.warning("Failed to register bot commands: {}", self._safe_startup_error(e))
             return False
 
     def set_command_capabilities(self, capabilities: Collection[str]) -> None:
@@ -451,7 +514,10 @@ class TelegramChannel(BaseChannel):
         if task.cancelled():
             return
         if error := task.exception():
-            logger.warning("Failed to refresh Telegram command capabilities: {}", error)
+            logger.warning(
+                "Failed to refresh Telegram command capabilities: {}",
+                self._safe_startup_error(error),
+            )
 
     @staticmethod
     def _preferred_language(user) -> str:
@@ -459,16 +525,106 @@ class TelegramChannel(BaseChannel):
         return normalize_language_code(getattr(user, "language_code", None)) or "en"
 
     async def start(self) -> None:
-        """Start the Telegram bot with long polling."""
+        """Start the Telegram bot, rebuilding it whenever polling stalls."""
         if not self.config.token:
             logger.error("Telegram bot token not configured")
             return
+        if self._running:
+            return
 
-        self._running = True
+        async with self._lifecycle_lock:
+            if self._running:
+                return
+            owner_task = asyncio.current_task()
+            stop_event = asyncio.Event()
+            self._start_task = owner_task
+            self._run_stop_event = stop_event
+            self._running = True
+            try:
+                await self._supervise_polling()
+            except asyncio.CancelledError:
+                stop_event.set()
+                self._running = False
+                raise
+            finally:
+                stop_event.set()
+                self._running = False
+                try:
+                    await self._teardown_app()
+                finally:
+                    if self._run_stop_event is stop_event:
+                        self._run_stop_event = None
+                    if self._start_task is owner_task:
+                        self._start_task = None
+
+    async def _supervise_polling(self) -> None:
+        """Run startup/backoff/watchdog cycles until the channel is stopped."""
+
+        backoff = RESTART_BACKOFF_INITIAL_SECONDS
+        while self._running:
+            try:
+                await self._start_app()
+            except InvalidToken:
+                await self._teardown_app()
+                self._running = False
+                logger.error("Telegram bot token was rejected by the server")
+                raise RuntimeError("Telegram bot token was rejected by the server") from None
+            except Exception as exc:
+                await self._teardown_app()
+                if not self._running:
+                    break
+                summary = self._safe_startup_error(exc)
+                if not self._is_transient_startup_error(exc):
+                    self._running = False
+                    logger.error("Telegram startup failed: {}", summary)
+                    raise self._sanitized_startup_exception(exc, summary) from None
+                retry_delay = self._startup_retry_delay(exc, backoff)
+                logger.error(
+                    "Telegram startup failed: {}; retrying in {:.0f}s",
+                    summary,
+                    retry_delay,
+                )
+                await self._idle(retry_delay)
+                backoff = min(backoff * 2, RESTART_BACKOFF_MAX_SECONDS)
+                continue
+
+            backoff = RESTART_BACKOFF_INITIAL_SECONDS
+            if not self._running:
+                # stop() may have run while the application was being initialized.
+                await self._teardown_app()
+                break
+            stalled = await self._watch_polling()
+            if not stalled or not self._running:
+                break
+            logger.warning(
+                "Telegram polling stalled: no getUpdates round trip for {:.0f}s; "
+                "rebuilding connection pools",
+                time.monotonic() - self._last_poll_ok,
+            )
+            await self._teardown_app()
+
+    async def _start_app(self) -> None:
+        """Run one cancellable startup operation and track it for stop()."""
+        startup_task = asyncio.create_task(self._start_app_once())
+        self._startup_task = startup_task
+        try:
+            await startup_task
+        except asyncio.CancelledError:
+            if self._running:
+                raise
+        finally:
+            if self._startup_task is startup_task:
+                self._startup_task = None
+
+    async def _start_app_once(self) -> None:
+        """Build, initialize, and start one Telegram application."""
+        self._app_ready.clear()
+        self._suppress_sensitive_library_logs()
 
         proxy = self.config.proxy or None
 
         # Separate pools so long-polling (getUpdates) never starves outbound sends.
+        self._app_requests = []
         api_request = HTTPXRequest(
             connection_pool_size=self.config.connection_pool_size,
             pool_timeout=self.config.pool_timeout,
@@ -476,6 +632,7 @@ class TelegramChannel(BaseChannel):
             read_timeout=30.0,
             proxy=proxy,
         )
+        self._app_requests.append(api_request)
         poll_request = HTTPXRequest(
             connection_pool_size=4,
             pool_timeout=self.config.pool_timeout,
@@ -483,25 +640,28 @@ class TelegramChannel(BaseChannel):
             read_timeout=30.0,
             proxy=proxy,
         )
+        self._app_requests.append(poll_request)
+        tracked_poll_request = _LivenessTrackedRequest(poll_request, self._note_poll_ok)
         builder = (
             Application.builder()
             .token(self.config.token)
             .request(api_request)
-            .get_updates_request(poll_request)
+            .get_updates_request(tracked_poll_request)
         )
-        self._app = builder.build()
-        self._app.add_error_handler(self._on_error)
+        app = builder.build()
+        self._app = app
+        app.add_error_handler(self._on_error)
 
         # Add command handlers
-        self._app.add_handler(CommandHandler("start", self._on_start))
+        app.add_handler(CommandHandler("start", self._on_start))
         for command_name in telegram_forwardable_commands():
-            self._app.add_handler(CommandHandler(command_name, self._forward_command))
-        self._app.add_handler(CommandHandler("help", self._on_help))
+            app.add_handler(CommandHandler(command_name, self._forward_command))
+        app.add_handler(CommandHandler("help", self._on_help))
         if self.config.inline_keyboards:
-            self._app.add_handler(CallbackQueryHandler(self._on_callback_query))
+            app.add_handler(CallbackQueryHandler(self._on_callback_query))
 
         # Add message handler for text, photos, voice, documents, and locations
-        self._app.add_handler(
+        app.add_handler(
             MessageHandler(
                 (
                     filters.TEXT
@@ -519,33 +679,236 @@ class TelegramChannel(BaseChannel):
         logger.info("Starting Telegram bot (polling mode)...")
 
         # Initialize and start polling
-        await self._app.initialize()
-        await self._app.start()
+        await app.initialize()
+        if not self._running or self._app is not app:
+            return
+        await app.start()
+        if not self._running or self._app is not app:
+            return
 
         # Get bot info and register command menu
-        bot_info = await self._app.bot.get_me()
+        bot_info = await app.bot.get_me()
+        if not self._running or self._app is not app:
+            return
         self._bot_user_id = getattr(bot_info, "id", None)
         self._bot_username = getattr(bot_info, "username", None)
         logger.info("Telegram bot @{} connected", bot_info.username)
 
-        await self._register_bot_commands(self._command_capabilities)
+        await self._register_bot_commands(self._command_capabilities, app=app)
+        if not self._running or self._app is not app:
+            return
 
         # Start polling (this runs until stopped)
-        await self._app.updater.start_polling(
+        self._last_poll_ok = time.monotonic()
+        await app.updater.start_polling(
             allowed_updates=["message", "callback_query"]
             if self.config.inline_keyboards
             else ["message"],
             drop_pending_updates=False,  # Process pending messages on startup
             error_callback=self._on_polling_error,
         )
+        if self._running and self._app is app:
+            self._app_ready.set()
 
-        # Keep running until stopped
+    @staticmethod
+    def _is_transient_startup_error(exc: Exception) -> bool:
+        """Return whether rebuilding later may recover this startup failure."""
+        return isinstance(exc, (NetworkError, RetryAfter, TimedOut, TimeoutError))
+
+    @staticmethod
+    def _retry_after_seconds(value: Any) -> float | None:
+        """Normalize PTB's int/timedelta retry-after representations."""
+        total_seconds = getattr(value, "total_seconds", None)
+        if callable(total_seconds):
+            value = total_seconds()
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(seconds) or seconds < 0:
+            return None
+        return seconds
+
+    def _startup_retry_delay(self, exc: Exception, backoff: float) -> float:
+        if not isinstance(exc, RetryAfter):
+            return backoff
+        retry_after = self._retry_after_seconds(exc.retry_after)
+        if retry_after is None:
+            return backoff
+        return min(
+            RESTART_BACKOFF_MAX_SECONDS,
+            max(backoff, retry_after + 0.5),
+        )
+
+    @staticmethod
+    def _suppress_sensitive_library_logs() -> None:
+        """Prevent dependency debug logs from printing token-bearing URLs."""
+        for logger_name, minimum_level in _SENSITIVE_LIBRARY_LOG_LEVELS.items():
+            dependency_logger = logging.getLogger(logger_name)
+            if dependency_logger.level == logging.NOTSET or dependency_logger.level < minimum_level:
+                dependency_logger.setLevel(minimum_level)
+
+    def _safe_startup_error(self, exc: Exception) -> str:
+        """Format a Telegram failure without exposing configured credentials."""
+        summary = self._format_telegram_error(exc)
+        summary = _URL_USERINFO_RE.sub(r"\1<redacted>@", summary)
+        secrets = [self.config.token]
+        proxy = self.config.proxy or ""
+        if proxy:
+            summary = summary.replace(proxy, "<redacted-proxy>")
+        try:
+            parsed_proxy = urlsplit(proxy if "://" in proxy else f"//{proxy}")
+        except ValueError:
+            parsed_proxy = None
+        if parsed_proxy is not None:
+            for value in (parsed_proxy.username, parsed_proxy.password):
+                if value and len(value) >= 3:
+                    secrets.extend((value, unquote(value)))
+        for secret in sorted(filter(None, secrets), key=len, reverse=True):
+            summary = summary.replace(secret, "<redacted>")
+        return summary
+
+    def _sanitized_startup_exception(self, exc: Exception, summary: str) -> Exception:
+        """Recreate a terminal startup error without retaining secret-bearing text."""
+        try:
+            sanitized = type(exc)(summary)
+        except Exception:
+            sanitized = RuntimeError(f"{type(exc).__name__}: {summary}")
+        token = self.config.token
+        if token and token in str(sanitized):
+            return RuntimeError(f"{type(exc).__name__}: Telegram startup failed")
+        return sanitized
+
+    async def _wait_for_app(self) -> Application:
+        """Return the live app, briefly waiting for an in-flight rebuild."""
+        if self._app_ready.is_set() and self._app is not None:
+            return self._app
+        if not self._running:
+            raise RuntimeError("Telegram bot is not running")
+        try:
+            await asyncio.wait_for(self._app_ready.wait(), APP_RESTART_SEND_WAIT_SECONDS)
+        except TimeoutError:
+            pass
+        if not self._app_ready.is_set() or self._app is None:
+            raise RuntimeError("Telegram application is restarting; message not delivered")
+        return self._app
+
+    def _note_poll_ok(self) -> None:
+        self._last_poll_ok = time.monotonic()
+
+    async def _watch_polling(self) -> bool:
+        """Wait until stop or until getUpdates round trips become stale."""
         while self._running:
-            await asyncio.sleep(1)
+            stop_event = self._run_stop_event
+            if stop_event is not None and stop_event.is_set():
+                return False
+            if stop_event is None or POLL_WATCH_INTERVAL <= 0:
+                await asyncio.sleep(POLL_WATCH_INTERVAL)
+            else:
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=POLL_WATCH_INTERVAL)
+                    return False
+                except TimeoutError:
+                    pass
+            if time.monotonic() - self._last_poll_ok > POLL_STALE_SECONDS:
+                return True
+        return False
+
+    async def _idle(self, seconds: float) -> None:
+        """Sleep in short steps so stop() remains responsive during backoff."""
+        deadline = time.monotonic() + seconds
+        while self._running and time.monotonic() < deadline:
+            stop_event = self._run_stop_event
+            if stop_event is not None and stop_event.is_set():
+                return
+            delay = min(POLL_WATCH_INTERVAL, max(0.0, deadline - time.monotonic()))
+            if stop_event is None or delay <= 0:
+                await asyncio.sleep(delay)
+            else:
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=delay)
+                    return
+                except TimeoutError:
+                    pass
+
+    async def _teardown_app(self) -> None:
+        """Finish teardown even when the caller is being cancelled."""
+        teardown_task = asyncio.create_task(self._teardown_app_impl())
+        try:
+            await asyncio.shield(teardown_task)
+        except asyncio.CancelledError:
+            await teardown_task
+            raise
+
+    async def _teardown_app_impl(self) -> None:
+        """Best-effort shutdown for fully or partially initialized applications."""
+        async with self._teardown_lock:
+            self._app_ready.clear()
+            self._command_menu_registered = False
+            refresh_task = self._command_refresh_task
+            self._command_refresh_task = None
+            if refresh_task is not None and not refresh_task.done():
+                refresh_task.cancel()
+                await self._await_teardown_task(refresh_task, "command refresh")
+
+            app, self._app = self._app, None
+            app_requests, self._app_requests = self._app_requests, []
+            if app is not None:
+                for label, step in (
+                    ("updater stop", app.updater.stop),
+                    ("application stop", app.stop),
+                    ("application shutdown", app.shutdown),
+                ):
+                    await self._run_teardown_step(label, step)
+                await self._run_teardown_step("bot shutdown", app.bot.shutdown)
+
+            # PTB marks its request pair initialized only after both pools
+            # initialize. If cancellation/failure lands inside that gather,
+            # Application.shutdown() and Bot.shutdown() both return early even
+            # though one pool may already be open. Close the exact pools we
+            # created as an idempotent final fallback.
+            for index, request in enumerate(app_requests, start=1):
+                await self._run_teardown_step(f"request pool {index} shutdown", request.shutdown)
+
+    @staticmethod
+    def _consume_detached_task(task: asyncio.Task[Any]) -> None:
+        """Retrieve a late teardown result without logging secret-bearing text."""
+        try:
+            task.exception()
+        except asyncio.CancelledError:
+            pass
+
+    async def _await_teardown_task(self, task: asyncio.Task[Any], label: str) -> None:
+        done, _ = await asyncio.wait({task}, timeout=TEARDOWN_STEP_TIMEOUT_SECONDS)
+        if not done:
+            task.cancel()
+            task.add_done_callback(self._consume_detached_task)
+            logger.warning(
+                "Telegram {} exceeded {:.1f}s; cancellation requested",
+                label,
+                TEARDOWN_STEP_TIMEOUT_SECONDS,
+            )
+            return
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.debug(
+                "Telegram {} failed: {}",
+                label,
+                self._safe_startup_error(exc),
+            )
+
+    async def _run_teardown_step(self, label: str, step: Callable[[], Any]) -> None:
+        task = asyncio.create_task(step())
+        await self._await_teardown_task(task, label)
 
     async def stop(self) -> None:
         """Stop the Telegram bot."""
         self._running = False
+        if self._run_stop_event is not None:
+            self._run_stop_event.set()
 
         # Cancel all typing indicators
         for chat_id in list(self._typing_tasks):
@@ -556,12 +919,40 @@ class TelegramChannel(BaseChannel):
         self._media_group_tasks.clear()
         self._media_group_buffers.clear()
 
-        if self._app:
-            logger.info("Stopping Telegram bot...")
-            await self._app.updater.stop()
-            await self._app.stop()
-            await self._app.shutdown()
-            self._app = None
+        startup_task = self._startup_task
+        if (
+            startup_task is not None
+            and startup_task is not asyncio.current_task()
+            and not startup_task.done()
+        ):
+            startup_task.cancel()
+            try:
+                await startup_task
+            except asyncio.CancelledError:
+                pass
+
+        logger.info("Stopping Telegram bot...")
+        owner_task = self._start_task
+        if (
+            owner_task is not None
+            and owner_task is not asyncio.current_task()
+            and not owner_task.done()
+        ):
+            try:
+                await asyncio.shield(owner_task)
+            except asyncio.CancelledError:
+                if not owner_task.cancelled():
+                    raise
+            except Exception as exc:
+                logger.debug(
+                    "Telegram supervisor stopped with error: {}",
+                    self._safe_startup_error(exc),
+                )
+            return
+
+        # A direct/partial setup can exist without a supervisor owner in tests
+        # and defensive integrations. Join any teardown in that case too.
+        await self._teardown_app()
 
     @staticmethod
     def _get_media_type(path: str) -> str:
@@ -581,8 +972,7 @@ class TelegramChannel(BaseChannel):
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Telegram."""
-        if not self._app:
-            raise RuntimeError("Telegram bot is not running")
+        app = await self._wait_for_app()
 
         # Only stop typing indicator and remove reaction for final responses
         if not msg.metadata.get("_progress", False):
@@ -618,10 +1008,10 @@ class TelegramChannel(BaseChannel):
             try:
                 media_type = self._get_media_type(media_path)
                 sender = {
-                    "photo": self._app.bot.send_photo,
-                    "voice": self._app.bot.send_voice,
-                    "audio": self._app.bot.send_audio,
-                }.get(media_type, self._app.bot.send_document)
+                    "photo": app.bot.send_photo,
+                    "voice": app.bot.send_voice,
+                    "audio": app.bot.send_audio,
+                }.get(media_type, app.bot.send_document)
                 param = (
                     "photo"
                     if media_type == "photo"
@@ -653,8 +1043,12 @@ class TelegramChannel(BaseChannel):
                     )
             except Exception as e:
                 filename = media_path.rsplit("/", 1)[-1]
-                logger.error("Failed to send media {}: {}", media_path, e)
-                await self._app.bot.send_message(
+                logger.error(
+                    "Failed to send media {}: {}",
+                    media_path,
+                    self._safe_startup_error(e),
+                )
+                await app.bot.send_message(
                     chat_id=chat_id,
                     text=f"[Failed to send: {filename}]",
                     reply_parameters=reply_params,
@@ -678,12 +1072,11 @@ class TelegramChannel(BaseChannel):
                     thread_kwargs,
                     render_as_blockquote=render_as_blockquote,
                     reply_markup=reply_markup if index == len(chunks) - 1 else None,
+                    app=app,
                 )
 
     async def _call_with_retry(self, fn, *args, **kwargs):
         """Call an async Telegram API function with retry on pool/network timeout and RetryAfter."""
-        from telegram.error import RetryAfter
-
         for attempt in range(1, _SEND_MAX_RETRIES + 1):
             try:
                 return await fn(*args, **kwargs)
@@ -701,7 +1094,9 @@ class TelegramChannel(BaseChannel):
             except RetryAfter as e:
                 if attempt == _SEND_MAX_RETRIES:
                     raise
-                delay = float(e.retry_after)
+                delay = self._retry_after_seconds(e.retry_after)
+                if delay is None:
+                    delay = _SEND_RETRY_BASE_DELAY * (2 ** (attempt - 1))
                 logger.warning(
                     "Telegram Flood Control (attempt {}/{}), retrying in {:.1f}s",
                     attempt,
@@ -719,8 +1114,12 @@ class TelegramChannel(BaseChannel):
         thread_kwargs: dict | None = None,
         render_as_blockquote: bool = False,
         reply_markup=None,
+        app: Application | None = None,
     ) -> None:
         """Send a plain text message with HTML fallback."""
+        target = app or self._app
+        if target is None:
+            raise RuntimeError("Telegram bot is not running")
         try:
             html = (
                 _tool_hint_to_telegram_blockquote(text)
@@ -728,7 +1127,7 @@ class TelegramChannel(BaseChannel):
                 else _markdown_to_telegram_html(text)
             )
             await self._call_with_retry(
-                self._app.bot.send_message,
+                target.bot.send_message,
                 chat_id=chat_id,
                 text=html,
                 parse_mode="HTML",
@@ -737,10 +1136,13 @@ class TelegramChannel(BaseChannel):
                 **(thread_kwargs or {}),
             )
         except Exception as e:
-            logger.warning("HTML parse failed, falling back to plain text: {}", e)
+            logger.warning(
+                "HTML parse failed, falling back to plain text: {}",
+                self._safe_startup_error(e),
+            )
             try:
                 await self._call_with_retry(
-                    self._app.bot.send_message,
+                    target.bot.send_message,
                     chat_id=chat_id,
                     text=text,
                     reply_parameters=reply_params,
@@ -748,7 +1150,10 @@ class TelegramChannel(BaseChannel):
                     **(thread_kwargs or {}),
                 )
             except Exception as e2:
-                logger.error("Error sending Telegram message: {}", e2)
+                logger.error(
+                    "Error sending Telegram message: {}",
+                    self._safe_startup_error(e2),
+                )
                 raise
 
     @staticmethod
@@ -759,8 +1164,7 @@ class TelegramChannel(BaseChannel):
         self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
     ) -> None:
         """Progressive message editing: send on first delta, edit on subsequent ones."""
-        if not self._app:
-            raise RuntimeError("Telegram bot is not running")
+        app = await self._wait_for_app()
         meta = metadata or {}
         int_chat_id = int(chat_id)
         stream_id = meta.get("_stream_id")
@@ -780,7 +1184,7 @@ class TelegramChannel(BaseChannel):
             thread_kwargs = {}
             if message_thread_id := meta.get("message_thread_id"):
                 thread_kwargs["message_thread_id"] = message_thread_id
-            if await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs):
+            if await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs, app=app):
                 self._stream_bufs.pop(chat_id, None)
                 return
 
@@ -788,7 +1192,7 @@ class TelegramChannel(BaseChannel):
             primary_html = _markdown_to_telegram_html(buf.text)
             try:
                 await self._call_with_retry(
-                    self._app.bot.edit_message_text,
+                    app.bot.edit_message_text,
                     chat_id=int_chat_id,
                     message_id=buf.message_id,
                     text=primary_html,
@@ -798,10 +1202,13 @@ class TelegramChannel(BaseChannel):
                 if self._is_not_modified_error(e):
                     logger.debug("Final stream edit already applied for {}", chat_id)
                 else:
-                    logger.debug("Final stream edit failed (HTML), trying plain: {}", e)
+                    logger.debug(
+                        "Final stream edit failed (HTML), trying plain: {}",
+                        self._safe_startup_error(e),
+                    )
                     try:
                         await self._call_with_retry(
-                            self._app.bot.edit_message_text,
+                            app.bot.edit_message_text,
                             chat_id=int_chat_id,
                             message_id=buf.message_id,
                             text=primary_markdown,
@@ -810,7 +1217,10 @@ class TelegramChannel(BaseChannel):
                         if self._is_not_modified_error(e2):
                             logger.debug("Final stream plain edit already applied for {}", chat_id)
                         else:
-                            logger.warning("Final stream edit failed: {}", e2)
+                            logger.warning(
+                                "Final stream edit failed: {}",
+                                self._safe_startup_error(e2),
+                            )
                             raise  # Let ChannelManager handle retry
             self._stream_bufs.pop(chat_id, None)
             return
@@ -831,7 +1241,7 @@ class TelegramChannel(BaseChannel):
         if message_thread_id := meta.get("message_thread_id"):
             thread_kwargs["message_thread_id"] = message_thread_id
         if buf.overflow_chunks is not None:
-            await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs)
+            await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs, app=app)
 
         delivery_id = meta.get("_delivery_id")
         if delivery_id is None or buf.last_delivery_id != delivery_id:
@@ -847,7 +1257,7 @@ class TelegramChannel(BaseChannel):
             initial_text = initial_chunks[0] if initial_chunks else buf.text
             try:
                 sent = await self._call_with_retry(
-                    self._app.bot.send_message,
+                    app.bot.send_message,
                     chat_id=int_chat_id,
                     text=initial_text,
                     **thread_kwargs,
@@ -855,16 +1265,16 @@ class TelegramChannel(BaseChannel):
                 buf.message_id = sent.message_id
                 buf.last_edit = now
             except Exception as e:
-                logger.warning("Stream initial send failed: {}", e)
+                logger.warning("Stream initial send failed: {}", self._safe_startup_error(e))
                 raise  # Let ChannelManager handle retry
         elif (now - buf.last_edit) >= self.config.stream_edit_interval:
             if len(buf.text) > TELEGRAM_MAX_MESSAGE_LEN:
-                await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs)
+                await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs, app=app)
                 buf.last_edit = now
                 return
             try:
                 await self._call_with_retry(
-                    self._app.bot.edit_message_text,
+                    app.bot.edit_message_text,
                     chat_id=int_chat_id,
                     message_id=buf.message_id,
                     text=buf.text,
@@ -874,7 +1284,7 @@ class TelegramChannel(BaseChannel):
                 if self._is_not_modified_error(e):
                     buf.last_edit = now
                     return
-                logger.warning("Stream edit failed: {}", e)
+                logger.warning("Stream edit failed: {}", self._safe_startup_error(e))
                 raise  # Let ChannelManager handle retry
 
     async def _send_stream_chunk(
@@ -883,11 +1293,16 @@ class TelegramChannel(BaseChannel):
         markdown: str,
         html: str,
         thread_kwargs: dict[str, Any],
+        *,
+        app: Application | None = None,
     ) -> Any:
         """Send one pre-rendered stream chunk with a plain-text fallback."""
+        target = app or self._app
+        if target is None:
+            raise RuntimeError("Telegram bot is not running")
         try:
             return await self._call_with_retry(
-                self._app.bot.send_message,
+                target.bot.send_message,
                 chat_id=chat_id,
                 text=html,
                 parse_mode="HTML",
@@ -896,10 +1311,10 @@ class TelegramChannel(BaseChannel):
         except BadRequest as exc:
             logger.warning(
                 "Telegram stream HTML send failed, falling back to plain text: {}",
-                exc,
+                self._safe_startup_error(exc),
             )
             return await self._call_with_retry(
-                self._app.bot.send_message,
+                target.bot.send_message,
                 chat_id=chat_id,
                 text=markdown,
                 **thread_kwargs,
@@ -910,6 +1325,8 @@ class TelegramChannel(BaseChannel):
         chat_id: int,
         buf: _StreamBuf,
         thread_kwargs: dict[str, Any],
+        *,
+        app: Application | None = None,
     ) -> bool:
         """Flush completed chunks and keep the raw Markdown tail streamable.
 
@@ -917,6 +1334,10 @@ class TelegramChannel(BaseChannel):
         first unsent follow-up instead of duplicating chunks that Telegram
         already accepted.
         """
+        target = app or self._app
+        if target is None:
+            raise RuntimeError("Telegram bot is not running")
+
         chunks = buf.overflow_chunks
         if chunks is None:
             chunks = _split_telegram_markdown_html_chunks(buf.text, TELEGRAM_HTML_MAX_LEN)
@@ -931,7 +1352,7 @@ class TelegramChannel(BaseChannel):
         if not buf.overflow_primary_applied:
             try:
                 await self._call_with_retry(
-                    self._app.bot.edit_message_text,
+                    target.bot.edit_message_text,
                     chat_id=chat_id,
                     message_id=buf.message_id,
                     text=first_html,
@@ -941,11 +1362,11 @@ class TelegramChannel(BaseChannel):
                 if not self._is_not_modified_error(exc):
                     logger.warning(
                         "Telegram stream overflow HTML edit failed, falling back to plain text: {}",
-                        exc,
+                        self._safe_startup_error(exc),
                     )
                     try:
                         await self._call_with_retry(
-                            self._app.bot.edit_message_text,
+                            target.bot.edit_message_text,
                             chat_id=chat_id,
                             message_id=buf.message_id,
                             text=first_markdown,
@@ -954,17 +1375,26 @@ class TelegramChannel(BaseChannel):
                         if not self._is_not_modified_error(plain_error):
                             logger.warning(
                                 "Telegram stream overflow plain edit failed: {}",
-                                plain_error,
+                                self._safe_startup_error(plain_error),
                             )
                             raise
             except Exception as exc:
-                logger.warning("Telegram stream overflow edit failed: {}", exc)
+                logger.warning(
+                    "Telegram stream overflow edit failed: {}",
+                    self._safe_startup_error(exc),
+                )
                 raise
             buf.overflow_primary_applied = True
 
         while buf.overflow_next_index < len(chunks):
             markdown, html = chunks[buf.overflow_next_index]
-            sent = await self._send_stream_chunk(chat_id, markdown, html, thread_kwargs)
+            sent = await self._send_stream_chunk(
+                chat_id,
+                markdown,
+                html,
+                thread_kwargs,
+                app=target,
+            )
             buf.overflow_last_message_id = sent.message_id
             buf.overflow_next_index += 1
 
@@ -1094,7 +1524,10 @@ class TelegramChannel(BaseChannel):
                 return [path_str], [f"[{media_type}: {path_str}]"]
             return [path_str], [f"[{media_type}: {path_str}]"]
         except Exception as e:
-            logger.warning("Failed to download message media: {}", e)
+            logger.warning(
+                "Failed to download message media: {}",
+                self._safe_startup_error(e),
+            )
             if add_failure_content:
                 return [], [f"[{media_type}: download failed]"]
             return [], []
@@ -1337,7 +1770,7 @@ class TelegramChannel(BaseChannel):
                 reaction=[ReactionTypeEmoji(emoji=emoji)],
             )
         except Exception as e:
-            logger.debug("Telegram reaction failed: {}", e)
+            logger.debug("Telegram reaction failed: {}", self._safe_startup_error(e))
 
     async def _remove_reaction(self, chat_id: str, message_id: int) -> None:
         """Remove emoji reaction from a message (best-effort, non-blocking)."""
@@ -1350,7 +1783,10 @@ class TelegramChannel(BaseChannel):
                 reaction=[],
             )
         except Exception as e:
-            logger.debug("Telegram reaction removal failed: {}", e)
+            logger.debug(
+                "Telegram reaction removal failed: {}",
+                self._safe_startup_error(e),
+            )
 
     async def _typing_loop(self, chat_id: str) -> None:
         """Repeatedly send 'typing' action until cancelled."""
@@ -1361,7 +1797,11 @@ class TelegramChannel(BaseChannel):
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.debug("Typing indicator stopped for {}: {}", chat_id, e)
+            logger.debug(
+                "Typing indicator stopped for {}: {}",
+                chat_id,
+                self._safe_startup_error(e),
+            )
 
     @staticmethod
     def _format_telegram_error(exc: Exception) -> str:
@@ -1379,7 +1819,7 @@ class TelegramChannel(BaseChannel):
 
     def _on_polling_error(self, exc: Exception) -> None:
         """Keep long-polling network failures to a single readable line."""
-        summary = self._format_telegram_error(exc)
+        summary = self._safe_startup_error(exc)
         if isinstance(exc, (NetworkError, TimedOut)):
             logger.warning("Telegram polling network issue: {}", summary)
         else:
@@ -1387,7 +1827,7 @@ class TelegramChannel(BaseChannel):
 
     async def _on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log polling / handler errors instead of silently swallowing them."""
-        summary = self._format_telegram_error(context.error)
+        summary = self._safe_startup_error(context.error)
 
         if isinstance(context.error, (NetworkError, TimedOut)):
             logger.warning("Telegram network issue: {}", summary)

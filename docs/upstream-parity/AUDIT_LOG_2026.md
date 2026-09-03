@@ -52,8 +52,8 @@ These upstreams are not tracked in the same way:
   already ported its Huawei Xiaoyi A2A WebSocket channel (`channels.xiaoyi`); other ideas (mode
   switching, experience memory, sandboxed exec, Team mode) are evaluated against hahobot's existing
   skill/subagent/persona/exec surfaces rather than mirrored one-to-one. Because it is hosted on
-  atomgit (not GitHub), commit-level diffing relies on web fetches rather than the GitHub API used
-  for the other upstreams.
+  AtomGit (not GitHub), commit-level diffing uses a temporary isolated Git ref/clone rather than the
+  GitHub API used for the other upstreams.
 
 This file therefore records both:
 
@@ -70,6 +70,88 @@ This file therefore records both:
 
 ## Dated Audit Log (Newest First)
 
+- `all tracked upstreams` (`2026-09-03`): fetched/audited without importing tags; every previous
+  boundary remained an ancestor, so no force-rewrite reconciliation was required. Nanobot advanced
+  362 commits from `abfcdd481` to `main@d81aa5a4a`; GenericAgent advanced 31 commits (22
+  first-parent) from `63f9db74e` to `main@71cf559fa`; claude-mem advanced 142 commits from
+  `4702c337` to `main@18b3dab76`; nocturne_memory advanced 7 commits from `54c48eea` to
+  `main@ffb5c709b`; jiuwenswarm advanced 348 commits (335 first-parent) from `fb43da6c` to
+  `develop@896664ce0`.
+  - Adapted nanobot's WebFetch credential-privacy cluster (`31a71d6cd`, `5f916bbd3`,
+    `76f629e92`) in `hahobot/agent/tools/web.py`: URLs with userinfo or credential-like query keys,
+    and any redirect chain containing them, remain on the local direct-fetch path rather than being
+    sent to Jina. Eligible Jina URLs drop fragments; failures log only the origin and exception
+    class. Regression coverage is in `tests/tools/test_web_fetch_jina_privacy.py` alongside the
+    existing per-hop SSRF tests.
+  - Adapted nanobot `9f5a56f1e` in `hahobot/utils/gitstore.py`: explicit Dream/GitStore paths are
+    staged before status inspection, so Dulwich observes content changes even after rapid same-size,
+    same-mtime rewrites; unrelated untracked files remain outside the commit. Regressions live in
+    `tests/agent/test_git_store.py`.
+  - Adapted nanobot's process-tree cleanup (`d64b84604`, `bcf5d8a6e`) to Hahobot's one-shot exec
+    owner. POSIX children start in a new session and timeouts/cancellation kill the process group;
+    Windows uses a suspended child assigned to a kill-on-close Job Object, with `taskkill /T` as a
+    compatibility fallback (`hahobot/agent/tools/shell.py`,
+    `hahobot/agent/tools/_windows_job.py`, and focused exec tests).
+  - Follow-up ported nanobot's UID/header-first email cluster (`f573ecfe5`, `5c71ef6e4`) onto
+    `hahobot/channels/email.py`: polling skips process-known UIDs before FETCH, checks bot-owned
+    sender addresses, SPF/DKIM, and `allowFrom` against `BODY.PEEK[HEADER]`, and downloads the full
+    body/attachments only for accepted messages. Rejected mail is process-deduped; Seen updates use
+    UID STORE with a sequence-number fallback. Release preflight additionally made both STORE paths
+    exception-safe so Seen failures cannot discard an already accepted message. The mailbox policy
+    reads only the nearest `Authentication-Results` field, parses top-level pairs outside quoted
+    reasons and nested comments, requires exact SPF/DKIM identity-domain matches with `From`, and
+    rejects explicit DMARC failure; it still trusts the receiving service to remove forged headers
+    and is not local cryptographic verification. `BaseChannel` authorization remains a second check.
+    IMAP sockets use a 30-second timeout; missing, duplicate, group-form, or otherwise malformed
+    From mail is process-deduped; and a changed or newly known UIDVALIDITY clears the old namespace
+    so UID reuse cannot suppress a new message. Stop/restart uses a per-run cross-thread flag and
+    serialized lifecycle ownership; any batch whose UID/Seen state was already committed is shielded
+    and drained to the bus before the poll exits, even when cancellation lands during publication.
+  - Follow-up adapted nanobot's bounded recursive search (`649e3958c`) to Hahobot's glob/grep tools.
+    Explicit stable `scandir` traversal runs in a cooperative daemon worker, never descends through
+    directory symlinks, skips special/out-of-workspace targets, and stops after 500,000 visited paths
+    or a caller-enforced 30-second wall clock while preserving local filters, newest-first results,
+    pagination, and output caps. A four-slot gate prevents non-cooperative filesystem calls from
+    accumulating unbounded daemon threads; each worker captures and releases the exact semaphore it
+    acquired so a later runtime/test replacement cannot corrupt slot accounting. Later searches
+    fail fast while all slots are held. Grep
+    uses the timeout-capable `regex` engine with concurrent matching plus a 10,000-character pattern
+    cap, preventing pathological backtracking from retaining the GIL beyond the scan deadline.
+  - Follow-up adapted nanobot's Telegram polling supervisor (`cc05fe6ed`, `302015fde`, `8a928592c`,
+    `2b4a04fb7`) without replacing Hahobot's localized capability menu or stateful stream buffers.
+    Completed getUpdates requests refresh a liveness timestamp; 120 seconds without a round trip
+    triggers an app/pool rebuild. Transient starts retry with 5–300 second exponential backoff,
+    invalid tokens and other terminal failures stop cleanly, terminal exceptions are sanitized
+    before propagation so the manager's second log cannot reveal the token or proxy userinfo,
+    PTB/HTTPX token-bearing request logs are suppressed, startup `RetryAfter` is normalized from
+    either seconds or `timedelta`, outbound sends briefly wait for app readiness, request pools are
+    registered incrementally before later construction can fail, and partial teardown is serialized
+    with a five-second bound per step. A lifecycle owner and per-run stop event join the complete old
+    supervisor/watchdog before stop returns or an immediate restart begins.
+  - Follow-up adapted GenericAgent `7ffc95823` in the shared provider retry owner. A positive server
+    `Retry-After` through 60 seconds is honored; an oversized or infinite hint makes standard mode
+    return its current transient response without sleeping, enabling prompt pool failover, while
+    persistent mode caps the wait at 60 seconds and continues its explicit recovery loop. The cap is
+    a fixed safety boundary rather than a new configuration surface.
+  - React WebUI/TUI, event projection, plugin marketplace, external session backends, pairing,
+    broad provider additions, and runner/context reshaping remain architecture-specific or
+    intentional divergences. Cron recovery and MCP readiness are already covered locally; Slack
+    inbound-file SSRF and upstream Dream prompt de-duplication do not execute on equivalent
+    Hahobot paths.
+  - GenericAgent's conductor/desktop/Streamlit and loop changes produced no clean port: its summary
+    heuristic, linear history trimming, stream-abort path, and native Claude header setup differ
+    from Hahobot's owners. claude-mem's bounded injection intent is already covered by local top-k
+    and character caps; hosted/telemetry/install/marketplace work stays out. Nocturne's memory
+    performance reporting remains a doctor/admin idea. Jiuwenswarm MCP prewarm/failure isolation and
+    context-window accounting are already covered; its orphaned-service cleanup reinforces the exec
+    change, arbitrary local-path skill import is not exposed locally, and one-gateway-per-workspace
+    ownership remains a deployment watchlist item.
+  - Initial sync verification: 96 focused WebFetch/GitStore/exec tests passed; the complete suite
+    passed with `2429 passed, 4 skipped`; `uv run ruff check .` also passed. Follow-up email/search/
+    provider-retry/Telegram verification initially passed all 171 focused tests. Release-preflight
+    email/Telegram/search hardening passed all 174 current focused tests; the final complete suite
+    passed with `2502 passed, 4 skipped`, and `.venv/bin/ruff check .` plus tracked-source format and
+    `git diff --check` gates passed.
 - `nanobot` (`2026-08-13` follow-up adaptation; audit boundary unchanged at
   `main@abfcdd481`): ported the CLI-child environment isolation cluster (`ec3dfb21b` /
   `a0e60116a` / `abfcdd481`) onto Hahobot's local external-package owner. `/skill install`, `list`,

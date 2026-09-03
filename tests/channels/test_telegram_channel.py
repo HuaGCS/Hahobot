@@ -1,3 +1,7 @@
+import asyncio
+import logging
+import time
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -14,9 +18,13 @@ except ImportError:
 from hahobot.bus.events import OutboundMessage
 from hahobot.bus.queue import MessageBus
 from hahobot.channels.telegram import (
+    APP_RESTART_SEND_WAIT_SECONDS,
+    POLL_STALE_SECONDS,
+    TEARDOWN_STEP_TIMEOUT_SECONDS,
     TELEGRAM_HTML_MAX_LEN,
     TELEGRAM_REPLY_CONTEXT_MAX_LEN,
     TelegramChannel,
+    _LivenessTrackedRequest,
     _markdown_to_telegram_html,
     _StreamBuf,
 )
@@ -28,7 +36,19 @@ class _FakeHTTPXRequest:
 
     def __init__(self, **kwargs) -> None:
         self.kwargs = kwargs
+        self.read_timeout = kwargs.get("read_timeout")
+        self.initialize_calls = 0
+        self.shutdown_calls = 0
         self.__class__.instances.append(self)
+
+    async def initialize(self) -> None:
+        self.initialize_calls += 1
+
+    async def shutdown(self) -> None:
+        self.shutdown_calls += 1
+
+    async def do_request(self, *args, **kwargs):
+        return 200, b"{}"
 
     @classmethod
     def clear(cls) -> None:
@@ -39,10 +59,14 @@ class _FakeUpdater:
     def __init__(self, on_start_polling) -> None:
         self._on_start_polling = on_start_polling
         self.start_polling_kwargs = None
+        self.stop_calls = 0
 
     async def start_polling(self, **kwargs) -> None:
         self.start_polling_kwargs = kwargs
         self._on_start_polling()
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
 
 
 class _FakeBot:
@@ -50,6 +74,8 @@ class _FakeBot:
         self.sent_messages: list[dict] = []
         self.sent_media: list[dict] = []
         self.get_me_calls = 0
+        self.command_calls: list[tuple[list, str | None]] = []
+        self.shutdown_calls = 0
 
     async def get_me(self):
         self.get_me_calls += 1
@@ -57,6 +83,10 @@ class _FakeBot:
 
     async def set_my_commands(self, commands, language_code=None) -> None:
         self.commands = commands
+        self.command_calls.append((commands, language_code))
+
+    async def shutdown(self) -> None:
+        self.shutdown_calls += 1
 
     async def send_message(self, **kwargs):
         self.sent_messages.append(kwargs)
@@ -92,6 +122,10 @@ class _FakeApp:
         self.updater = _FakeUpdater(on_start_polling)
         self.handlers = []
         self.error_handlers = []
+        self.initialize_calls = 0
+        self.start_calls = 0
+        self.stop_calls = 0
+        self.shutdown_calls = 0
 
     def add_error_handler(self, handler) -> None:
         self.error_handlers.append(handler)
@@ -100,10 +134,16 @@ class _FakeApp:
         self.handlers.append(handler)
 
     async def initialize(self) -> None:
-        pass
+        self.initialize_calls += 1
 
     async def start(self) -> None:
-        pass
+        self.start_calls += 1
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+
+    async def shutdown(self) -> None:
+        self.shutdown_calls += 1
 
 
 class _FakeBuilder:
@@ -133,6 +173,13 @@ class _FakeBuilder:
 
     def build(self):
         return self.app
+
+
+def _set_ready_app(channel: TelegramChannel, app: _FakeApp | None = None) -> _FakeApp:
+    app = app or _FakeApp(lambda: None)
+    channel._app = app
+    channel._app_ready.set()
+    return app
 
 
 @pytest.mark.asyncio
@@ -206,7 +253,8 @@ async def test_start_creates_separate_pools_with_proxy(monkeypatch) -> None:
     assert api_req.kwargs["connection_pool_size"] == 32
     assert poll_req.kwargs["connection_pool_size"] == 4
     assert builder.request_value is api_req
-    assert builder.get_updates_request_value is poll_req
+    assert isinstance(builder.get_updates_request_value, _LivenessTrackedRequest)
+    assert builder.get_updates_request_value.inner is poll_req
     assert callable(app.updater.start_polling_kwargs["error_callback"])
     assert any(cmd.command == "status" for cmd in app.bot.commands)
     assert any(cmd.command == "dream" for cmd in app.bot.commands)
@@ -276,6 +324,708 @@ async def test_start_enables_callback_updates_for_inline_keyboards(monkeypatch) 
 
 
 @pytest.mark.asyncio
+async def test_liveness_tracked_request_stamps_completed_round_trip() -> None:
+    _FakeHTTPXRequest.clear()
+    inner = _FakeHTTPXRequest(read_timeout=5.0)
+    stamps: list[int] = []
+    wrapped = _LivenessTrackedRequest(inner, lambda: stamps.append(1))
+
+    await wrapped.initialize()
+    assert await wrapped.do_request(url="https://example.org", method="POST") == (200, b"{}")
+    await wrapped.shutdown()
+
+    assert wrapped.read_timeout == 5.0
+    assert stamps == [1]
+    assert inner.initialize_calls == 1
+    assert inner.shutdown_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_stalled_polling_rebuilds_pools_menu_and_preserves_streams(monkeypatch) -> None:
+    from hahobot.command.catalog import SHARED_MEMORY_BACKFILL_CAPABILITY
+
+    _FakeHTTPXRequest.clear()
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+        command_capabilities={SHARED_MEMORY_BACKFILL_CAPABILITY},
+    )
+    buffered = _StreamBuf(text="partial", message_id=7, stream_id="stream-1")
+    channel._stream_bufs["123"] = buffered
+    apps: list[_FakeApp] = []
+
+    def on_start_polling() -> None:
+        if len(apps) >= 2:
+            channel._running = False
+
+    def make_builder():
+        app = _FakeApp(on_start_polling)
+        apps.append(app)
+        return _FakeBuilder(app)
+
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=make_builder),
+    )
+    monkeypatch.setattr("hahobot.channels.telegram.POLL_STALE_SECONDS", -1.0)
+    monkeypatch.setattr("hahobot.channels.telegram.POLL_WATCH_INTERVAL", 0.0)
+
+    await channel.start()
+
+    assert POLL_STALE_SECONDS == 120.0
+    assert len(apps) == 2
+    assert len(_FakeHTTPXRequest.instances) == 4
+    assert all(app.updater.start_polling_kwargs is not None for app in apps)
+    assert all("memory" in {command.command for command in app.bot.commands} for app in apps)
+    assert all(len(app.bot.command_calls) == 2 for app in apps)
+    assert channel._stream_bufs["123"] is buffered
+
+
+@pytest.mark.asyncio
+async def test_transient_startup_backoff_grows_from_five_seconds_to_cap(monkeypatch) -> None:
+    from telegram.error import NetworkError
+
+    _FakeHTTPXRequest.clear()
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    apps: list[_FakeApp] = []
+    delays: list[float] = []
+    transient_failures = 8
+
+    def make_builder():
+        app = _FakeApp(lambda: setattr(channel, "_running", False))
+        if len(apps) < transient_failures:
+
+            async def fail_initialize() -> None:
+                raise NetworkError("connect failed")
+
+            app.initialize = fail_initialize
+        apps.append(app)
+        return _FakeBuilder(app)
+
+    async def record_idle(seconds: float) -> None:
+        delays.append(seconds)
+
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=make_builder),
+    )
+    monkeypatch.setattr(channel, "_idle", record_idle)
+
+    await channel.start()
+
+    assert delays == [5.0, 10.0, 20.0, 40.0, 80.0, 160.0, 300.0, 300.0]
+    assert len(apps) == transient_failures + 1
+    assert all(app.bot.shutdown_calls == 1 for app in apps)
+
+
+@pytest.mark.asyncio
+async def test_startup_retry_after_is_transient_and_respected(monkeypatch) -> None:
+    from telegram.error import RetryAfter
+
+    monkeypatch.setenv("PTB_TIMEDELTA", "1")
+    _FakeHTTPXRequest.clear()
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    apps: list[_FakeApp] = []
+    delays: list[float] = []
+
+    def make_builder():
+        app = _FakeApp(lambda: setattr(channel, "_running", False))
+        if not apps:
+
+            async def rate_limited_initialize() -> None:
+                raise RetryAfter(37)
+
+            app.initialize = rate_limited_initialize
+        apps.append(app)
+        return _FakeBuilder(app)
+
+    async def record_idle(seconds: float) -> None:
+        delays.append(seconds)
+
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=make_builder),
+    )
+    monkeypatch.setattr(channel, "_idle", record_idle)
+
+    await channel.start()
+
+    assert delays == [37.5]
+    assert len(apps) == 2
+
+
+def test_retry_after_normalizes_timedelta() -> None:
+    assert TelegramChannel._retry_after_seconds(timedelta(seconds=12.5)) == 12.5
+
+
+def test_startup_suppresses_dependency_logs_with_token_urls(caplog) -> None:
+    from telegram.ext import Application as PTBApplication
+
+    token = "123:super-secret"
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token=token, allow_from=["*"]),
+        MessageBus(),
+    )
+    old_levels = {
+        name: logging.getLogger(name).level
+        for name in ("telegram.Bot", "telegram.ext.ExtBot", "httpx", "httpcore")
+    }
+    try:
+        caplog.set_level(logging.DEBUG)
+        for name in old_levels:
+            logging.getLogger(name).setLevel(logging.DEBUG)
+
+        channel._suppress_sensitive_library_logs()
+        PTBApplication.builder().token(token).build()
+
+        assert token not in caplog.text
+        assert logging.getLogger("telegram.Bot").getEffectiveLevel() >= logging.INFO
+        assert logging.getLogger("telegram.ext.ExtBot").getEffectiveLevel() >= logging.INFO
+        assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
+        assert logging.getLogger("httpcore").getEffectiveLevel() >= logging.WARNING
+    finally:
+        for name, level in old_levels.items():
+            logging.getLogger(name).setLevel(level)
+
+
+@pytest.mark.asyncio
+async def test_terminal_startup_error_keeps_type_logs_safely_and_does_not_retry(
+    monkeypatch,
+) -> None:
+    token = "123:super-secret"
+    proxy = "http://alice:proxy-password@proxy.test:8080"
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token=token, proxy=proxy, allow_from=["*"]),
+        MessageBus(),
+    )
+    apps: list[_FakeApp] = []
+    errors: list[str] = []
+
+    def make_builder():
+        app = _FakeApp(lambda: None)
+
+        async def fail_initialize() -> None:
+            raise ValueError(f"invalid proxy URL {proxy} for token {token}")
+
+        app.initialize = fail_initialize
+        apps.append(app)
+        return _FakeBuilder(app)
+
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=make_builder),
+    )
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.logger.error",
+        lambda message, *args: errors.append(message.format(*args)),
+    )
+
+    with pytest.raises(ValueError, match="invalid proxy URL") as exc_info:
+        await channel.start()
+
+    assert len(apps) == 1
+    assert channel._app is None
+    assert channel.is_running is False
+    assert apps[0].bot.shutdown_calls == 1
+    assert all(token not in error for error in errors)
+    assert all("proxy-password" not in error for error in errors)
+    assert all("alice:" not in error for error in errors)
+    assert token not in str(exc_info.value)
+    assert "proxy-password" not in str(exc_info.value)
+    assert "alice:" not in str(exc_info.value)
+
+    # ChannelManager logs terminal channel exceptions a second time.  The
+    # propagated exception must therefore be sanitized too, not only the first
+    # Telegram-local log line.
+    from hahobot.channels.manager import ChannelManager
+
+    manager_errors: list[str] = []
+    monkeypatch.setattr(
+        "hahobot.channels.manager.logger.error",
+        lambda message, *args: manager_errors.append(message.format(*args)),
+    )
+    await ChannelManager._start_channel(object(), "telegram", channel)
+
+    assert manager_errors
+    assert all(token not in error for error in manager_errors)
+    assert all("proxy-password" not in error for error in manager_errors)
+    assert all("alice:" not in error for error in manager_errors)
+
+
+@pytest.mark.asyncio
+async def test_schemeless_proxy_credentials_are_redacted_from_real_constructor_error(
+    monkeypatch,
+) -> None:
+    proxy = "alice:proxy-password@proxy.test:8080"
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", proxy=proxy, allow_from=["*"]),
+        MessageBus(),
+    )
+    errors: list[str] = []
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.logger.error",
+        lambda message, *args: errors.append(message.format(*args)),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        await channel.start()
+
+    assert errors
+    assert "proxy-password" not in str(exc_info.value)
+    assert "alice:" not in str(exc_info.value)
+    assert all("proxy-password" not in error for error in errors)
+    assert all("alice:" not in error for error in errors)
+
+
+@pytest.mark.asyncio
+async def test_invalid_token_fails_fast_without_exposing_token(monkeypatch) -> None:
+    from telegram.error import InvalidToken
+
+    token = "123:super-secret"
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token=token, allow_from=["*"]),
+        MessageBus(),
+    )
+    apps: list[_FakeApp] = []
+
+    def make_builder():
+        app = _FakeApp(lambda: None)
+
+        async def reject_token() -> None:
+            raise InvalidToken(f"Telegram rejected {token}")
+
+        app.initialize = reject_token
+        apps.append(app)
+        return _FakeBuilder(app)
+
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=make_builder),
+    )
+
+    with pytest.raises(RuntimeError, match="token was rejected") as exc_info:
+        await channel.start()
+
+    assert len(apps) == 1
+    assert channel._app is None
+    assert channel.is_running is False
+    assert apps[0].bot.shutdown_calls == 1
+    assert token not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_builder_token_rejection_closes_unowned_request_pools(monkeypatch) -> None:
+    from telegram.error import InvalidToken
+
+    token = "not-a-valid-token"
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token=token, allow_from=["*"]),
+        MessageBus(),
+    )
+    builder = _FakeBuilder(_FakeApp(lambda: None))
+    _FakeHTTPXRequest.clear()
+
+    def reject_build():
+        raise InvalidToken(f"Invalid token {token}")
+
+    builder.build = reject_build
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=lambda: builder),
+    )
+
+    with pytest.raises(RuntimeError, match="token was rejected") as exc_info:
+        await channel.start()
+
+    assert token not in str(exc_info.value)
+    assert len(_FakeHTTPXRequest.instances) == 2
+    assert all(request.shutdown_calls == 1 for request in _FakeHTTPXRequest.instances)
+    assert channel._app is None
+
+
+@pytest.mark.asyncio
+async def test_builder_failure_bounds_unowned_request_shutdown(monkeypatch) -> None:
+    release_shutdown = asyncio.Event()
+
+    class HangingShutdownRequest(_FakeHTTPXRequest):
+        async def shutdown(self) -> None:
+            self.shutdown_calls += 1
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                await release_shutdown.wait()
+
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    builder = _FakeBuilder(_FakeApp(lambda: None))
+
+    def reject_build():
+        raise ValueError("builder rejected configuration")
+
+    builder.build = reject_build
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", HangingShutdownRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=lambda: builder),
+    )
+    monkeypatch.setattr("hahobot.channels.telegram.TEARDOWN_STEP_TIMEOUT_SECONDS", 0.01)
+
+    with pytest.raises(ValueError, match="builder rejected"):
+        await asyncio.wait_for(channel.start(), timeout=1)
+
+    assert channel._app is None
+    release_shutdown.set()
+    await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_second_request_constructor_failure_closes_first_pool(monkeypatch) -> None:
+    first_request = _FakeHTTPXRequest()
+    construction_calls = 0
+
+    def request_factory(**_kwargs):
+        nonlocal construction_calls
+        construction_calls += 1
+        if construction_calls == 1:
+            return first_request
+        raise ValueError("poll request construction failed")
+
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", request_factory)
+
+    with pytest.raises(ValueError, match="poll request construction failed"):
+        await channel.start()
+
+    assert first_request.shutdown_calls == 1
+    assert channel._app_requests == []
+
+
+@pytest.mark.asyncio
+async def test_send_during_rebuild_raises_before_mutating_stream_buffer(monkeypatch) -> None:
+    monkeypatch.setattr("hahobot.channels.telegram.APP_RESTART_SEND_WAIT_SECONDS", 0.0)
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._running = True
+    buffered = _StreamBuf(text="partial", message_id=7, stream_id="stream-1")
+    channel._stream_bufs["existing"] = buffered
+
+    with pytest.raises(RuntimeError, match="restarting"):
+        await channel.send(OutboundMessage(channel="telegram", chat_id="123", content="hello"))
+    with pytest.raises(RuntimeError, match="restarting"):
+        await channel.send_delta(
+            "123",
+            "hello",
+            {"_stream_delta": True, "_stream_id": "stream-2"},
+        )
+
+    assert APP_RESTART_SEND_WAIT_SECONDS == 2.0
+    assert channel._stream_bufs == {"existing": buffered}
+
+
+@pytest.mark.asyncio
+async def test_send_waits_for_rebuild_to_finish(monkeypatch) -> None:
+    monkeypatch.setattr("hahobot.channels.telegram.APP_RESTART_SEND_WAIT_SECONDS", 5.0)
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._running = True
+    app = _FakeApp(lambda: None)
+
+    async def finish_rebuild() -> None:
+        await asyncio.sleep(0)
+        channel._app = app
+        channel._app_ready.set()
+
+    rebuild = asyncio.create_task(finish_rebuild())
+    await channel.send(OutboundMessage(channel="telegram", chat_id="123", content="hello"))
+    await rebuild
+
+    assert [message["text"] for message in app.bot.sent_messages] == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_send_waits_for_partially_initialized_app(monkeypatch) -> None:
+    monkeypatch.setattr("hahobot.channels.telegram.APP_RESTART_SEND_WAIT_SECONDS", 5.0)
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._running = True
+    app = _FakeApp(lambda: None)
+    channel._app = app
+
+    send_task = asyncio.create_task(
+        channel.send(OutboundMessage(channel="telegram", chat_id="123", content="hello"))
+    )
+    await asyncio.sleep(0)
+    assert not send_task.done()
+
+    channel._app_ready.set()
+    await send_task
+
+    assert [message["text"] for message in app.bot.sent_messages] == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_stop_bounds_inflight_watchdog_teardown(monkeypatch) -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    teardown_started = asyncio.Event()
+    teardown_cancelled = asyncio.Event()
+    app = _FakeApp(lambda: None)
+
+    async def slow_updater_stop() -> None:
+        teardown_started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            teardown_cancelled.set()
+            raise
+
+    app.updater.stop = slow_updater_stop
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=lambda: _FakeBuilder(app)),
+    )
+    monkeypatch.setattr("hahobot.channels.telegram.POLL_STALE_SECONDS", -1.0)
+    monkeypatch.setattr("hahobot.channels.telegram.POLL_WATCH_INTERVAL", 0.0)
+    monkeypatch.setattr("hahobot.channels.telegram.TEARDOWN_STEP_TIMEOUT_SECONDS", 0.01)
+
+    start_task = asyncio.create_task(channel.start())
+    await teardown_started.wait()
+    assert channel._app is None
+
+    await asyncio.wait_for(channel.stop(), timeout=1)
+    await asyncio.wait_for(start_task, timeout=1)
+
+    assert TEARDOWN_STEP_TIMEOUT_SECONDS == 5.0
+    assert teardown_cancelled.is_set()
+    assert app.bot.shutdown_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_stop_joins_healthy_supervisor_before_immediate_restart(monkeypatch) -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    first_watch_started = asyncio.Event()
+    second_watch_started = asyncio.Event()
+    active_watchers = 0
+    max_active_watchers = 0
+    watch_calls = 0
+    original_watch = channel._watch_polling
+
+    async def _ready_app() -> None:
+        channel._last_poll_ok = time.monotonic()
+        channel._app_ready.set()
+
+    async def _tracked_watch() -> bool:
+        nonlocal active_watchers, max_active_watchers, watch_calls
+        watch_calls += 1
+        active_watchers += 1
+        max_active_watchers = max(max_active_watchers, active_watchers)
+        (first_watch_started if watch_calls == 1 else second_watch_started).set()
+        try:
+            return await original_watch()
+        finally:
+            active_watchers -= 1
+
+    monkeypatch.setattr(channel, "_start_app", _ready_app)
+    monkeypatch.setattr(channel, "_watch_polling", _tracked_watch)
+    monkeypatch.setattr("hahobot.channels.telegram.POLL_WATCH_INTERVAL", 300.0)
+
+    first_start = asyncio.create_task(channel.start())
+    await first_watch_started.wait()
+    await asyncio.wait_for(channel.stop(), timeout=1)
+    await asyncio.wait_for(first_start, timeout=1)
+
+    assert active_watchers == 0
+
+    second_start = asyncio.create_task(channel.start())
+    await asyncio.wait_for(second_watch_started.wait(), timeout=1)
+
+    assert max_active_watchers == 1
+
+    await asyncio.wait_for(channel.stop(), timeout=1)
+    await asyncio.wait_for(second_start, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_teardown_is_best_effort_and_preserves_stream_buffer() -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    app = _set_ready_app(channel)
+    buffered = _StreamBuf(text="partial", message_id=7, stream_id="stream-1")
+    channel._stream_bufs["123"] = buffered
+    app.updater.stop = AsyncMock(side_effect=RuntimeError("updater stop failed"))
+    app.stop = AsyncMock(side_effect=RuntimeError("app stop failed"))
+    app.shutdown = AsyncMock(side_effect=RuntimeError("app shutdown failed"))
+    app.bot.shutdown = AsyncMock()
+
+    await channel._teardown_app()
+
+    app.updater.stop.assert_awaited_once()
+    app.stop.assert_awaited_once()
+    app.shutdown.assert_awaited_once()
+    app.bot.shutdown.assert_awaited_once()
+    assert channel._app is None
+    assert not channel._app_ready.is_set()
+    assert channel._stream_bufs["123"] is buffered
+
+
+@pytest.mark.asyncio
+async def test_teardown_cancels_old_menu_refresh_before_rebuild(monkeypatch) -> None:
+    from hahobot.command.catalog import SHARED_MEMORY_BACKFILL_CAPABILITY
+
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    old_app = _set_ready_app(channel)
+    channel._running = True
+    channel._command_menu_registered = True
+    refresh_started = asyncio.Event()
+    refresh_cancelled = asyncio.Event()
+
+    async def blocked_set_my_commands(*args, **kwargs) -> None:
+        refresh_started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            refresh_cancelled.set()
+            raise
+
+    async def assert_refresh_stopped_before_updater() -> None:
+        assert refresh_cancelled.is_set()
+
+    old_app.bot.set_my_commands = blocked_set_my_commands
+    old_app.updater.stop = assert_refresh_stopped_before_updater
+    channel.set_command_capabilities({SHARED_MEMORY_BACKFILL_CAPABILITY})
+    refresh_task = channel._command_refresh_task
+    assert refresh_task is not None
+    await refresh_started.wait()
+
+    await channel._teardown_app()
+
+    assert refresh_task.cancelled()
+    assert channel._command_refresh_task is None
+    assert channel._app is None
+
+    _FakeHTTPXRequest.clear()
+    new_app = _FakeApp(lambda: None)
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=lambda: _FakeBuilder(new_app)),
+    )
+    channel._running = True
+    await channel._start_app()
+
+    assert channel._app_ready.is_set()
+    assert "memory" in {command.command for command in new_app.bot.commands}
+    await channel.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_during_partial_initialize_closes_app_request_pools(monkeypatch) -> None:
+    _FakeHTTPXRequest.clear()
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    initialize_started = asyncio.Event()
+    finish_initialize = asyncio.Event()
+    app = _FakeApp(lambda: None)
+
+    async def blocked_initialize() -> None:
+        initialize_started.set()
+        await finish_initialize.wait()
+
+    app.initialize = blocked_initialize
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=lambda: _FakeBuilder(app)),
+    )
+
+    start_task = asyncio.create_task(channel.start())
+    await initialize_started.wait()
+    await channel.stop()
+
+    assert channel._app is None
+    assert not channel._app_ready.is_set()
+    assert app.bot.shutdown_calls == 1
+    assert len(_FakeHTTPXRequest.instances) == 2
+    assert all(request.shutdown_calls == 1 for request in _FakeHTTPXRequest.instances)
+    assert app.updater.start_polling_kwargs is None
+
+    finish_initialize.set()
+    await start_task
+    assert app.bot.shutdown_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelling_start_cleans_partially_initialized_app(monkeypatch) -> None:
+    _FakeHTTPXRequest.clear()
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    initialize_started = asyncio.Event()
+    app = _FakeApp(lambda: None)
+
+    async def blocked_initialize() -> None:
+        initialize_started.set()
+        await asyncio.Future()
+
+    app.initialize = blocked_initialize
+    monkeypatch.setattr("hahobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "hahobot.channels.telegram.Application",
+        SimpleNamespace(builder=lambda: _FakeBuilder(app)),
+    )
+
+    start_task = asyncio.create_task(channel.start())
+    await initialize_started.wait()
+    start_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await start_task
+
+    assert channel.is_running is False
+    assert channel._app is None
+    assert not channel._app_ready.is_set()
+    assert app.bot.shutdown_calls == 1
+    assert len(_FakeHTTPXRequest.instances) == 2
+    assert all(request.shutdown_calls == 1 for request in _FakeHTTPXRequest.instances)
+
+
+@pytest.mark.asyncio
 async def test_send_text_retries_on_timeout() -> None:
     """_send_text retries on TimedOut before succeeding."""
     from telegram.error import TimedOut
@@ -312,12 +1062,40 @@ async def test_send_text_retries_on_timeout() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_retry_after_accepts_timedelta(monkeypatch) -> None:
+    from telegram.error import RetryAfter
+
+    monkeypatch.setenv("PTB_TIMEDELTA", "1")
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    calls = 0
+    delays: list[float] = []
+
+    async def rate_limited_call():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RetryAfter(timedelta(seconds=2.5))
+        return "ok"
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("hahobot.channels.telegram.asyncio.sleep", record_sleep)
+
+    assert await channel._call_with_retry(rate_limited_call) == "ok"
+    assert delays == [2.5]
+
+
+@pytest.mark.asyncio
 async def test_send_renders_inline_keyboard_when_enabled() -> None:
     channel = TelegramChannel(
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], inline_keyboards=True),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
 
     await channel.send(
         OutboundMessage(
@@ -339,7 +1117,7 @@ async def test_send_falls_back_to_button_text_when_keyboard_disabled() -> None:
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], inline_keyboards=False),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
 
     await channel.send(
         OutboundMessage(
@@ -494,7 +1272,7 @@ async def test_send_delta_stream_end_raises_and_keeps_buffer_on_failure() -> Non
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._app.bot.edit_message_text = AsyncMock(side_effect=RuntimeError("boom"))
     channel._stream_bufs["123"] = _StreamBuf(text="hello", message_id=7, last_edit=0.0)
 
@@ -512,7 +1290,7 @@ async def test_send_delta_stream_end_treats_not_modified_as_success() -> None:
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._app.bot.edit_message_text = AsyncMock(
         side_effect=BadRequest("Message is not modified")
     )
@@ -534,7 +1312,7 @@ async def test_send_delta_stream_end_splits_oversized_reply() -> None:
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._app.bot.edit_message_text = AsyncMock()
     channel._app.bot.send_message = AsyncMock(return_value=SimpleNamespace(message_id=99))
 
@@ -557,7 +1335,7 @@ async def test_send_delta_retry_does_not_append_same_delivery_twice() -> None:
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._app.bot.send_message = AsyncMock(
         side_effect=[RuntimeError("temporary"), SimpleNamespace(message_id=7)]
     )
@@ -578,7 +1356,7 @@ async def test_stream_end_not_modified_still_flushes_overflow_followup() -> None
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._app.bot.edit_message_text = AsyncMock(
         side_effect=BadRequest("Message is not modified")
     )
@@ -597,7 +1375,7 @@ async def test_overflow_retry_resumes_after_last_successful_followup(monkeypatch
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._app.bot.edit_message_text = AsyncMock()
     chunks = [("first", "first"), ("middle", "middle"), ("tail", "tail")]
     monkeypatch.setattr(
@@ -635,7 +1413,7 @@ async def test_send_delta_incremental_overflow_reanchors_raw_markdown_tail() -> 
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._app.bot.edit_message_text = AsyncMock()
     channel._app.bot.send_message = AsyncMock(return_value=SimpleNamespace(message_id=99))
 
@@ -675,7 +1453,7 @@ async def test_send_delta_incremental_overflow_html_failure_falls_back_to_plain(
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._app.bot.edit_message_text = AsyncMock(
         side_effect=[BadRequest("Can't parse entities"), None]
     )
@@ -712,7 +1490,7 @@ async def test_send_delta_new_stream_id_replaces_stale_buffer() -> None:
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._stream_bufs["123"] = _StreamBuf(
         text="hello",
         message_id=7,
@@ -736,7 +1514,7 @@ async def test_send_delta_incremental_edit_treats_not_modified_as_success() -> N
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._stream_bufs["123"] = _StreamBuf(
         text="hello", message_id=7, last_edit=0.0, stream_id="s:0"
     )
@@ -755,7 +1533,7 @@ async def test_send_delta_initial_send_keeps_message_in_thread() -> None:
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
 
     await channel.send_delta(
         "123",
@@ -777,7 +1555,7 @@ async def test_send_delta_uses_configured_stream_edit_interval(monkeypatch) -> N
         ),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._app.bot.edit_message_text = AsyncMock()
 
     times = iter([1.0, 2.0])
@@ -902,7 +1680,7 @@ async def test_command_capabilities_hot_reload_refreshes_native_menu() -> None:
 async def test_send_progress_keeps_message_in_topic() -> None:
     config = TelegramConfig(enabled=True, token="123:abc", allow_from=["*"])
     channel = TelegramChannel(config, MessageBus())
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
 
     await channel.send(
         OutboundMessage(
@@ -920,7 +1698,7 @@ async def test_send_progress_keeps_message_in_topic() -> None:
 async def test_send_reply_infers_topic_from_message_id_cache() -> None:
     config = TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], reply_to_message=True)
     channel = TelegramChannel(config, MessageBus())
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     channel._message_threads[("123", 10)] = 42
 
     await channel.send(
@@ -942,7 +1720,7 @@ async def test_send_remote_media_url_after_security_validation(monkeypatch) -> N
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     monkeypatch.setattr(
         "hahobot.channels.telegram.validate_url_target",
         AsyncMock(return_value=(True, "")),
@@ -973,7 +1751,7 @@ async def test_send_blocks_unsafe_remote_media_url(monkeypatch) -> None:
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
         MessageBus(),
     )
-    channel._app = _FakeApp(lambda: None)
+    _set_ready_app(channel)
     monkeypatch.setattr(
         "hahobot.channels.telegram.validate_url_target",
         AsyncMock(

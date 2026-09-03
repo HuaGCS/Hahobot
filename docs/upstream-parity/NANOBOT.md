@@ -6,15 +6,21 @@ own architecture; file-for-file mirroring is not required.
 
 ## Current Boundary
 
-- Audited ref: `main@abfcdd481` (2026-08-12; audited 2026-08-12)
-- Previous boundary: `3778e7e62`
-- Range reviewed: 19 linear commits
+- Audited ref: `main@d81aa5a4a` (2026-09-02; audited 2026-09-03)
+- Previous boundary: `abfcdd481`
+- Range reviewed: 362 linear commits; the previous boundary remains an ancestor
 - Remote rule: keep `remote.nanobot-upstream.tagOpt = --no-tags`
 
 ## Latest Adopted Clusters
 
 | Upstream commits | Local disposition |
 | --- | --- |
+| `f573ecfe5`, `5c71ef6e4` | Email polling resolves stable UIDs, skips already-processed messages before FETCH, and performs self-address, mailbox-authentication-policy, and allowlist checks on headers before downloading an accepted body or attachment. Local hardening adds 30-second socket I/O, unique mailbox-only From parsing, serialized poll ownership with cancellation-safe committed-batch draining, top-level parsing of the nearest Authentication-Results header, exact From-domain matches, explicit DMARC-failure rejection, UIDVALIDITY-aware dedupe, and best-effort Seen updates. |
+| `649e3958c` | Recursive glob/grep scans run off-loop with cooperative cancellation, stable traversal, no directory-symlink descent, special-file avoidance, 500,000-path / caller-enforced 30-second budgets, exact acquire/release ownership for a four-slot non-cooperative daemon-worker cap, and timeout-capable concurrent regex matching with a 10,000-character pattern cap. |
+| `cc05fe6ed`, `302015fde`, `8a928592c`, `2b4a04fb7` | Telegram long polling tracks completed getUpdates round trips, rebuilds a stale app with 5–300 second RetryAfter-aware backoff, gates delivery on readiness, prevents PTB/HTTPX token-URL logging, redacts bot/proxy credentials from surfaced errors, incrementally owns both request pools, and serializes per-step-bounded teardown plus complete supervisor stop/restart ownership. |
+| `31a71d6cd`, `5f916bbd3`, `76f629e92` | `web_fetch` keeps userinfo/query-credential initial URLs and redirect chains on the direct local path, strips fragments before eligible Jina requests, and logs only URL origins on failures. |
+| `9f5a56f1e` | Git-backed Dream snapshots stage their explicit tracked paths before status inspection, detecting rapid same-size rewrites even when mtime is unchanged. |
+| `d64b84604`, `bcf5d8a6e` | One-shot exec owns and terminates complete subprocess trees: POSIX process groups and Windows kill-on-close Job Objects, with a Windows `taskkill /T` fallback. |
 | `cdb2df49` | `read_file` rejects inputs over 100 MiB from `stat()` before reading. |
 | `28102382`, `b2cf37da` | Config and admin writes use a mode-preserving, fsynced atomic replacement helper. |
 | `89d8c055` | Provider-bound nested values recursively sanitize malformed UTF-16 surrogates. |
@@ -46,18 +52,30 @@ own architecture; file-for-file mirroring is not required.
 ## Established Local Mapping
 
 - Runtime and tools: policy gating, doctor reuse, bounded shell execution, `self_inspect`, notebook
-  editing, search, MCP, cron, and message routing live in Hahobot's existing registries.
+  editing, search, MCP, cron, and message routing live in Hahobot's existing registries. Search
+  preserves local workspace/ignore/pagination semantics while moving bounded traversal off-loop.
+  Exec process-tree ownership is adapted to the one-shot runner instead of upstream's persistent
+  shell.
 - Providers: local normalization owns reasoning fields, retry/failover, token usage, image request
   shaping, and compatibility fallbacks.
 - Persistence: session JSONL, archive sidecars, Dream, skills, and cron keep their local formats while
   accepting compatible upstream shapes.
 - Channels: transport-specific rendering and retry state stay in each adapter; manager-generated
-  delivery IDs provide retry identity across streaming channels.
+  delivery IDs provide retry identity across streaming channels. Telegram rebuilds preserve its
+  stream buffers and localized capability-driven command menu, while email retains BaseChannel's
+  secondary authorization check after its earlier header-only filter. Telegram propagates only a
+  sanitized terminal startup exception so the manager's second log cannot expose its token;
+  Authentication-Results remains a receiving-service hint rather than local cryptographic email
+  verification.
 - Web surfaces: useful behavior is adapted into the aiohttp/Jinja gateway rather than copying
   nanobot's React/Vite frontend. Temporary chats therefore use `SessionManager`'s bounded in-memory
   namespace and Jinja forms instead of browser-local SPA state. Connection recovery stays local to
   this server-rendered architecture: request-id receipts and `WebUIBroadcaster` own detached turns
   across socket replacement, rather than adopting nanobot's React event-projection layer.
+- Web fetching: Jina is a third-party readability path, never a transport for URL
+  credentials detectable in userinfo or query keys. Direct fetch retains per-hop SSRF checks and
+  pinned DNS; Jina is considered only after a successful credential-free local redirect preflight.
+  Path-embedded secrets cannot be detected reliably and must not be passed to `web_fetch`.
 
 ## Intentional Divergences
 
@@ -71,6 +89,8 @@ own architecture; file-for-file mirroring is not required.
   ported mechanically.
 - Pairing, triggers, new channel manifests, native runtimes, and broad provider additions remain
   demand-driven rather than automatic parity work.
+- The upstream event-projection/session-backend and runner/context decompositions are not copied;
+  Hahobot keeps incremental JSONL sessions and its existing turn/runtime owner split.
 
 ## Active Watchlist
 

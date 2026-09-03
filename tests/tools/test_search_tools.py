@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -11,6 +14,7 @@ import pytest
 
 from hahobot.agent.loop import AgentLoop
 from hahobot.agent.subagent import SubagentManager
+from hahobot.agent.tools import search as search_module
 from hahobot.agent.tools.search import GlobTool, GrepTool
 from hahobot.bus.queue import MessageBus
 
@@ -249,6 +253,304 @@ async def test_glob_supports_head_limit_offset_and_recent_first(tmp_path: Path) 
     lines = result.splitlines()
     assert lines[0] == "src/b.py"
     assert "pagination: limit=1, offset=1" in result
+
+
+@pytest.mark.asyncio
+async def test_glob_stops_when_recursive_path_budget_is_exhausted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "a.txt").write_text("a\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("b\n", encoding="utf-8")
+    monkeypatch.setattr(GlobTool, "_MAX_SCAN_PATHS", 1)
+
+    result = await GlobTool(workspace=tmp_path, allowed_dir=tmp_path).execute(
+        pattern="*.txt",
+        path=".",
+    )
+
+    assert result.startswith("Error: glob scan exceeded 1 paths")
+
+
+@pytest.mark.asyncio
+async def test_grep_stops_when_recursive_time_budget_is_exhausted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "a.txt").write_text("needle\n", encoding="utf-8")
+    monkeypatch.setattr(GrepTool, "_MAX_SCAN_SECONDS", 0.0)
+
+    result = await GrepTool(workspace=tmp_path, allowed_dir=tmp_path).execute(
+        pattern="needle",
+        path=".",
+    )
+
+    assert result.startswith("Error: grep scan exceeded 0 seconds")
+
+
+@pytest.mark.asyncio
+async def test_grep_catastrophic_regex_respects_wall_clock_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "adversarial.txt").write_text("a" * 20_000 + "!\n", encoding="utf-8")
+    monkeypatch.setattr(GrepTool, "_MAX_SCAN_SECONDS", 0.05)
+    tool = GrepTool(workspace=tmp_path, allowed_dir=tmp_path)
+    loop_advanced = asyncio.Event()
+
+    async def _tick() -> None:
+        await asyncio.sleep(0.01)
+        loop_advanced.set()
+
+    ticker = asyncio.create_task(_tick())
+    started = time.monotonic()
+    result = await asyncio.wait_for(
+        tool.execute(pattern="(a+)+$", path="."),
+        timeout=1,
+    )
+    elapsed = time.monotonic() - started
+    await ticker
+
+    assert result.startswith("Error: grep scan exceeded 0.05 seconds")
+    assert elapsed < 0.5
+    assert loop_advanced.is_set()
+
+
+@pytest.mark.asyncio
+async def test_grep_rejects_oversized_regex_before_scanning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = GrepTool(workspace=tmp_path, allowed_dir=tmp_path)
+    monkeypatch.setattr(tool, "_MAX_PATTERN_CHARS", 8)
+
+    result = await tool.execute(pattern="a" * 9, path=".")
+
+    assert result.startswith("Error: regex pattern exceeds 8 characters")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", [GlobTool, GrepTool])
+async def test_recursive_search_worker_keeps_event_loop_responsive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool,
+) -> None:
+    instance = tool(workspace=tmp_path, allowed_dir=tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+
+    def _blocking_execute_sync(*args, **_kwargs) -> str:
+        started.set()
+        release.wait(timeout=2)
+        return "done"
+
+    monkeypatch.setattr(instance, "_execute_sync", _blocking_execute_sync)
+    execute_kwargs = (
+        {"pattern": "*.txt", "path": "."}
+        if tool is GlobTool
+        else {"pattern": "needle", "path": "."}
+    )
+    task = asyncio.create_task(instance.execute(**execute_kwargs))
+    for _ in range(100):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.001)
+
+    assert started.is_set()
+    await asyncio.sleep(0)
+    assert not task.done()
+
+    release.set()
+    assert await task == "done"
+
+
+@pytest.mark.asyncio
+async def test_glob_cancellation_notifies_worker(tmp_path: Path, monkeypatch) -> None:
+    tool = GlobTool(workspace=tmp_path, allowed_dir=tmp_path)
+    started = threading.Event()
+    stopped = threading.Event()
+
+    def _blocking_execute_sync(*args, **_kwargs) -> str:
+        cancelled = args[-1]
+        started.set()
+        cancelled.wait(timeout=2)
+        if cancelled.is_set():
+            stopped.set()
+        return "done"
+
+    monkeypatch.setattr(tool, "_execute_sync", _blocking_execute_sync)
+    task = asyncio.create_task(tool.execute(pattern="*.txt", path="."))
+    for _ in range(100):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.001)
+    assert started.is_set()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    for _ in range(100):
+        if stopped.is_set():
+            break
+        await asyncio.sleep(0.001)
+    assert stopped.is_set()
+
+
+@pytest.mark.asyncio
+async def test_search_async_deadline_returns_when_worker_cannot_cooperate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = GlobTool(workspace=tmp_path, allowed_dir=tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+    stopped = threading.Event()
+
+    def _blocking_execute_sync(*_args, **_kwargs) -> str:
+        started.set()
+        release.wait(timeout=2)
+        stopped.set()
+        return "late"
+
+    monkeypatch.setattr(tool, "_execute_sync", _blocking_execute_sync)
+    monkeypatch.setattr(tool, "_MAX_SCAN_SECONDS", 0.01)
+
+    result = await tool.execute(pattern="*.txt", path=".")
+
+    assert started.is_set()
+    assert result.startswith("Error: glob scan exceeded 0.01 seconds")
+    release.set()
+    for _ in range(100):
+        if stopped.is_set():
+            break
+        await asyncio.sleep(0.001)
+    assert stopped.is_set()
+
+
+@pytest.mark.asyncio
+async def test_search_worker_concurrency_is_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(search_module, "_SEARCH_WORKER_SLOTS", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(search_module, "_MAX_CONCURRENT_SEARCH_WORKERS", 1)
+    first = GlobTool(workspace=tmp_path, allowed_dir=tmp_path)
+    second = GrepTool(workspace=tmp_path, allowed_dir=tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+
+    def _blocking_execute_sync(*_args, **_kwargs) -> str:
+        started.set()
+        release.wait(timeout=2)
+        return "done"
+
+    monkeypatch.setattr(first, "_execute_sync", _blocking_execute_sync)
+    first_task = asyncio.create_task(first.execute(pattern="*.txt", path="."))
+    for _ in range(100):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.001)
+
+    assert started.is_set()
+    result = await second.execute(pattern="needle", path=".")
+    assert result == "Error: grep search worker limit (1) reached; retry shortly."
+
+    release.set()
+    assert await first_task == "done"
+
+
+@pytest.mark.asyncio
+async def test_search_worker_releases_the_semaphore_instance_it_acquired(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    acquired_slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(search_module, "_SEARCH_WORKER_SLOTS", acquired_slots)
+    tool = GlobTool(workspace=tmp_path, allowed_dir=tmp_path)
+    monkeypatch.setattr(tool, "_MAX_SCAN_SECONDS", 0.01)
+    started = threading.Event()
+    release_worker = threading.Event()
+    worker_stopped = threading.Event()
+
+    def _blocking_execute_sync(*_args, **_kwargs) -> str:
+        started.set()
+        release_worker.wait(timeout=2)
+        worker_stopped.set()
+        return "late"
+
+    monkeypatch.setattr(tool, "_execute_sync", _blocking_execute_sync)
+
+    result = await tool.execute(pattern="*.txt", path=".")
+    assert started.is_set()
+    assert result.startswith("Error: glob scan exceeded 0.01 seconds")
+
+    replacement_slots = threading.BoundedSemaphore(1)
+    assert replacement_slots.acquire(blocking=False)
+    monkeypatch.setattr(search_module, "_SEARCH_WORKER_SLOTS", replacement_slots)
+    release_worker.set()
+    for _ in range(100):
+        if worker_stopped.is_set():
+            break
+        await asyncio.sleep(0.001)
+
+    assert worker_stopped.is_set()
+    assert not replacement_slots.acquire(blocking=False)
+    replacement_slots.release()
+
+
+@pytest.mark.asyncio
+async def test_grep_does_not_follow_file_symlink_outside_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    target = outside / "secret.txt"
+    target.write_text("private needle\n", encoding="utf-8")
+    link = workspace / "linked.txt"
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    result = await GrepTool(workspace=workspace, allowed_dir=workspace).execute(
+        pattern="needle",
+        path=".",
+    )
+
+    assert "linked.txt" not in result
+    assert "No matches found" in result
+    assert "skipped 1 binary/unreadable files" in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation is POSIX-only")
+async def test_grep_skips_fifo_without_opening_it(tmp_path: Path) -> None:
+    fifo = tmp_path / "pipe.txt"
+    os.mkfifo(fifo)
+
+    result = await GrepTool(workspace=tmp_path, allowed_dir=tmp_path).execute(
+        pattern="needle",
+        path=".",
+    )
+
+    assert "No matches found" in result
+    assert "pipe.txt" not in result
+    assert "binary/unreadable" not in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation is POSIX-only")
+async def test_glob_skips_special_files(tmp_path: Path) -> None:
+    (tmp_path / "regular.txt").write_text("ok\n", encoding="utf-8")
+    os.mkfifo(tmp_path / "pipe.txt")
+
+    result = await GlobTool(workspace=tmp_path, allowed_dir=tmp_path).execute(
+        pattern="*.txt",
+        path=".",
+    )
+
+    assert result.splitlines() == ["regular.txt"]
 
 
 @pytest.mark.asyncio

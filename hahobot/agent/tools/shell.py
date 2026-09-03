@@ -5,9 +5,12 @@ import codecs
 import os
 import re
 import shutil
+import signal
+import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast, runtime_checkable
 
 from loguru import logger
 
@@ -28,6 +31,18 @@ from hahobot.config.paths import get_media_dir
 
 _IS_WINDOWS = sys.platform == "win32"
 _STREAM_READ_SIZE = 8192
+_PROCESS_TREE_OWNER_ATTR = "_hahobot_process_tree_owner"
+
+
+@runtime_checkable
+class _ProcessTreeOwner(Protocol):
+    creation_flags: int
+
+    def assign_and_resume(self, pid: int) -> None: ...
+
+    def release(self) -> None: ...
+
+    def terminate(self) -> None: ...
 
 
 class _BoundedTextCapture:
@@ -380,6 +395,7 @@ class ExecTool(Tool):
                 env["HAHOBOT_PATH_APPEND"] = self.path_append
                 command = f'export PATH="$PATH{os.pathsep}$HAHOBOT_PATH_APPEND"; {command}'
 
+        process: asyncio.subprocess.Process | None = None
         try:
             process = await self._spawn(command, cwd, env)
 
@@ -389,15 +405,19 @@ class ExecTool(Tool):
                     timeout=effective_timeout,
                 )
             except TimeoutError:
-                await self._kill_process(process)
+                await self._kill_process_tree(process)
                 return f"Error: Command timed out after {effective_timeout} seconds"
             except asyncio.CancelledError:
-                await self._kill_process(process)
+                await self._kill_process_tree(process)
                 raise
 
-            return self._format_captured_output(stdout, stderr, process.returncode)
+            result = self._format_captured_output(stdout, stderr, process.returncode)
+            self._release_process_tree(process)
+            return result
 
         except Exception as e:
+            if process is not None:
+                await self._kill_process_tree(process)
             return f"Error executing command: {str(e)}"
 
     async def _communicate_bounded(
@@ -475,17 +495,35 @@ class ExecTool(Tool):
     ) -> asyncio.subprocess.Process:
         """Launch *command* in a platform-appropriate shell."""
         if _IS_WINDOWS:
+            windows_job: _ProcessTreeOwner | None = None
+            process: asyncio.subprocess.Process | None = None
+            creation_flags = 0
+            if sys.platform == "win32":
+                windows_job = ExecTool._create_windows_job()
+                creation_flags = windows_job.creation_flags
             comspec = env.get("COMSPEC", os.environ.get("COMSPEC", "cmd.exe"))
-            return await asyncio.create_subprocess_exec(
-                comspec,
-                "/c",
-                command,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=env,
-            )
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    comspec,
+                    "/c",
+                    command,
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=cwd,
+                    env=env,
+                    creationflags=creation_flags,
+                )
+                if windows_job is not None:
+                    windows_job.assign_and_resume(process.pid)
+                    setattr(process, _PROCESS_TREE_OWNER_ATTR, windows_job)
+                return process
+            except BaseException:
+                if windows_job is not None:
+                    windows_job.terminate()
+                if process is not None:
+                    await ExecTool._kill_process(process)
+                raise
         bash = shutil.which("bash") or "/bin/bash"
         return await asyncio.create_subprocess_exec(
             bash,
@@ -497,6 +535,7 @@ class ExecTool(Tool):
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=env,
+            start_new_session=True,
         )
 
     @staticmethod
@@ -516,6 +555,69 @@ class ExecTool(Tool):
                 pass
         finally:
             _reap_pid(process.pid)
+
+    @staticmethod
+    async def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+        """Terminate the owned subprocess tree and reap its root process."""
+        owner = ExecTool._process_tree_owner(process)
+        try:
+            if owner is not None:
+                owner.terminate()
+            elif _IS_WINDOWS:
+                if process.returncode is None:
+                    with suppress(OSError, TimeoutError):
+                        await asyncio.wait_for(
+                            asyncio.to_thread(
+                                subprocess.run,
+                                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                                check=False,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                            ),
+                            timeout=5.0,
+                        )
+            else:
+                with suppress(ProcessLookupError, PermissionError):
+                    os.killpg(process.pid, signal.SIGKILL)
+
+            if process.returncode is None:
+                with suppress(ProcessLookupError):
+                    process.kill()
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+        finally:
+            if owner is not None:
+                ExecTool._drop_process_tree_owner(process)
+            _reap_pid(process.pid)
+
+    @staticmethod
+    def _process_tree_owner(
+        process: asyncio.subprocess.Process,
+    ) -> _ProcessTreeOwner | None:
+        attributes = getattr(process, "__dict__", None)
+        if not isinstance(attributes, dict):
+            return None
+        owner = cast(dict[str, object], attributes).get(_PROCESS_TREE_OWNER_ATTR)
+        return owner if isinstance(owner, _ProcessTreeOwner) else None
+
+    @staticmethod
+    def _create_windows_job() -> _ProcessTreeOwner:
+        from hahobot.agent.tools._windows_job import WindowsJob
+
+        return WindowsJob.create()
+
+    @staticmethod
+    def _drop_process_tree_owner(process: asyncio.subprocess.Process) -> None:
+        with suppress(AttributeError):
+            delattr(process, _PROCESS_TREE_OWNER_ATTR)
+
+    @staticmethod
+    def _release_process_tree(process: asyncio.subprocess.Process) -> None:
+        owner = ExecTool._process_tree_owner(process)
+        if owner is None:
+            return
+        owner.release()
+        ExecTool._drop_process_tree_owner(process)
 
     def _build_env(self) -> dict[str, str]:
         """Build a minimal environment for subprocess execution.

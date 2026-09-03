@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import os
 import re
 from abc import ABC, abstractmethod
@@ -96,7 +97,8 @@ class LLMProvider(ABC):
     """Base class for LLM providers."""
 
     _CHAT_RETRY_DELAYS = (1, 2, 4)
-    _PERSISTENT_MAX_DELAY = 60
+    _MAX_RETRY_AFTER = 60.0
+    _PERSISTENT_MAX_DELAY = _MAX_RETRY_AFTER
     _PERSISTENT_IDENTICAL_ERROR_LIMIT = 10
     _RETRY_HEARTBEAT_CHUNK = 30
     _TRANSIENT_ERROR_MARKERS = (
@@ -914,7 +916,23 @@ class LLMProvider(ABC):
                 break
 
             base_delay = delays[min(attempt - 1, len(delays) - 1)]
-            delay = self._extract_retry_after_from_response(response) or base_delay
+            retry_after = self._extract_retry_after_from_response(response)
+            if retry_after is None:
+                delay = base_delay
+            elif not math.isfinite(retry_after) or retry_after > self._MAX_RETRY_AFTER:
+                if not persistent:
+                    logger.warning(
+                        "LLM transient error requested an oversized retry delay; "
+                        "stopping standard retries (attempt {}, max {}s): {}",
+                        attempt,
+                        int(self._MAX_RETRY_AFTER),
+                        (response.content or "")[:120].lower(),
+                    )
+                    return response
+                delay = self._PERSISTENT_MAX_DELAY
+            else:
+                delay = retry_after
+
             if persistent:
                 delay = min(delay, self._PERSISTENT_MAX_DELAY)
 

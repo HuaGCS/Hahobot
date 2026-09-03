@@ -5,7 +5,7 @@ import json
 import os
 import re
 from typing import Any
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, parse_qsl, urljoin, urlparse
 
 import httpx
 from loguru import logger
@@ -88,11 +88,86 @@ def _unsafe_url_request_error(exc: BaseException) -> str | None:
     return str(exc) if isinstance(exc, UnsafeURLRequestError) else None
 
 
+_CREDENTIAL_QUERY_PARAMS = frozenset(
+    {
+        "access_token",
+        "api-key",
+        "api-token",
+        "apikey",
+        "api_key",
+        "api_token",
+        "auth",
+        "authorization",
+        "client_assertion",
+        "client_secret",
+        "code",
+        "credential",
+        "credentials",
+        "id_token",
+        "jwt",
+        "key",
+        "password",
+        "passwd",
+        "private_key",
+        "pwd",
+        "refresh_token",
+        "samlresponse",
+        "secret",
+        "session_id",
+        "session_token",
+        "sessionid",
+        "sig",
+        "signature",
+        "sso_token",
+        "ticket",
+        "token",
+    }
+)
+_CREDENTIAL_QUERY_PREFIXES = ("x-amz-", "x-goog-")
+
+
+def _url_carries_credentials(url: str) -> bool:
+    """Return whether forwarding *url* could disclose credential material."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return True
+    if parsed.username is not None or parsed.password is not None:
+        return True
+    # Some frameworks still accept semicolons as query separators. False
+    # positives only keep the request local; false negatives disclose secrets.
+    query = parsed.query.replace(";", "&")
+    for name, _value in parse_qsl(query, keep_blank_values=True):
+        lowered = name.strip().lower()
+        if lowered in _CREDENTIAL_QUERY_PARAMS or lowered.startswith(_CREDENTIAL_QUERY_PREFIXES):
+            return True
+    return False
+
+
+def _redact_url_for_log(url: str) -> str:
+    """Return a URL origin without userinfo, path, query, or fragment."""
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not parsed.scheme or hostname is None:
+            return "<redacted URL>"
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
+        try:
+            port = parsed.port
+        except ValueError:
+            port = None
+        authority = f"{hostname}:{port}" if port is not None else hostname
+        return f"{parsed.scheme}://{authority}"
+    except ValueError:
+        return "<redacted URL>"
+
+
 async def _get_with_safe_redirects(
     client: httpx.AsyncClient,
     url: str,
     headers: dict[str, str] | None = None,
-) -> tuple[httpx.Response | None, str | None]:
+) -> tuple[httpx.Response | None, str | None, bool]:
     """GET ``url`` while validating every redirect target before requesting it.
 
     httpx's ``follow_redirects=True`` will issue requests to intermediate hops
@@ -101,35 +176,45 @@ async def _get_with_safe_redirects(
     revalidate each ``Location`` against the SSRF policy.
     """
     current_url = url
+    chain_carries_credentials = _url_carries_credentials(url)
     for _ in range(MAX_REDIRECTS + 1):
         is_valid, error_msg = await _validate_url_safe(current_url)
         if not is_valid:
-            return None, f"Redirect blocked: {error_msg}"
+            return None, f"Redirect blocked: {error_msg}", chain_carries_credentials
 
         try:
             response = await client.get(current_url, headers=headers, follow_redirects=False)
         except httpx.RequestError as exc:
             unsafe_error = _unsafe_url_request_error(exc)
             if unsafe_error is not None:
-                return None, f"URL validation failed: {unsafe_error}"
+                return (
+                    None,
+                    f"URL validation failed: {unsafe_error}",
+                    chain_carries_credentials,
+                )
             raise
         if not response.is_redirect:
-            return response, None
+            return response, None, chain_carries_credentials
 
         location = response.headers.get("location")
         if not location:
-            return response, None
+            return response, None, chain_carries_credentials
 
         next_url = urljoin(str(response.url), location)
+        chain_carries_credentials = chain_carries_credentials or _url_carries_credentials(next_url)
         is_valid, error_msg = await _validate_url_safe(next_url)
         if not is_valid:
             await response.aclose()
-            return None, f"Redirect blocked: {error_msg}"
+            return None, f"Redirect blocked: {error_msg}", chain_carries_credentials
 
         await response.aclose()
         current_url = next_url
 
-    return None, f"Too many redirects: exceeded limit of {MAX_REDIRECTS}"
+    return (
+        None,
+        f"Too many redirects: exceeded limit of {MAX_REDIRECTS}",
+        chain_carries_credentials,
+    )
 
 
 class WebSearchTool(Tool):
@@ -399,15 +484,19 @@ class WebFetchTool(Tool):
                 {"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False
             )
 
-        # Detect and fetch images directly to avoid Jina's textual image captioning
+        # Detect and fetch images directly to avoid Jina's textual image captioning.
+        # A successful local preflight also proves that no credential-bearing URL
+        # appeared anywhere in the redirect chain before remote-reader delegation.
+        jina_remote_safe = False
         try:
             async with httpx.AsyncClient(**_fetch_client_kwargs(self.proxy, 15.0)) as client:
-                r, redirect_error = await _get_with_safe_redirects(
+                r, redirect_error, chain_carries_credentials = await _get_with_safe_redirects(
                     client, url, headers={"User-Agent": USER_AGENT}
                 )
                 if redirect_error:
                     return json.dumps({"error": redirect_error, "url": url}, ensure_ascii=False)
                 if r is not None:
+                    jina_remote_safe = not chain_carries_credentials
                     ctype = r.headers.get("content-type", "")
                     if ctype.startswith("image/"):
                         r.raise_for_status()
@@ -422,22 +511,35 @@ class WebFetchTool(Tool):
                     {"error": f"URL validation failed: {unsafe_error}", "url": url},
                     ensure_ascii=False,
                 )
-            logger.debug("Pre-fetch image detection failed for {}: {}", url, e)
+            logger.debug(
+                "Pre-fetch image detection failed for {} ({})",
+                _redact_url_for_log(url),
+                type(e).__name__,
+            )
 
-        result = await self._fetch_jina(url, max_chars)
+        result = await self._fetch_jina(url, max_chars) if jina_remote_safe else None
         if result is None:
             result = await self._fetch_readability(url, extractMode, max_chars)
         return result
 
     async def _fetch_jina(self, url: str, max_chars: int) -> str | None:
         """Try fetching via Jina Reader API. Returns None on failure."""
+        if _url_carries_credentials(url):
+            logger.debug(
+                "Skipping Jina Reader for {}: URL carries credential material",
+                _redact_url_for_log(url),
+            )
+            return None
+        # Fragments are client-side-only and OAuth implicit flows can place
+        # tokens there. Strip them even though httpx currently does so too.
+        forwarded_url = url.split("#", 1)[0]
         try:
             headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
             jina_key = os.environ.get("JINA_API_KEY", "")
             if jina_key:
                 headers["Authorization"] = f"Bearer {jina_key}"
             async with httpx.AsyncClient(proxy=self.proxy, timeout=20.0) as client:
-                r = await client.get(f"https://r.jina.ai/{url}", headers=headers)
+                r = await client.get(f"https://r.jina.ai/{forwarded_url}", headers=headers)
                 if r.status_code == 429:
                     logger.debug("Jina Reader rate limited, falling back to readability")
                     return None
@@ -470,7 +572,11 @@ class WebFetchTool(Tool):
                 ensure_ascii=False,
             )
         except Exception as e:
-            logger.debug("Jina Reader failed for {}, falling back to readability: {}", url, e)
+            logger.debug(
+                "Jina Reader failed for {}, falling back to readability ({})",
+                _redact_url_for_log(url),
+                type(e).__name__,
+            )
             return None
 
     async def _fetch_readability(self, url: str, extract_mode: str, max_chars: int) -> Any:
@@ -482,7 +588,7 @@ class WebFetchTool(Tool):
             async with httpx.AsyncClient(**_fetch_client_kwargs(self.proxy, 30.0)) as client:
                 # Validate each redirect hop's resolved IP before issuing the
                 # next request, so SSRF can't sneak through a permissive chain.
-                r, redirect_error = await _get_with_safe_redirects(
+                r, redirect_error, _chain_carries_credentials = await _get_with_safe_redirects(
                     client, url, headers={"User-Agent": USER_AGENT}
                 )
                 if redirect_error:
@@ -542,10 +648,18 @@ class WebFetchTool(Tool):
                 ensure_ascii=False,
             )
         except httpx.ProxyError as e:
-            logger.error("WebFetch proxy error for {}: {}", url, e)
+            logger.warning(
+                "WebFetch proxy error for {} ({})",
+                _redact_url_for_log(url),
+                type(e).__name__,
+            )
             return json.dumps({"error": f"Proxy error: {e}", "url": url}, ensure_ascii=False)
         except Exception as e:
-            logger.error("WebFetch error for {}: {}", url, e)
+            logger.warning(
+                "WebFetch error for {} ({})",
+                _redact_url_for_log(url),
+                type(e).__name__,
+            )
             return json.dumps({"error": str(e), "url": url}, ensure_ascii=False)
 
     def _to_markdown(self, html: str) -> str:

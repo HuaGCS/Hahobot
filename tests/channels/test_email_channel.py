@@ -1,4 +1,6 @@
+import asyncio
 import imaplib
+import threading
 from datetime import date
 from email.message import EmailMessage
 from pathlib import Path
@@ -24,6 +26,7 @@ def _make_config(**overrides) -> EmailConfig:
         "smtp_username": "bot@example.com",
         "smtp_password": "secret",
         "mark_seen": True,
+        "allow_from": ["*"],
         # Disable auth verification by default so existing tests are unaffected
         "verify_dkim": False,
         "verify_spf": False,
@@ -85,6 +88,7 @@ def test_fetch_new_messages_parses_unseen_and_marks_seen(monkeypatch) -> None:
     class FakeIMAP:
         def __init__(self) -> None:
             self.store_calls: list[tuple[bytes, str, str]] = []
+            self.uid_calls: list[tuple] = []
 
         def login(self, _user: str, _pw: str):
             return "OK", [b"logged in"]
@@ -98,6 +102,16 @@ def test_fetch_new_messages_parses_unseen_and_marks_seen(monkeypatch) -> None:
         def fetch(self, _imap_id: bytes, _parts: str):
             return "OK", [(b"1 (UID 123 BODY[] {200})", raw), b")"]
 
+        def uid(self, command: str, *args):
+            self.uid_calls.append((command, *args))
+            if command == "SEARCH":
+                return "OK", [b"123"]
+            if command == "FETCH":
+                return "OK", [(b"1 (UID 123 BODY[] {200})", raw), b")"]
+            if command == "STORE":
+                return "OK", [b""]
+            raise AssertionError(f"unexpected UID command: {command}")
+
         def store(self, imap_id: bytes, op: str, flags: str):
             self.store_calls.append((imap_id, op, flags))
             return "OK", [b""]
@@ -106,7 +120,13 @@ def test_fetch_new_messages_parses_unseen_and_marks_seen(monkeypatch) -> None:
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    connection_kwargs: dict[str, object] = {}
+
+    def _open_imap(_host: str, _port: int, **kwargs):
+        connection_kwargs.update(kwargs)
+        return fake
+
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", _open_imap)
 
     channel = EmailChannel(_make_config(), MessageBus())
     items = channel._fetch_new_messages()
@@ -115,11 +135,17 @@ def test_fetch_new_messages_parses_unseen_and_marks_seen(monkeypatch) -> None:
     assert items[0]["sender"] == "alice@example.com"
     assert items[0]["subject"] == "Invoice"
     assert "Please pay" in items[0]["content"]
-    assert fake.store_calls == [(b"1", "+FLAGS", "\\Seen")]
+    assert ("STORE", "123", "+FLAGS", "(\\Seen)") in fake.uid_calls
+    assert [call for call in fake.uid_calls if call[0] == "FETCH"] == [
+        ("FETCH", "123", "(BODY.PEEK[HEADER])"),
+        ("FETCH", "123", "(BODY.PEEK[])"),
+    ]
+    assert connection_kwargs == {"timeout": EmailChannel._IMAP_TIMEOUT_SECONDS}
 
     # Same UID should be deduped in-process.
     items_again = channel._fetch_new_messages()
     assert items_again == []
+    assert len([call for call in fake.uid_calls if call[0] == "FETCH"]) == 2
 
 
 def test_fetch_new_messages_retries_once_when_imap_connection_goes_stale(monkeypatch) -> None:
@@ -138,14 +164,23 @@ def test_fetch_new_messages_retries_once_when_imap_connection_goes_stale(monkeyp
             return "OK", [b"1"]
 
         def search(self, *_args):
-            self.search_calls += 1
-            if fail_once["pending"]:
-                fail_once["pending"] = False
-                raise imaplib.IMAP4.abort("socket error")
             return "OK", [b"1"]
 
         def fetch(self, _imap_id: bytes, _parts: str):
             return "OK", [(b"1 (UID 123 BODY[] {200})", raw), b")"]
+
+        def uid(self, command: str, *args):
+            if command == "SEARCH":
+                self.search_calls += 1
+                if fail_once["pending"]:
+                    fail_once["pending"] = False
+                    raise imaplib.IMAP4.abort("socket error")
+                return "OK", [b"123"]
+            if command == "FETCH":
+                return "OK", [(b"1 (UID 123 BODY[] {200})", raw), b")"]
+            if command == "STORE":
+                return "OK", [b""]
+            raise AssertionError(f"unexpected UID command: {command}")
 
         def store(self, imap_id: bytes, op: str, flags: str):
             self.store_calls.append((imap_id, op, flags))
@@ -156,7 +191,7 @@ def test_fetch_new_messages_retries_once_when_imap_connection_goes_stale(monkeyp
 
     fake_instances: list[FlakyIMAP] = []
 
-    def _factory(_host: str, _port: int):
+    def _factory(_host: str, _port: int, **_kwargs):
         instance = FlakyIMAP()
         fake_instances.append(instance)
         return instance
@@ -175,10 +210,7 @@ def test_fetch_new_messages_retries_once_when_imap_connection_goes_stale(monkeyp
 def test_fetch_new_messages_keeps_messages_collected_before_stale_retry(monkeypatch) -> None:
     raw_first = _make_raw_email(subject="First", body="First body")
     raw_second = _make_raw_email(subject="Second", body="Second body")
-    mailbox_state = {
-        b"1": {"uid": b"123", "raw": raw_first, "seen": False},
-        b"2": {"uid": b"124", "raw": raw_second, "seen": False},
-    }
+    mailbox_state = {"123": raw_first, "124": raw_second}
     fail_once = {"pending": True}
 
     class FlakyIMAP:
@@ -189,25 +221,37 @@ def test_fetch_new_messages_keeps_messages_collected_before_stale_retry(monkeypa
             return "OK", [b"2"]
 
         def search(self, *_args):
-            unseen_ids = [imap_id for imap_id, item in mailbox_state.items() if not item["seen"]]
-            return "OK", [b" ".join(unseen_ids)]
+            return "OK", [b"1"]
 
         def fetch(self, imap_id: bytes, _parts: str):
             if imap_id == b"2" and fail_once["pending"]:
                 fail_once["pending"] = False
                 raise imaplib.IMAP4.abort("socket error")
-            item = mailbox_state[imap_id]
-            header = b"%s (UID %s BODY[] {200})" % (imap_id, item["uid"])
-            return "OK", [(header, item["raw"]), b")"]
+            return "OK", [(b"1 (UID 123 BODY[] {200})", raw_first), b")"]
+
+        def uid(self, command: str, *args):
+            if command == "SEARCH":
+                return "OK", [b"123 124"]
+            if command == "FETCH":
+                uid = args[0]
+                if uid == "124" and fail_once["pending"]:
+                    fail_once["pending"] = False
+                    raise imaplib.IMAP4.abort("socket error")
+                raw = mailbox_state[uid]
+                return "OK", [(f"1 (UID {uid} BODY[] {{200}})".encode(), raw), b")"]
+            if command == "STORE":
+                return "OK", [b""]
+            raise AssertionError(f"unexpected UID command: {command}")
 
         def store(self, imap_id: bytes, _op: str, _flags: str):
-            mailbox_state[imap_id]["seen"] = True
             return "OK", [b""]
 
         def logout(self):
             return "BYE", [b""]
 
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: FlakyIMAP())
+    monkeypatch.setattr(
+        "hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: FlakyIMAP()
+    )
 
     channel = EmailChannel(_make_config(), MessageBus())
     items = channel._fetch_new_messages()
@@ -228,7 +272,7 @@ def test_fetch_new_messages_skips_missing_mailbox(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "hahobot.channels.email.imaplib.IMAP4_SSL",
-        lambda _h, _p: MissingMailboxIMAP(),
+        lambda _h, _p, **_kwargs: MissingMailboxIMAP(),
     )
 
     channel = EmailChannel(_make_config(), MessageBus())
@@ -611,6 +655,7 @@ def test_fetch_messages_between_dates_uses_imap_since_before_without_mark_seen(m
         def __init__(self) -> None:
             self.search_args = None
             self.store_calls: list[tuple[bytes, str, str]] = []
+            self.uid_calls: list[tuple] = []
 
         def login(self, _user: str, _pw: str):
             return "OK", [b"logged in"]
@@ -625,6 +670,17 @@ def test_fetch_messages_between_dates_uses_imap_since_before_without_mark_seen(m
         def fetch(self, _imap_id: bytes, _parts: str):
             return "OK", [(b"5 (UID 999 BODY[] {200})", raw), b")"]
 
+        def uid(self, command: str, *args):
+            self.uid_calls.append((command, *args))
+            if command == "SEARCH":
+                self.search_args = args
+                return "OK", [b"999"]
+            if command == "FETCH":
+                return "OK", [(b"5 (UID 999 BODY[] {200})", raw), b")"]
+            if command == "STORE":
+                return "OK", [b""]
+            raise AssertionError(f"unexpected UID command: {command}")
+
         def store(self, imap_id: bytes, op: str, flags: str):
             self.store_calls.append((imap_id, op, flags))
             return "OK", [b""]
@@ -633,7 +689,7 @@ def test_fetch_messages_between_dates_uses_imap_since_before_without_mark_seen(m
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     channel = EmailChannel(_make_config(), MessageBus())
     items = channel.fetch_messages_between_dates(
@@ -644,10 +700,11 @@ def test_fetch_messages_between_dates_uses_imap_since_before_without_mark_seen(m
 
     assert len(items) == 1
     assert items[0]["subject"] == "Status"
-    # search(None, "SINCE", "06-Feb-2026", "BEFORE", "07-Feb-2026")
+    # uid("SEARCH", None, "SINCE", "06-Feb-2026", "BEFORE", "07-Feb-2026")
     assert fake.search_args is not None
     assert fake.search_args[1:] == ("SINCE", "06-Feb-2026", "BEFORE", "07-Feb-2026")
     assert fake.store_calls == []
+    assert not [call for call in fake.uid_calls if call[0] == "STORE"]
 
 
 # ---------------------------------------------------------------------------
@@ -655,12 +712,21 @@ def test_fetch_messages_between_dates_uses_imap_since_before_without_mark_seen(m
 # ---------------------------------------------------------------------------
 
 
-def _make_fake_imap(raw: bytes):
+def _make_fake_imap(
+    raw: bytes,
+    *,
+    uid_store_status: str = "OK",
+    uid_store_error: Exception | None = None,
+    sequence_store_error: Exception | None = None,
+    uid_validity: str | None = None,
+):
     """Return a FakeIMAP class pre-loaded with the given raw email."""
 
     class FakeIMAP:
         def __init__(self) -> None:
             self.store_calls: list[tuple[bytes, str, str]] = []
+            self.uid_calls: list[tuple] = []
+            self.uid_validity = uid_validity
 
         def login(self, _user: str, _pw: str):
             return "OK", [b"logged in"]
@@ -671,11 +737,30 @@ def _make_fake_imap(raw: bytes):
         def search(self, *_args):
             return "OK", [b"1"]
 
+        def response(self, code: str):
+            assert code == "UIDVALIDITY"
+            data = [] if self.uid_validity is None else [self.uid_validity.encode("ascii")]
+            return code, data
+
         def fetch(self, _imap_id: bytes, _parts: str):
             return "OK", [(b"1 (UID 500 BODY[] {200})", raw), b")"]
 
+        def uid(self, command: str, *args):
+            self.uid_calls.append((command, *args))
+            if command == "SEARCH":
+                return "OK", [b"500"]
+            if command == "FETCH":
+                return "OK", [(b"1 (UID 500 BODY[] {200})", raw), b")"]
+            if command == "STORE":
+                if uid_store_error is not None:
+                    raise uid_store_error
+                return uid_store_status, [b""]
+            raise AssertionError(f"unexpected UID command: {command}")
+
         def store(self, imap_id: bytes, op: str, flags: str):
             self.store_calls.append((imap_id, op, flags))
+            if sequence_store_error is not None:
+                raise sequence_store_error
             return "OK", [b""]
 
         def logout(self):
@@ -684,17 +769,337 @@ def _make_fake_imap(raw: bytes):
     return FakeIMAP()
 
 
+def test_fetch_new_messages_rejects_unauthorized_sender_before_body_or_attachments(
+    monkeypatch,
+) -> None:
+    raw = _make_raw_email_with_attachment(from_addr="blocked@example.com")
+    fake = _make_fake_imap(raw)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
+
+    attachment_calls = 0
+
+    def _extract_attachments(*_args, **_kwargs):
+        nonlocal attachment_calls
+        attachment_calls += 1
+        return []
+
+    monkeypatch.setattr(EmailChannel, "_extract_attachments", _extract_attachments)
+    channel = EmailChannel(
+        _make_config(
+            allow_from=["allowed@example.com"],
+            allowed_attachment_types=["application/pdf"],
+        ),
+        MessageBus(),
+    )
+
+    assert channel._fetch_new_messages() == []
+    assert attachment_calls == 0
+    assert [call for call in fake.uid_calls if call[0] == "FETCH"] == [
+        ("FETCH", "500", "(BODY.PEEK[HEADER])")
+    ]
+    assert ("STORE", "500", "+FLAGS", "(\\Seen)") in fake.uid_calls
+
+    # The UID is rejected before any FETCH on later polls in this process.
+    assert channel._fetch_new_messages() == []
+    assert len([call for call in fake.uid_calls if call[0] == "FETCH"]) == 1
+
+
+def test_fetch_new_messages_skips_self_sent_mail_before_body(monkeypatch) -> None:
+    raw = _make_raw_email(from_addr="Hahobot <BOT@example.com>", subject="Loop")
+    fake = _make_fake_imap(raw)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
+
+    channel = EmailChannel(_make_config(), MessageBus())
+
+    assert channel._fetch_new_messages() == []
+    assert [call for call in fake.uid_calls if call[0] == "FETCH"] == [
+        ("FETCH", "500", "(BODY.PEEK[HEADER])")
+    ]
+    assert ("STORE", "500", "+FLAGS", "(\\Seen)") in fake.uid_calls
+
+
+def test_fetch_new_messages_dedupes_missing_from_before_body(monkeypatch) -> None:
+    raw = _make_raw_email(from_addr="", subject="Malformed")
+    fake = _make_fake_imap(raw)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
+
+    channel = EmailChannel(_make_config(), MessageBus())
+
+    assert channel._fetch_new_messages() == []
+    assert channel._fetch_new_messages() == []
+    assert [call for call in fake.uid_calls if call[0] == "FETCH"] == [
+        ("FETCH", "500", "(BODY.PEEK[HEADER])")
+    ]
+
+
+@pytest.mark.parametrize("from_addr", ["not-an-email", "alice@example.com, bob@example.com"])
+def test_fetch_new_messages_dedupes_malformed_from_before_body(
+    from_addr: str,
+    monkeypatch,
+) -> None:
+    raw = _make_raw_email(from_addr=from_addr, subject="Malformed")
+    fake = _make_fake_imap(raw)
+    monkeypatch.setattr(
+        "hahobot.channels.email.imaplib.IMAP4_SSL",
+        lambda _h, _p, **_kwargs: fake,
+    )
+
+    channel = EmailChannel(_make_config(), MessageBus())
+
+    assert channel._fetch_new_messages() == []
+    assert channel._fetch_new_messages() == []
+    assert [call for call in fake.uid_calls if call[0] == "FETCH"] == [
+        ("FETCH", "500", "(BODY.PEEK[HEADER])")
+    ]
+
+
+def test_fetch_new_messages_resets_dedupe_when_uidvalidity_changes(monkeypatch) -> None:
+    raw = _make_raw_email()
+    fake = _make_fake_imap(raw, uid_validity="100")
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
+
+    channel = EmailChannel(_make_config(), MessageBus())
+
+    assert len(channel._fetch_new_messages()) == 1
+    assert channel._fetch_new_messages() == []
+
+    fake.uid_validity = "101"
+    assert len(channel._fetch_new_messages()) == 1
+    assert len([call for call in fake.uid_calls if call[0] == "FETCH"]) == 4
+
+
+def test_fetch_new_messages_resets_unknown_uid_namespace_when_it_becomes_known(
+    monkeypatch,
+) -> None:
+    raw = _make_raw_email()
+    fake = _make_fake_imap(raw)
+    monkeypatch.setattr(
+        "hahobot.channels.email.imaplib.IMAP4_SSL",
+        lambda _h, _p, **_kwargs: fake,
+    )
+
+    channel = EmailChannel(_make_config(), MessageBus())
+
+    assert len(channel._fetch_new_messages()) == 1
+    assert channel._fetch_new_messages() == []
+
+    fake.uid_validity = "101"
+    assert len(channel._fetch_new_messages()) == 1
+    assert len([call for call in fake.uid_calls if call[0] == "FETCH"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_stop_wakes_email_poll_sleep(monkeypatch) -> None:
+    channel = EmailChannel(
+        _make_config(poll_interval_seconds=300),
+        MessageBus(),
+    )
+    poll_started = asyncio.Event()
+
+    async def _empty_poll(_func, /, *_args, **_kwargs):
+        poll_started.set()
+        return []
+
+    monkeypatch.setattr(channel, "_run_blocking", _empty_poll)
+
+    start_task = asyncio.create_task(channel.start())
+    await poll_started.wait()
+    await channel.stop()
+    await asyncio.wait_for(start_task, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_stop_drains_inflight_poll_results_and_serializes_restart(monkeypatch) -> None:
+    channel = EmailChannel(
+        _make_config(poll_interval_seconds=300),
+        MessageBus(),
+    )
+    first_poll_started = asyncio.Event()
+    release_first_poll = asyncio.Event()
+    second_poll_started = asyncio.Event()
+    active_polls = 0
+    max_active_polls = 0
+    poll_calls = 0
+
+    async def _controlled_poll(_func, _stop_event, /):
+        nonlocal active_polls, max_active_polls, poll_calls
+        poll_calls += 1
+        active_polls += 1
+        max_active_polls = max(max_active_polls, active_polls)
+        try:
+            if poll_calls == 1:
+                first_poll_started.set()
+                await release_first_poll.wait()
+                return [
+                    {
+                        "sender": "alice@example.com",
+                        "content": "committed before stop",
+                    }
+                ]
+            second_poll_started.set()
+            return []
+        finally:
+            active_polls -= 1
+
+    delivered: list[str] = []
+
+    async def _record_delivery(**kwargs) -> None:
+        delivered.append(kwargs["content"])
+
+    monkeypatch.setattr(channel, "_run_blocking", _controlled_poll)
+    monkeypatch.setattr(channel, "_handle_message", _record_delivery)
+
+    first_start = asyncio.create_task(channel.start())
+    await first_poll_started.wait()
+    first_stop = asyncio.create_task(channel.stop())
+    await asyncio.sleep(0)
+    second_start = asyncio.create_task(channel.start())
+    await asyncio.sleep(0)
+
+    assert not first_stop.done()
+    assert not second_poll_started.is_set()
+
+    release_first_poll.set()
+    await asyncio.wait_for(first_stop, timeout=1)
+    await asyncio.wait_for(second_poll_started.wait(), timeout=1)
+
+    assert delivered == ["committed before stop"]
+    assert max_active_polls == 1
+
+    await channel.stop()
+    await asyncio.wait_for(first_start, timeout=1)
+    await asyncio.wait_for(second_start, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_cancelling_start_notifies_inflight_worker(monkeypatch) -> None:
+    channel = EmailChannel(_make_config(), MessageBus())
+    poll_started = asyncio.Event()
+    received_stop_events: list[threading.Event] = []
+
+    async def _blocked_poll(_func, stop_event, /):
+        received_stop_events.append(stop_event)
+        poll_started.set()
+        while not stop_event.is_set():
+            await asyncio.sleep(0)
+        return []
+
+    monkeypatch.setattr(channel, "_run_blocking", _blocked_poll)
+
+    start_task = asyncio.create_task(channel.start())
+    await poll_started.wait()
+    start_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await start_task
+
+    assert len(received_stop_events) == 1
+    assert received_stop_events[0].is_set()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_start_drains_committed_batch(monkeypatch) -> None:
+    channel = EmailChannel(_make_config(), MessageBus())
+    first_delivery_started = asyncio.Event()
+    release_first_delivery = asyncio.Event()
+    delivered: list[str] = []
+
+    async def _committed_poll(_func, _stop_event, /):
+        return [
+            {"sender": "alice@example.com", "content": "first"},
+            {"sender": "bob@example.com", "content": "second"},
+        ]
+
+    async def _controlled_delivery(**kwargs) -> None:
+        if kwargs["content"] == "first":
+            first_delivery_started.set()
+            await release_first_delivery.wait()
+        delivered.append(kwargs["content"])
+
+    monkeypatch.setattr(channel, "_run_blocking", _committed_poll)
+    monkeypatch.setattr(channel, "_handle_message", _controlled_delivery)
+
+    start_task = asyncio.create_task(channel.start())
+    await first_delivery_started.wait()
+    start_task.cancel()
+    await asyncio.sleep(0)
+
+    assert not start_task.done()
+    assert delivered == []
+
+    release_first_delivery.set()
+    with pytest.raises(asyncio.CancelledError):
+        await start_task
+
+    assert delivered == ["first", "second"]
+
+
+def test_fetch_new_messages_falls_back_to_sequence_store_for_seen(monkeypatch) -> None:
+    raw = _make_raw_email()
+    fake = _make_fake_imap(raw, uid_store_status="BAD")
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
+
+    channel = EmailChannel(_make_config(), MessageBus())
+
+    assert len(channel._fetch_new_messages()) == 1
+    assert ("STORE", "500", "+FLAGS", "(\\Seen)") in fake.uid_calls
+    assert fake.store_calls == [(b"1", "+FLAGS", "\\Seen")]
+
+
+def test_fetch_new_messages_falls_back_when_uid_store_raises(monkeypatch) -> None:
+    raw = _make_raw_email()
+    fake = _make_fake_imap(
+        raw,
+        uid_store_error=imaplib.IMAP4.error("UID STORE unsupported"),
+    )
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
+
+    channel = EmailChannel(_make_config(), MessageBus())
+
+    assert len(channel._fetch_new_messages()) == 1
+    assert fake.store_calls == [(b"1", "+FLAGS", "\\Seen")]
+
+
+def test_seen_flag_failures_do_not_discard_an_accepted_message(monkeypatch) -> None:
+    raw = _make_raw_email()
+    fake = _make_fake_imap(
+        raw,
+        uid_store_error=imaplib.IMAP4.error("UID STORE unsupported"),
+        sequence_store_error=imaplib.IMAP4.error("STORE denied"),
+    )
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
+
+    channel = EmailChannel(_make_config(), MessageBus())
+
+    items = channel._fetch_new_messages()
+    assert len(items) == 1
+    assert items[0]["sender"] == "alice@example.com"
+    assert "500" in channel._processed_uids
+
+    # Process-local UID dedupe prevents a second delivery even though the
+    # server would not allow either STORE form.
+    assert channel._fetch_new_messages() == []
+
+
 def test_spoofed_email_rejected_when_verify_enabled(monkeypatch) -> None:
     """An email without Authentication-Results should be rejected when verify_dkim=True."""
     raw = _make_raw_email(subject="Spoofed", body="Malicious payload")
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(verify_dkim=True, verify_spf=True)
     channel = EmailChannel(cfg, MessageBus())
     items = channel._fetch_new_messages()
 
     assert len(items) == 0, "Spoofed email without auth headers should be rejected"
+    assert [call for call in fake.uid_calls if call[0] == "FETCH"] == [
+        ("FETCH", "500", "(BODY.PEEK[HEADER])")
+    ]
+    assert not [call for call in fake.uid_calls if call[0] == "STORE"]
+
+    # Authentication failures stay unseen for the mailbox owner but are not
+    # repeatedly fetched and logged during this process lifetime.
+    assert channel._fetch_new_messages() == []
+    assert len([call for call in fake.uid_calls if call[0] == "FETCH"]) == 1
 
 
 def test_email_with_valid_auth_results_accepted(monkeypatch) -> None:
@@ -705,7 +1110,7 @@ def test_email_with_valid_auth_results_accepted(monkeypatch) -> None:
         auth_results="mx.example.com; spf=pass smtp.mailfrom=alice@example.com; dkim=pass header.d=example.com",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(verify_dkim=True, verify_spf=True)
     channel = EmailChannel(cfg, MessageBus())
@@ -724,7 +1129,7 @@ def test_email_with_partial_auth_rejected(monkeypatch) -> None:
         auth_results="mx.example.com; spf=pass smtp.mailfrom=alice@example.com; dkim=fail",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(verify_dkim=True, verify_spf=True)
     channel = EmailChannel(cfg, MessageBus())
@@ -737,7 +1142,7 @@ def test_backward_compat_verify_disabled(monkeypatch) -> None:
     """When verify_dkim=False and verify_spf=False, emails without auth headers are accepted."""
     raw = _make_raw_email(subject="NoAuth", body="No auth headers present")
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(verify_dkim=False, verify_spf=False)
     channel = EmailChannel(cfg, MessageBus())
@@ -750,7 +1155,7 @@ def test_email_content_tagged_with_email_context(monkeypatch) -> None:
     """Email content should be prefixed with [EMAIL-CONTEXT] for LLM isolation."""
     raw = _make_raw_email(subject="Tagged", body="Check the tag")
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(verify_dkim=False, verify_spf=False)
     channel = EmailChannel(cfg, MessageBus())
@@ -813,6 +1218,199 @@ def test_check_authentication_results_method() -> None:
     assert dkim is True
 
 
+def test_authentication_results_requires_from_domain_alignment() -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com"
+    msg["Authentication-Results"] = (
+        "mx.example.net; spf=pass smtp.mailfrom=attacker@example.net; "
+        "dkim=pass header.d=example.net"
+    )
+    msg.set_content("test")
+
+    spf, dkim = EmailChannel._check_authentication_results(msg)
+
+    assert spf is False
+    assert dkim is False
+
+
+def test_authentication_results_uses_only_nearest_header() -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com"
+    msg["Authentication-Results"] = (
+        "receiver.example; spf=fail smtp.mailfrom=example.com; dkim=fail header.d=example.com"
+    )
+    msg["Authentication-Results"] = (
+        "forged.example; spf=pass smtp.mailfrom=example.com; dkim=pass header.d=example.com"
+    )
+    msg.set_content("test")
+
+    spf, dkim = EmailChannel._check_authentication_results(msg)
+
+    assert spf is False
+    assert dkim is False
+
+
+def test_authentication_results_dmarc_failure_vetoes_passes() -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com"
+    msg["Authentication-Results"] = (
+        "receiver.example; spf=pass smtp.mailfrom=example.com; "
+        "dkim=pass header.d=example.com; dmarc=fail header.from=example.com"
+    )
+    msg.set_content("test")
+
+    spf, dkim = EmailChannel._check_authentication_results(msg)
+
+    assert spf is False
+    assert dkim is False
+
+
+def test_authentication_results_does_not_trust_result_words_in_reason_text() -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com"
+    msg["Authentication-Results"] = (
+        'receiver.example; spf=fail reason="spf=pass smtp.mailfrom=example.com"; '
+        'dkim=fail reason="dkim=pass header.d=example.com"'
+    )
+    msg.set_content("test")
+
+    spf, dkim = EmailChannel._check_authentication_results(msg)
+
+    assert spf is False
+    assert dkim is False
+
+
+@pytest.mark.parametrize(
+    "auth_results",
+    [
+        (
+            'receiver.example; spf=fail reason="bad; spf=pass '
+            'smtp.mailfrom=example.com"; dkim=fail reason="bad; dkim=pass '
+            'header.d=example.com"'
+        ),
+        (
+            'receiver.example; spf=pass reason="reported smtp.mailfrom=example.com" '
+            'smtp.mailfrom=attacker.net; dkim=pass reason="reported header.d=example.com" '
+            "header.d=attacker.net"
+        ),
+        (
+            "receiver.example; spf=pass (outer (reported smtp.mailfrom=example.com)) "
+            "smtp.mailfrom=attacker.net; dkim=pass (reported header.d=example.com) "
+            "header.d=attacker.net"
+        ),
+        ("receiver.example; spf=pass smtp.mailfrom=co.uk; dkim=pass header.d=co.uk"),
+    ],
+)
+def test_authentication_results_ignores_nested_or_ambiguous_fields(
+    auth_results: str,
+) -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com" if "co.uk" not in auth_results else "allowed@victim.co.uk"
+    msg["Authentication-Results"] = auth_results
+    msg.set_content("test")
+
+    assert EmailChannel._check_authentication_results(msg) == (False, False)
+
+
+def test_authentication_results_accepts_top_level_pairs_with_comments() -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com"
+    msg["Authentication-Results"] = (
+        "receiver.example; spf (method) / (version) 1 = (result) pass "
+        "smtp (property) . mailfrom=(identity)example.com; "
+        "dkim=(result)pass header (property) . d=example.com"
+    )
+    msg.set_content("test")
+
+    assert EmailChannel._check_authentication_results(msg) == (True, True)
+
+
+def test_authentication_results_rejects_duplicate_identity_properties() -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com"
+    msg["Authentication-Results"] = (
+        "receiver.example; spf=pass smtp.mailfrom=example.com "
+        "smtp.mailfrom=attacker.net; dkim=pass header.d=example.com header.d=attacker.net"
+    )
+    msg.set_content("test")
+
+    assert EmailChannel._check_authentication_results(msg) == (False, False)
+
+
+@pytest.mark.parametrize(
+    "auth_results",
+    [
+        (
+            "receiver.example; spf=pass spf=fail smtp.mailfrom=example.com; "
+            "dkim=pass header.d=example.com"
+        ),
+        (
+            "receiver.example; dmarc=pass dmarc=fail; "
+            "spf=pass smtp.mailfrom=example.com; dkim=pass header.d=example.com"
+        ),
+    ],
+)
+def test_authentication_results_rejects_repeated_method_results(auth_results: str) -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com"
+    msg["Authentication-Results"] = auth_results
+    msg.set_content("test")
+
+    assert EmailChannel._check_authentication_results(msg) == (False, False)
+
+
+def test_authentication_results_allows_apostrophe_in_unquoted_reason() -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com"
+    msg["Authentication-Results"] = (
+        "receiver.example; spf=pass reason=sender's-policy smtp.mailfrom=example.com; "
+        "dkim=pass header.d=example.com"
+    )
+    msg.set_content("test")
+
+    assert EmailChannel._check_authentication_results(msg) == (True, True)
+
+
+@pytest.mark.parametrize(
+    "from_addr",
+    ["victim user@example.com", "victim..x@example.com"],
+)
+def test_parse_from_address_rejects_header_defects(from_addr: str) -> None:
+    message = EmailMessage()
+    message["From"] = from_addr
+
+    assert EmailChannel._parse_from_address(message) == ""
+
+
+def test_parse_from_address_preserves_quoted_local_part() -> None:
+    message = EmailMessage()
+    message["From"] = '"a@b"@example.com'
+
+    assert EmailChannel._parse_from_address(message) == '"a@b"@example.com'
+
+
+def test_parse_from_address_rejects_duplicate_fields() -> None:
+    from email import policy
+    from email.parser import BytesParser
+
+    message = BytesParser(policy=policy.default).parsebytes(
+        b"From: allowed@example.com\r\n"
+        b"From: attacker@example.net\r\n"
+        b"Authentication-Results: receiver.example; "
+        b"spf=pass smtp.mailfrom=example.com; dkim=pass header.d=example.com\r\n\r\n"
+    )
+
+    assert EmailChannel._parse_from_address(message) == ""
+    assert EmailChannel._check_authentication_results(message) == (False, False)
+
+
+def test_parse_from_address_rejects_named_group() -> None:
+    message = EmailMessage()
+    message["From"] = "Friends: allowed@example.com;"
+
+    assert EmailChannel._parse_from_address(message) == ""
+
+
 # ---------------------------------------------------------------------------
 # Attachment extraction tests
 # ---------------------------------------------------------------------------
@@ -851,7 +1449,7 @@ def test_extract_attachments_saves_pdf(tmp_path, monkeypatch) -> None:
 
     raw = _make_raw_email_with_attachment()
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(
         allowed_attachment_types=["application/pdf"], verify_dkim=False, verify_spf=False
@@ -872,7 +1470,7 @@ def test_extract_attachments_disabled_by_default(monkeypatch) -> None:
     """With no allowed_attachment_types (default), no attachments are extracted."""
     raw = _make_raw_email_with_attachment()
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(verify_dkim=False, verify_spf=False)
     assert cfg.allowed_attachment_types == []
@@ -894,7 +1492,7 @@ def test_extract_attachments_mime_type_filter(tmp_path, monkeypatch) -> None:
         attachment_mime="image/png",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(
         allowed_attachment_types=["application/pdf"],
@@ -918,7 +1516,7 @@ def test_extract_attachments_empty_allowed_types_rejects_all(tmp_path, monkeypat
         attachment_mime="image/png",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(
         allowed_attachment_types=[],
@@ -942,7 +1540,7 @@ def test_extract_attachments_wildcard_pattern(tmp_path, monkeypatch) -> None:
         attachment_mime="image/jpeg",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(
         allowed_attachment_types=["image/*"],
@@ -964,7 +1562,7 @@ def test_extract_attachments_size_limit(tmp_path, monkeypatch) -> None:
         attachment_content=b"x" * 1000,
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(
         allowed_attachment_types=["*"],
@@ -1000,7 +1598,7 @@ def test_extract_attachments_max_count(tmp_path, monkeypatch) -> None:
     raw = msg.as_bytes()
 
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(
         allowed_attachment_types=["*"],
@@ -1023,7 +1621,7 @@ def test_extract_attachments_sanitizes_filename(tmp_path, monkeypatch) -> None:
         attachment_name="../../../etc/passwd",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("hahobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kwargs: fake)
 
     cfg = _make_config(allowed_attachment_types=["*"], verify_dkim=False, verify_spf=False)
     channel = EmailChannel(cfg, MessageBus())

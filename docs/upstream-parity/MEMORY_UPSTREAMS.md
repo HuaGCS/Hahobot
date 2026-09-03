@@ -8,8 +8,8 @@ memory-architecture inspirations. Neither is a storage-layout parity target.
 
 | Upstream | Audited ref | Previous boundary | Audit result |
 | --- | --- | --- | --- |
-| `claude-mem` | `main@4702c337` (2026-08-08) | `132b4634` | 11 commits reviewed on 2026-08-10; Chroma concurrency, sensitive observations, mode creation, hosted/install work. |
-| `nocturne_memory` | `main@54c48eea` (2026-08-10) | `2cbfb8a` | 7 commits reviewed; bloat diagnostics, content-size reporting, and block-matched patch updates. |
+| `claude-mem` | `main@18b3dab76` (2026-09-02) | `4702c337` | 142 commits reviewed on 2026-09-03; bounded context injection maps locally, while hosted trials, telemetry, marketplace, install, and Chroma lifecycle work do not. |
+| `nocturne_memory` | `main@ffb5c709b` (2026-08-27) | `54c48eea` | 7 commits reviewed on 2026-09-03; memory performance reporting remains a diagnostics idea, while frontend build management is not applicable. |
 
 `claude-mem`'s public repository has been Apache-2.0 since v13.0.0 (`36b0929fa`); its hosted service
 is a separate reserved surface. `nocturne_memory` is MIT-licensed.
@@ -25,6 +25,7 @@ is a separate reserved surface. `nocturne_memory` is MIT-licensed.
 | Patch/append-oriented writes | Consolidation appends new facts instead of asking a model to rewrite the complete memory file. |
 | Concurrent derived indexes | Rebuildable SQLite caches use WAL, busy timeout, and normal synchronous mode. |
 | Layered memory maintenance | Dream maintains `PROFILE.md` and `INSIGHTS.md` with confidence/verification metadata. |
+| Bounded startup recall | Ranked archive/Memorix context already has top-k and character limits, covering the portable intent of claude-mem's bounded injection. |
 
 ## Intentional Divergences
 
@@ -45,6 +46,8 @@ is a separate reserved surface. `nocturne_memory` is MIT-licensed.
   not replace Markdown bullets as the canonical representation.
 - Nocturne's bloat report is a candidate for local doctor/admin diagnostics; its byte threshold and
   graph maintenance UI are not copied directly.
+- Add observation/recall performance counters only when they can be exposed through the existing
+  local doctor/admin surfaces without introducing a second frontend or telemetry channel.
 - Block-matched patching may inform future Dream edit hygiene, but Hahobot keeps explicit file edits
   and Markdown review rather than adopting graph-node mutation semantics.
 - New workflow skills from memory upstreams are demand-driven; they are not automatically bundled.

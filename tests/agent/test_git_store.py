@@ -1,5 +1,7 @@
 """Tests for GitStore — git-backed version control for memory files."""
 
+import os
+
 import pytest
 
 from hahobot.utils.gitstore import CommitInfo, GitStore
@@ -106,6 +108,33 @@ class TestAutoCommit:
         commits = git_ready.log()
         assert len(commits) == 2
         assert commits[0].sha == sha
+
+    def test_commits_same_size_rewrite_with_unchanged_mtime(self, git_ready):
+        path = git_ready._workspace / "SOUL.md"
+        path.write_text("v1", encoding="utf-8")
+        git_ready.auto_commit("v1")
+        previous_stat = path.stat()
+
+        path.write_text("v2", encoding="utf-8")
+        os.utime(path, ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns))
+
+        assert git_ready.auto_commit("v2") is not None
+        assert [commit.message for commit in git_ready.log()[:2]] == ["v2", "v1"]
+
+    def test_auto_commit_does_not_stage_unrelated_files(self, git_ready):
+        workspace = git_ready._workspace
+        unrelated = workspace / "notes.txt"
+        unrelated.write_text("private notes", encoding="utf-8")
+        (workspace / "SOUL.md").write_text("changed", encoding="utf-8")
+
+        assert git_ready.auto_commit("tracked only") is not None
+
+        from dulwich.repo import Repo
+
+        with Repo(str(workspace)) as repo:
+            head = repo[repo.refs[b"HEAD"]]
+            tree = repo[head.tree]
+        assert b"notes.txt" not in tree
 
     def test_does_not_create_empty_commits(self, git_ready):
         git_ready.auto_commit("nothing 1")

@@ -143,7 +143,7 @@ async def test_exec_timeout_cancels_bounded_readers_and_kills_process() -> None:
     process.wait = wait_forever  # type: ignore[method-assign]
     with (
         patch.object(tool, "_spawn", return_value=process),
-        patch.object(tool, "_kill_process", new_callable=AsyncMock) as kill,
+        patch.object(tool, "_kill_process_tree", new_callable=AsyncMock) as kill,
     ):
         result = await tool._execute_after_safety("echo test", cwd="/tmp", timeout=1)
 
@@ -164,7 +164,7 @@ async def test_exec_cancellation_cancels_bounded_readers_and_kills_process() -> 
     process.wait = wait_forever  # type: ignore[method-assign]
     with (
         patch.object(tool, "_spawn", return_value=process),
-        patch.object(tool, "_kill_process", new_callable=AsyncMock) as kill,
+        patch.object(tool, "_kill_process_tree", new_callable=AsyncMock) as kill,
     ):
         task = asyncio.create_task(tool._execute_after_safety("echo test", cwd="/tmp", timeout=60))
         await process.wait_started.wait()

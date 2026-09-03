@@ -430,6 +430,95 @@ async def test_chat_with_retry_prefers_structured_retry_after_when_present(monke
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "retry_kwargs",
+    [
+        {"retry_after": 61.0},
+        {"error_retry_after_s": float("inf")},
+    ],
+)
+async def test_standard_retry_rejects_oversized_provider_delay(
+    monkeypatch, retry_kwargs: dict[str, float]
+) -> None:
+    error = LLMResponse(content="429 rate limit", finish_reason="error", **retry_kwargs)
+    provider = ScriptedProvider([error, LLMResponse(content="should not run")])
+    delays: list[float] = []
+    progress: list[str] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    async def _progress(message: str) -> None:
+        progress.append(message)
+
+    monkeypatch.setattr("hahobot.providers.base.asyncio.sleep", _fake_sleep)
+
+    response = await provider.chat_with_retry(
+        messages=[{"role": "user", "content": "hello"}],
+        on_retry_wait=_progress,
+    )
+
+    assert response is error
+    assert provider.calls == 1
+    assert delays == []
+    assert progress == []
+
+
+@pytest.mark.asyncio
+async def test_standard_retry_accepts_delay_at_safety_boundary(monkeypatch) -> None:
+    provider = ScriptedProvider(
+        [
+            LLMResponse(content="429 rate limit", finish_reason="error", retry_after=60.0),
+            LLMResponse(content="ok"),
+        ]
+    )
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("hahobot.providers.base.asyncio.sleep", _fake_sleep)
+
+    response = await provider.chat_with_retry(messages=[{"role": "user", "content": "hello"}])
+
+    assert response.content == "ok"
+    assert provider.calls == 2
+    assert delays == [30.0, 30.0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retry_after", [61.0, float("inf")])
+async def test_persistent_retry_caps_oversized_provider_delay(
+    monkeypatch, retry_after: float
+) -> None:
+    provider = ScriptedProvider(
+        [
+            LLMResponse(
+                content="429 rate limit",
+                finish_reason="error",
+                retry_after=retry_after,
+            ),
+            LLMResponse(content="ok"),
+        ]
+    )
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("hahobot.providers.base.asyncio.sleep", _fake_sleep)
+
+    response = await provider.chat_with_retry(
+        messages=[{"role": "user", "content": "hello"}],
+        retry_mode="persistent",
+    )
+
+    assert response.content == "ok"
+    assert provider.calls == 2
+    assert delays == [30.0, 30.0]
+
+
+@pytest.mark.asyncio
 async def test_chat_with_retry_retries_structured_status_code_without_keyword(monkeypatch) -> None:
     provider = ScriptedProvider(
         [

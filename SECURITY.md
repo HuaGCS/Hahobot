@@ -60,6 +60,22 @@ chmod 600 ~/.hahobot/config.json
 - In `v0.1.4.post3` and earlier, an empty `allowFrom` allowed all users. Since `v0.1.4.post4`, empty `allowFrom` denies all access by default — set `["*"]` to explicitly allow everyone.
 - Get your Telegram user ID from `@userinfobot`
 - Use full phone numbers with country code for WhatsApp
+- Email polling checks bot-owned addresses, optional SPF/DKIM mailbox policy, and `allowFrom`
+  against IMAP headers before downloading a message body or attachment. SPF/DKIM policy reads only
+  the nearest `Authentication-Results` field, ignores result-like text inside quoted reasons or
+  nested comments, requires an exact identity-domain match with `From`, and treats explicit DMARC
+  failure as rejection. It does **not** perform cryptographic verification: use it only with a
+  receiving service that strips forged authentication headers. `allowFrom` remains a header filter,
+  not proof of the sender's mailbox identity. Missing, duplicate, group-form, or malformed `From`
+  headers fail closed. IMAP sockets have a 30-second network timeout; stop/restart serializes
+  in-flight polls and shields complete publication of already-committed batches. Rejected UIDs are
+  remembered for the current process, while the normal `BaseChannel` authorization check remains
+  defense in depth.
+- Telegram startup raises only credential-redacted terminal exceptions, and its polling/handler
+  logs apply the same bot-token and proxy-userinfo filter. Hahobot also raises the minimum log level
+  for PTB Bot and HTTPX request loggers while Telegram is active, because their verbose records can
+  otherwise contain the Bot API token in request URLs. Stop/restart joins the complete supervisor
+  owner before returning so an old watchdog cannot overlap a replacement run.
 - Review access logs regularly for unauthorized access attempts
 
 ### 3. Shell Command Execution
@@ -98,6 +114,12 @@ Enabling the sandbox also automatically activates `restrictToWorkspace` for file
 
 File operations have path traversal protection, but:
 
+- Recursive `glob` / `grep` scans do not follow directory symlinks, skip special files, run outside
+  the event loop, and return after 500,000 visited paths or a 30-second wall-clock boundary. At most
+  four daemon workers may remain in non-cooperative filesystem/regex operations; later searches
+  fail fast until a slot is released. Grep also uses per-match engine timeouts, concurrent matching,
+  and a 10,000-character pattern cap to bound pathological backtracking. These resource budgets
+  reduce denial-of-service risk but are not a filesystem sandbox.
 - ✅ Enable `restrictToWorkspace` or the bwrap sandbox to confine file access
 - ✅ Run hahobot with a dedicated user account
 - ✅ Use filesystem permissions to protect sensitive directories
@@ -109,7 +131,18 @@ File operations have path traversal protection, but:
 **API Calls:**
 - All external API calls use HTTPS by default
 - Timeouts are configured to prevent hanging requests
+- Provider `Retry-After` hints are bounded at 60 seconds: oversized/non-finite positive hints stop
+  standard retries, while explicit persistent recovery caps each wait at that boundary.
 - Consider using a firewall to restrict outbound connections if needed
+
+**Model/user-selected WebFetch URLs:**
+- Direct fetches validate every redirect hop against the SSRF policy and pin validated DNS when no
+  explicit proxy is configured.
+- A URL with userinfo or a credential-like query parameter, or a redirect chain that encounters
+  one, is never delegated to the third-party Jina reader. Fetch errors log only the URL
+  origin, and fragments are stripped before an eligible Jina request.
+- Secrets embedded in URL paths cannot be detected reliably. Do not give `web_fetch` URLs whose
+  path itself is a credential or webhook token.
 
 **OpenAI-compatible API server (`hahobot serve`):**
 - Binds to `127.0.0.1` by default (local-only). Set `api.authKey` to require
@@ -141,6 +174,11 @@ File operations have path traversal protection, but:
   hahobot process, including the home-directory `.npmrc` and ClawHub config; those files are trusted
   operator inputs. Use a container or VM when executing third-party packages under a stronger
   isolation requirement.
+
+**Exec process cleanup:**
+- Timeout and cancellation terminate the command's owned process tree (a POSIX process group or a
+  Windows Job Object when available), not only the shell parent. This is lifecycle cleanup, not a
+  security sandbox; use bubblewrap, a container, or a VM for isolation.
 
 **WhatsApp Bridge:**
 - The bridge binds to `127.0.0.1:3001` (localhost only, not accessible from external network)
