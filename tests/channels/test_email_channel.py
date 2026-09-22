@@ -1372,6 +1372,28 @@ def test_authentication_results_allows_apostrophe_in_unquoted_reason() -> None:
 
 
 @pytest.mark.parametrize(
+    "auth_results",
+    [
+        (
+            'receiver.example; spf=pass smtp.mailfrom="bounce token"@example.com; '
+            "dkim=pass header.d=example.com"
+        ),
+        (
+            "receiver.example; spf=pass smtp.mailfrom=example.com; "
+            'dkim=pass header.i="alice smith"@example.com'
+        ),
+    ],
+)
+def test_authentication_results_accepts_quoted_mailbox_identity(auth_results: str) -> None:
+    msg = EmailMessage()
+    msg["From"] = "allowed@example.com"
+    msg["Authentication-Results"] = auth_results
+    msg.set_content("test")
+
+    assert EmailChannel._check_authentication_results(msg) == (True, True)
+
+
+@pytest.mark.parametrize(
     "from_addr",
     ["victim user@example.com", "victim..x@example.com"],
 )
@@ -1387,6 +1409,38 @@ def test_parse_from_address_preserves_quoted_local_part() -> None:
     message["From"] = '"a@b"@example.com'
 
     assert EmailChannel._parse_from_address(message) == '"a@b"@example.com'
+
+
+@pytest.mark.parametrize(
+    "sender",
+    [
+        "José <alice@example.com>",
+        '"张三" <alice@example.com>',
+        "=?utf-8?b?5byg5LiJ?= <alice@example.com>",
+    ],
+)
+def test_parse_from_address_accepts_international_display_name(sender: str) -> None:
+    from email import policy
+    from email.parser import BytesParser
+
+    message = BytesParser(policy=policy.default).parsebytes(
+        (f"From: {sender}\r\n\r\nHello").encode()
+    )
+
+    assert EmailChannel._parse_from_address(message) == "alice@example.com"
+
+
+def test_authentication_domain_rejects_lossy_idna_mapping() -> None:
+    assert EmailChannel._authentication_domain("faß.de") == ""
+    assert EmailChannel._authentication_domain("xn--fa-hia.de") == "xn--fa-hia.de"
+    assert EmailChannel._authentication_domain("bücher.example") == "xn--bcher-kva.example"
+
+
+def test_parse_from_address_normalizes_valid_idna_domain() -> None:
+    message = EmailMessage()
+    message["From"] = "Alice <alice@bücher.example>"
+
+    assert EmailChannel._parse_from_address(message) == "alice@xn--bcher-kva.example"
 
 
 def test_parse_from_address_rejects_duplicate_fields() -> None:

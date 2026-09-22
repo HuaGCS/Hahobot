@@ -538,6 +538,11 @@ class QQChannel(BaseChannel):
 
     async def _download_to_media_dir_chunked(self, url: str, filename_hint: str = "") -> str | None:
         """Download an inbound attachment using chunked streaming writes."""
+        ok, error = await validate_url_target(url)
+        if not ok:
+            logger.warning("QQ inbound media URL blocked: {}", error)
+            return None
+
         if not self._http:
             self._http = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120))
 
@@ -549,7 +554,7 @@ class QQChannel(BaseChannel):
             async with self._http.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=120),
-                allow_redirects=True,
+                allow_redirects=False,
             ) as resp:
                 if resp.status != 200:
                     logger.warning("QQ download failed: status={} url={}", resp.status, url)

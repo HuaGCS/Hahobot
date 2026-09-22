@@ -1,5 +1,6 @@
 """Cron tool for scheduling reminders and tasks."""
 
+import time
 from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
@@ -163,11 +164,19 @@ class CronTool(Tool):
             if err := self._validate_timezone(tz):
                 return err
 
+        schedule_count = sum(value is not None for value in (every_seconds, cron_expr, at))
+        if schedule_count != 1:
+            return "Error: exactly one of every_seconds, cron_expr, or at is required"
+
         # Build schedule
         delete_after = False
-        if every_seconds:
+        if every_seconds is not None:
+            if every_seconds <= 0:
+                return "Error: every_seconds must be greater than zero"
             schedule = CronSchedule(kind="every", every_ms=every_seconds * 1000)
-        elif cron_expr:
+        elif cron_expr is not None:
+            if not cron_expr.strip():
+                return "Error: cron_expr must not be empty"
             effective_tz = tz or self._default_timezone
             if err := self._validate_timezone(effective_tz):
                 return err
@@ -184,6 +193,11 @@ class CronTool(Tool):
                     return err
                 dt = dt.replace(tzinfo=ZoneInfo(self._default_timezone))
             at_ms = int(dt.timestamp() * 1000)
+            if at_ms <= int(time.time() * 1000):
+                return (
+                    f"Error: one-time job time '{at}' is not in the future. "
+                    "Retry with a future ISO datetime computed from the current time."
+                )
             schedule = CronSchedule(kind="at", at_ms=at_ms)
             delete_after = True
         else:

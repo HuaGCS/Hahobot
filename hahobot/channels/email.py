@@ -10,6 +10,7 @@ import ssl
 import threading
 from datetime import date
 from email import policy
+from email.errors import UndecodableBytesDefect
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.parser import BytesParser
@@ -734,7 +735,10 @@ class EmailChannel(BaseChannel):
         if addresses is not None:
             groups = getattr(header, "groups", ())
             if (
-                getattr(header, "defects", ())
+                any(
+                    not isinstance(defect, UndecodableBytesDefect)
+                    for defect in getattr(header, "defects", ())
+                )
                 or len(addresses) != 1
                 or any(getattr(group, "display_name", None) is not None for group in groups)
             ):
@@ -747,7 +751,11 @@ class EmailChannel(BaseChannel):
             domain = cls._authentication_domain(raw_domain)
             if not domain:
                 return ""
-            return str(getattr(address, "addr_spec", "") or "").strip().lower()
+            addr_spec = str(getattr(address, "addr_spec", "") or "").strip().lower()
+            if "@" not in addr_spec:
+                return ""
+            addr_local = addr_spec.rsplit("@", 1)[0]
+            return f"{addr_local}@{domain}"
 
         candidate = parseaddr(str(header or ""))[1].strip().lower()
         if candidate.count("@") != 1:
@@ -1089,9 +1097,21 @@ class EmailChannel(BaseChannel):
                         value_chars.append(char)
                 else:
                     return None
+                value = "".join(value_chars)
+                if (
+                    index < len(text)
+                    and text[index] == "@"
+                    and name in {"smtp.mailfrom", "header.i"}
+                ):
+                    domain_start = index
+                    while index < len(text) and not text[index].isspace():
+                        index += 1
+                    suffix = text[domain_start:index]
+                    if re.fullmatch(r"@[a-zA-Z0-9][a-zA-Z0-9.-]*", suffix) is None:
+                        return None
+                    value += suffix
                 if escaped or (index < len(text) and not text[index].isspace()):
                     return None
-                value = "".join(value_chars)
             else:
                 value_start = index
                 while index < len(text) and not text[index].isspace():
@@ -1111,15 +1131,24 @@ class EmailChannel(BaseChannel):
     @staticmethod
     def _authentication_domain(value: str) -> str:
         """Normalize one parsed Authentication-Results identity value."""
-        value = value.strip("\"'<>[]").lower().rstrip(".")
-        if "@" in value:
-            value = value.rsplit("@", 1)[1]
-        labels = value.split(".")
-        if not value or any(
-            not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels
+        candidate = value.strip().strip("\"'<>[]").rstrip(".")
+        if "@" in candidate:
+            candidate = candidate.rsplit("@", 1)[1]
+        candidate = candidate.lower().rstrip(".")
+        if not candidate or any(char.isspace() for char in candidate):
+            return ""
+        try:
+            ascii_domain = candidate.encode("idna").decode("ascii")
+            if not candidate.isascii() and ascii_domain.encode("ascii").decode("idna") != candidate:
+                return ""
+        except UnicodeError:
+            return ""
+        if len(ascii_domain) > 253 or any(
+            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is None
+            for label in ascii_domain.split(".")
         ):
             return ""
-        return value
+        return ascii_domain
 
     @staticmethod
     def _authentication_domains_align(sender_domain: str, identity_domain: str) -> bool:
@@ -1139,10 +1168,22 @@ class EmailChannel(BaseChannel):
                 continue
             if pairs[0][1].lower() != "pass":
                 continue
-            identities = [value for name, value in pairs[1:] if name == identity_property]
-            if len(identities) != 1:
+            properties = dict(pairs[1:])
+            identity = properties.get(identity_property, "")
+            if mechanism == "dkim":
+                # AUID (header.i) is a standard receiver-reported DKIM
+                # identity. Prefer header.d when supplied; never let AUID
+                # override a malformed or unaligned signing domain.
+                if identity_property in properties:
+                    if any(char in identity for char in "@<>"):
+                        continue
+                else:
+                    identity = properties.get("header.i", "")
+                    if "@" not in identity:
+                        continue
+            if not identity:
                 continue
-            identity_domain = cls._authentication_domain(identities[0])
+            identity_domain = cls._authentication_domain(identity)
             if cls._authentication_domains_align(sender_domain, identity_domain):
                 return True
         return False

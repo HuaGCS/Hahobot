@@ -324,7 +324,8 @@ DuckDuckGo：
 或过滤条件后重试。即使文件系统或正则调用暂时无法协作退出，异步调用方也会按墙钟边界返回；
 进程最多保留 4 个 daemon 扫描 worker，额外调用会快速失败直到有空位，不会无限累积线程。
 `grep` 使用可超时且支持并发匹配的正则引擎，并拒绝超过 10,000 字符的 pattern，病态回溯不会
-持有解释器越过扫描截止时间。
+持有解释器越过扫描截止时间。glob 过滤遵循路径段语义：`**` 匹配零个或多个完整路径段，`*` 不会
+跨过 `/`。
 
 ### 图像生成
 
@@ -797,6 +798,7 @@ hahobot channels login whatsapp
 - 对 `workspace/out` 下的本地富媒体，QQ 会优先走 `file_data`
 - 本地文件不再回退到 URL 上传
 - 支持的本地富媒体：图片、`.mp4`、`.silk`
+- 入站附件 URL 会在创建下载会话前经过异步 SSRF 校验，并拒绝重定向，避免公开地址跳转到内网目标
 
 ### DingTalk
 
@@ -862,7 +864,8 @@ hahobot channels login whatsapp
 SPF/DKIM 校验或不在 `allowFrom` 中的邮件，会在下载正文和附件之前被拒绝并在当前进程去重；
 只有通过检查的邮件才会进入正文解析和附件落盘。可选 SPF/DKIM 开关只检查最靠近接收端的
 `Authentication-Results`，只解析引号 reason 与嵌套注释之外的顶层结果/属性，要求身份域与
-`From` 域精确匹配，并拒绝显式 DMARC 失败；这依赖收件服务清除伪造认证头，并不等于本地
+`From` 域经过严格 IDNA 归一化后精确匹配，支持带引号的 mailbox 身份，并拒绝显式 DMARC 失败；
+合法的国际化显示名仍会被接受。这依赖收件服务清除伪造认证头，并不等于本地
 密码学验证，`allowFrom` 也只是头部策略而非邮箱用户身份凭证。IMAP socket 使用 30 秒网络
 超时；缺少、重复、具名地址组或其他结构无效的 `From` 邮件同样会在进程内去重；邮箱
 `UIDVALIDITY` 命名空间变化时会清空旧 UID，避免复用 UID 把新邮件误判为旧邮件。停止/重启
@@ -1082,12 +1085,14 @@ ollama run llama3.2
 
 说明：
 
+- 通用长消息拆分会保留换行后的缩进与 CRLF 边界并跳过空白分段；Telegram 仍使用单独的
+  fenced-Markdown 拆分器
 - `sendProgress`
   是否把 agent 的文字进度流式发到渠道
 - `sendToolHints`
   是否把工具调用提示发到渠道
 - `agents.defaults.toolHintMaxLength`
-  当 `sendToolHints` 开启时，控制单条工具调用提示的最大显示长度；修改后会热重载
+  当 `sendToolHints` 开启时，控制单条工具调用提示的参数值（包括 grep/glob pattern 与搜索词）的最大显示长度；修改后会热重载
 - `sendMaxRetries`
   出站消息失败时的最大重试次数
 - `transcriptionProvider`
@@ -1149,6 +1154,8 @@ AnyIO cancel scope 在跨 task 关闭时造成 CPU 占用或资源泄漏。重�
 建议通过 `tools.mcpServers` 接入，并继续保留当前文件式 `memory/MEMORY.md` 作为用户长期记忆主路径。
 旧对话在被压缩归档时，hahobot 现在也会把结构化副本写到 `memory/archive/`，这样 agent 可以通过 `history_search` / `history_timeline` / `history_expand` 回放历史细节，而不只依赖 `HISTORY.md` 的 grep 检索。
 如果需要更快的本地归档检索，可以设置 `memory.archive.indexBackend: "sqlite"` 启用 persona-local SQLite FTS 派生索引；`index.jsonl` 与 `chunks/*.json` 仍是事实来源，`hahobot memory index rebuild` 可随时重建 `memory/archive/index.sqlite`。
+包含汉字、日文、韩文或注音符号的查询会自动改用转义后的字面子串匹配，避免 SQLite FTS 分词遗漏，
+并继续遵守原有标签与结果数量限制。
 subagent 完成后的 follow-up 结果也会先落到 session history，再进入下一轮 prompt 组装，
 这样后台任务回传不会只存在于瞬时上下文里，重试或异常恢复时也不会丢。
 
@@ -1208,6 +1215,8 @@ HTTP 示例：
 `edit_file` 会拒绝 `old_text` 与 `new_text` 完全相同的空操作，避免误报编辑成功和无意义地重写文件；
 一次性 shell 执行会并发排空 stdout / stderr，并在运行期间只保留有界的头尾预览；高噪声命令不会再
 先把完整输出装进内存、最后才截断到现有的 10,000 字符响应上限；
+相对 `working_dir` 会以配置的 workspace 为基准解析，而不是以 gateway 进程目录为基准，并继续接受
+同一套 workspace 包含性检查；
 超时或取消时会清理完整的子进程树：POSIX 命令运行在独立会话 / 进程组中，Windows 命令则在可用时
 使用关闭即终止的 Job Object；
 workspace 限制下的 shell 路径检查也覆盖 `--output=/tmp/file` 这类等号赋值形式。
@@ -1995,7 +2004,7 @@ hahobot serve
 - 支持 `application/json` 和 `multipart/form-data`
 - content array 里可以带内嵌 base64 / data URL 文件块，也可以直接走 multipart 上传文件
 - 文本型附件会提取进提示词；二进制 / 图片附件在 direct API 路径上会降级成稳定占位说明
-- 不支持流式：`stream=true` 当前不支持
+- JSON `stream` 只接受布尔值或 `null`：`false` / `null` 走非流式路径，`true` 当前不支持
 
 如果走 `multipart/form-data`，请继续用 `messages` 字段传 JSON 字符串，再把一个或多个文件和它一起上传。
 
@@ -2056,6 +2065,9 @@ print(resp.choices[0].message.content)
 `HEARTBEAT.md` 用来描述周期性任务。agent 也可以自己维护它，例如让它“添加一个周期任务”，它会直接更新 `HEARTBEAT.md`。
 
 运行中的 workspace 级 cron service 现在也会周期性重新读取自己的 `cron/jobs.json`。这意味着即使当前调度器手里只有很远之后才触发的任务，另一个进程后面新增的更早任务也能被及时发现，不需要重启 gateway。每次修改都会在跨进程锁内完成完整的最新读取—修改—写回，并通过原子替换提交，因此并行 gateway/CLI 不会互相覆盖任务；到期或手动执行还会先持久化带 token 的认领，避免两个调度器并发执行同一个实时任务。异步调度会固定提交时的 workspace，并在专用存储工作池中完成锁等待与 fsync；定时器重挂只替换等待中的 sleeper，不会取消已经开始产生外部副作用的任务。损坏的 store 会拒绝写回而保留原文件；原子替换开始前的取消不会提交，替换一旦开始则由成功提交结果胜出；workspace 重绑定会先排空旧 workspace 的自动调度 tick，再发布新 store。崩溃或网络结果不明确时仍采用 at-least-once 交付语义，claim 保证的是不同时并发执行，而不是承诺所有边界都绝不重放。
+
+新增 cron 任务时必须且只能提供一种时间形式：正数 `every_seconds`、非空 `cron_expr` 或未来的
+一次性 `at` 时间；冲突字段和已经过去的时间会在写入前被拒绝。
 
 如果需要调节这个轮询上限，可以配置：
 

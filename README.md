@@ -680,6 +680,8 @@ structured chunks. Those archives can later be searched and expanded through too
 Set `memory.archive.indexBackend: "sqlite"` to enable an optional persona-local SQLite FTS index
 for faster archive lookup. The JSONL index and chunk files remain the source of truth;
 `hahobot memory index rebuild` can recreate `memory/archive/index.sqlite` at any time.
+Queries containing Han, Japanese, Hangul, or Bopomofo automatically use escaped literal substring
+matching, avoiding tokenization misses in SQLite FTS while preserving the same result limits.
 
 This gives hahobot a lossless recall path without keeping every old turn in the active prompt.
 Subagent completion follow-ups are also persisted into session history before the next model call,
@@ -736,6 +738,8 @@ Several channels support multi-instance configuration through `channels.<name>.i
 
 Recent upstream nanobot syncs already included here:
 
+- Shared long-message splitting preserves indentation and CRLF boundaries and suppresses blank
+  chunks; Telegram continues to use its separate fence-aware Markdown splitter.
 - Telegram long polling has a liveness supervisor. If no completed `getUpdates` round trip is seen
   for 120 seconds, Hahobot rebuilds the application and HTTP pools with a 5–300 second bounded
   startup backoff. Sends briefly wait for rebuild readiness so the channel manager can retry rather
@@ -762,12 +766,15 @@ Recent upstream nanobot syncs already included here:
   session.
 - Slack and Feishu leave fenced pipe-delimited code intact instead of converting it to a table;
   Feishu also tolerates null text/list fields in post and card payloads.
+- QQ validates inbound attachment URLs against the SSRF policy before opening a download session
+  and refuses redirects, so a public URL cannot redirect the bot to a private target.
 - Email polling uses stable IMAP UIDs and fetches headers first. Self-sent, SPF/DKIM-rejected, or
   `allowFrom`-rejected mail is filtered and process-deduplicated before its body or attachments are
   downloaded; only accepted mail reaches body parsing and attachment storage. The optional
   SPF/DKIM switches inspect only the nearest `Authentication-Results` field, parse only top-level
-  result/property pairs outside quoted reasons and nested comments, require an exact identity-domain
-  match with `From`, and reject an explicit DMARC failure. This trusts the receiving mail service to
+  result/property pairs outside quoted reasons and nested comments, accept quoted mailbox
+  identities, require an exact strict-IDNA identity-domain match with `From`, and reject an explicit
+  DMARC failure. Valid international display names remain accepted. This trusts the receiving mail service to
   remove forged authentication headers; it is not local cryptographic verification, and `allowFrom`
   remains a header policy rather than proof of a mailbox user's identity. IMAP sockets use a
   30-second network timeout, missing, duplicate, group-form, or otherwise invalid `From` mail is
@@ -796,8 +803,9 @@ Recent upstream nanobot syncs already included here:
   does not permanently change the configured mode.
 - Workspace-restricted shell commands also inspect assignment-form paths such as
   `--output=/tmp/result`, closing the whitespace-only path-check gap.
-- `agents.defaults.toolHintMaxLength` controls how much of each tool-call hint is shown when
-  `channels.sendToolHints` is enabled; it hot-reloads with the rest of the safe agent defaults.
+- `agents.defaults.toolHintMaxLength` controls how much of each tool-call hint argument is shown when
+  `channels.sendToolHints` is enabled, including grep/glob patterns and search queries; it
+  hot-reloads with the rest of the safe agent defaults.
 - A built-in `websocket` channel can expose hahobot as a local WebSocket server; see
   [`docs/WEBSOCKET.md`](docs/WEBSOCKET.md) for the handshake and frame contract.
 - Direct OpenAI requests for GPT-5 / o1 / o3 / o4 models, or requests with
@@ -880,6 +888,8 @@ Notable gateway features:
   replace a malformed store, pre-replace cancellation leaves no commit, and a replace already in
   progress wins over cancellation; workspace rebinding drains old automated ticks before publishing
   the new store (delivery remains at-least-once across ambiguous crash/network boundaries)
+- cron creation requires exactly one schedule form; intervals must be positive, cron expressions
+  nonblank, and one-shot timestamps in the future
 - that periodic wake interval is configurable through `gateway.cron.maxSleepMs`
 
 Admin and status routes are disabled by default and should be explicitly configured.
@@ -898,7 +908,8 @@ This API is intentionally narrow:
 - accepts either `application/json` or `multipart/form-data`
 - content arrays may include inline base64/data-URL file blocks, and multipart uploads are also accepted
 - text-like attachments are extracted into the prompt; binary/image attachments fall back to stable placeholders on the direct API path
-- `stream=true` is not supported unless the API contract is deliberately expanded later
+- JSON `stream` must be boolean or null: false/null is non-streaming, while `true` is not supported
+  unless the API contract is deliberately expanded later
 
 For `multipart/form-data`, send the usual `messages` payload as a JSON string field and attach one
 or more uploaded files alongside it.
@@ -962,7 +973,9 @@ seconds. The async caller enforces the wall-clock return even when a filesystem 
 cannot cooperate, and at most four daemon scan workers may exist; additional calls fail fast until
 a slot is released. Grep uses a timeout-capable regex engine with concurrent matching and rejects
 patterns over 10,000 characters, so pathological backtracking cannot hold the interpreter past the
-scan deadline. Narrow the root or filters and retry if a repository reaches either safety budget.
+scan deadline. Glob filters use path-segment semantics: `**` matches zero or more complete segments,
+while `*` does not cross `/`. Narrow the root or filters and retry if a repository reaches either
+safety budget.
 `edit_file` rejects replacements whose `old_text` and `new_text` are identical instead of
 reporting a successful edit and rewriting the file unnecessarily.
 The shell tool can also forward a narrow allowlist of environment variables through
@@ -972,6 +985,8 @@ previews while the process runs. A noisy command therefore cannot make Hahobot b
 output before applying the existing 10,000-character response cap. Timeout and cancellation clean
 up the complete child process tree: POSIX commands run in their own session/process group and
 Windows commands use a kill-on-close Job Object when available.
+Relative shell working directories resolve from the configured workspace rather than the gateway's
+process directory, and still pass through the workspace containment guard.
 Shell execution uses `tools.exec.confirmationMode: "model"` by default. Commands selected for
 review are held without spawning a process; `/approve` executes the next command for the same
 chat, session, and sender, while `/approve all` consumes only that origin's current pending queue.

@@ -8,8 +8,8 @@ memory-architecture inspirations. Neither is a storage-layout parity target.
 
 | Upstream | Audited ref | Previous boundary | Audit result |
 | --- | --- | --- | --- |
-| `claude-mem` | `main@18b3dab76` (2026-09-02) | `4702c337` | 142 commits reviewed on 2026-09-03; bounded context injection maps locally, while hosted trials, telemetry, marketplace, install, and Chroma lifecycle work do not. |
-| `nocturne_memory` | `main@ffb5c709b` (2026-08-27) | `54c48eea` | 7 commits reviewed on 2026-09-03; memory performance reporting remains a diagnostics idea, while frontend build management is not applicable. |
+| `claude-mem` | `main@4520de9e0` (2026-09-21) | `18b3dab76` | 182 commits (164 first-parent) reviewed on 2026-09-22; CJK substring recall maps locally, while hosted UI/telemetry/install and Chroma-specific work do not. |
+| `nocturne_memory` | `main@ffb5c709b` (2026-08-27) | `ffb5c709b` | No new commits on 2026-09-22; the prior diagnostics/watchlist disposition is unchanged. |
 
 `claude-mem`'s public repository has been Apache-2.0 since v13.0.0 (`36b0929fa`); its hosted service
 is a separate reserved surface. `nocturne_memory` is MIT-licensed.
@@ -26,6 +26,7 @@ is a separate reserved surface. `nocturne_memory` is MIT-licensed.
 | Concurrent derived indexes | Rebuildable SQLite caches use WAL, busy timeout, and normal synchronous mode. |
 | Layered memory maintenance | Dream maintains `PROFILE.md` and `INSIGHTS.md` with confidence/verification metadata. |
 | Bounded startup recall | Ranked archive/Memorix context already has top-k and character limits, covering the portable intent of claude-mem's bounded injection. |
+| Unsegmented-script recall (`bfe469449`) | Persona SQLite facts queries containing Han, Japanese, Hangul, or Bopomofo use escaped literal substring matching with the existing tag and result bounds; Markdown remains canonical. |
 
 ## Intentional Divergences
 

@@ -103,6 +103,70 @@ async def test_on_group_message_routes_to_group_chat_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_inbound_media_rejects_blocked_url_before_opening_session(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    channel = QQChannel(
+        QQConfig(app_id="app", secret="secret", allow_from=["*"]),
+        MessageBus(),
+        workspace=tmp_path,
+    )
+    validate = AsyncMock(return_value=(False, "private address"))
+    monkeypatch.setattr("hahobot.channels.qq.validate_url_target", validate)
+
+    result = await channel._download_to_media_dir_chunked(
+        "http://127.0.0.1/secret.png",
+        "secret.png",
+    )
+
+    assert result is None
+    validate.assert_awaited_once_with("http://127.0.0.1/secret.png")
+    assert channel._http is None
+
+
+@pytest.mark.asyncio
+async def test_inbound_media_download_does_not_follow_redirects(tmp_path, monkeypatch) -> None:
+    class FakeResponse:
+        status = 302
+        headers: dict[str, str] = {"Location": "http://127.0.0.1/secret"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class FakeHttp:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+
+        def get(self, url: str, **kwargs):
+            self.calls.append((url, kwargs))
+            return FakeResponse()
+
+    channel = QQChannel(
+        QQConfig(app_id="app", secret="secret", allow_from=["*"]),
+        MessageBus(),
+        workspace=tmp_path,
+    )
+    fake_http = FakeHttp()
+    channel._http = fake_http
+    monkeypatch.setattr(
+        "hahobot.channels.qq.validate_url_target",
+        AsyncMock(return_value=(True, None)),
+    )
+
+    result = await channel._download_to_media_dir_chunked(
+        "https://files.example.com/redirect.png",
+        "redirect.png",
+    )
+
+    assert result is None
+    assert fake_http.calls[0][1]["allow_redirects"] is False
+
+
+@pytest.mark.asyncio
 async def test_send_group_message_uses_plain_text_group_api_with_msg_seq() -> None:
     channel = QQChannel(QQConfig(app_id="app", secret="secret", allow_from=["*"]), MessageBus())
     channel._client = _FakeClient()

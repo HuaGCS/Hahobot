@@ -183,6 +183,57 @@ def test_search_filters_by_tag(tmp_path: Path) -> None:
     assert [r["id"] for r in project_only] == ["j"]
 
 
+@pytest.mark.parametrize(
+    ("fragment", "query"),
+    [
+        ("用户偏好简洁回复", "偏好简洁"),
+        ("ユーザーは簡潔な返信を好みます", "簡潔な返信"),
+        ("사용자는 간결한 답변을 선호합니다", "간결한 답변"),
+        ("ㄅㄆㄇ ㄧㄨㄩ", "ㄧㄨ"),
+    ],
+)
+def test_search_unsegmented_scripts_uses_substring_fallback(
+    tmp_path: Path,
+    fragment: str,
+    query: str,
+) -> None:
+    memory_dir = _persona_workspace(tmp_path)
+    index = MemoryFactsSQLiteIndex(memory_dir)
+    _seed(index, parse_memory_fragments(fragment, default_ts="2026-05-26T17:00"))
+
+    assert [row["fragment"] for row in index.search(query=query, limit=5)] == [fragment]
+
+
+def test_search_unsegmented_script_escapes_like_wildcards_and_filters_tag(tmp_path: Path) -> None:
+    memory_dir = _persona_workspace(tmp_path)
+    index = MemoryFactsSQLiteIndex(memory_dir)
+    fragments = [
+        {
+            "id": "literal",
+            "fragment": "中文 100%_done",
+            "ts": "2026-05-26T18:00",
+            "tag": "project",
+            "src": "turn",
+            "fragment_order": 0,
+            "char_len": 13,
+        },
+        {
+            "id": "wildcard-only",
+            "fragment": "中文 100xxdone",
+            "ts": "2026-05-26T19:00",
+            "tag": "preference",
+            "src": "turn",
+            "fragment_order": 1,
+            "char_len": 13,
+        },
+    ]
+    _seed(index, fragments)
+
+    results = index.search(query="中文 100%_done", limit=5, tag="project")
+
+    assert [row["id"] for row in results] == ["literal"]
+
+
 def test_ensure_current_rebuilds_when_db_missing(tmp_path: Path) -> None:
     memory_dir = _persona_workspace(tmp_path)
     index = MemoryFactsSQLiteIndex(memory_dir)

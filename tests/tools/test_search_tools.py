@@ -79,6 +79,45 @@ async def test_grep_respects_glob_filter_and_context(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["glob", "grep"])
+@pytest.mark.parametrize(
+    ("file_glob", "expected"),
+    [
+        ("**/*.py", ["main.py", "src/api.py", "src/nested/deep/worker.py"]),
+        ("src/**/*.py", ["src/api.py", "src/nested/deep/worker.py"]),
+        ("src/**", ["src/api.py", "src/nested/deep/worker.py"]),
+        ("src/*.py", ["src/api.py"]),
+        ("src/**/deep/*.py", ["src/nested/deep/worker.py"]),
+        (r"src\**\*.py", ["src/api.py", "src/nested/deep/worker.py"]),
+    ],
+)
+async def test_search_globstar_matches_zero_or_more_path_segments(
+    tmp_path: Path,
+    tool_name: str,
+    file_glob: str,
+    expected: list[str],
+) -> None:
+    (tmp_path / "src" / "nested" / "deep").mkdir(parents=True)
+    for relative in ("main.py", "src/api.py", "src/nested/deep/worker.py"):
+        (tmp_path / relative).write_text("needle\n", encoding="utf-8")
+
+    if tool_name == "glob":
+        result = await GlobTool(workspace=tmp_path, allowed_dir=tmp_path).execute(
+            pattern=file_glob,
+            path=".",
+        )
+    else:
+        result = await GrepTool(workspace=tmp_path, allowed_dir=tmp_path).execute(
+            pattern="needle",
+            path=".",
+            glob=file_glob,
+            output_mode="files_with_matches",
+        )
+
+    assert sorted(result.splitlines()) == expected
+
+
+@pytest.mark.asyncio
 async def test_grep_defaults_to_files_with_matches(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.py").write_text("match_here\n", encoding="utf-8")

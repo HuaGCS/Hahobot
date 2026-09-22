@@ -6,9 +6,9 @@ clone or AtomGit web inspection rather than GitHub APIs.
 
 ## Current Boundary
 
-- Audited ref: `develop@896664ce0` (2026-09-03)
-- Previous boundary: `fb43da6c`
-- Range reviewed: 348 commits, 335 first-parent; history advanced linearly
+- Audited ref: `develop@1b2221adf` (2026-09-22)
+- Previous boundary: `896664ce0`
+- Range reviewed: 454 commits, 346 first-parent; history advanced linearly
 
 ## Adopted Or Mapped Ideas
 
@@ -26,6 +26,7 @@ clone or AtomGit web inspection rather than GitHub APIs.
 | MCP prewarm and failure isolation (`b2c8c0ca5`, `7ebebe3fe`) | Turn preparation connects servers concurrently and preserves healthy servers when one connection fails. | `synced` |
 | Context-window accounting (`f2d661384`) | Provider-aware limits and local compaction already bound assembled turn context. | `synced` |
 | Orphaned process groups (`92ff09692`) | The analogous one-shot exec boundary now owns POSIX sessions/process groups and Windows Job Objects. | `synced` |
+| Past one-shot schedule rejection (`63b796bbe`) | Cron add rejects `at` values that are not in the future; this reinforces the same boundary ported from nanobot. | `synced` |
 
 ## Intentional Divergences
 
@@ -50,6 +51,10 @@ clone or AtomGit web inspection rather than GitHub APIs.
   runtime; they are not needed for the current single-instance workspace model.
 - Explicit one-gateway-per-workspace ownership if deployment expands beyond one process; existing
   cron claims prevent duplicate job execution but are not a general gateway ownership lease.
+
+The 2026-09-22 range's event-loop, archive/config, Team, marketplace, UI, and tool-system changes
+were reviewed. They are already covered by current owners, architecture-specific, or remain
+ideas-only; no parallel service or frontend was introduced.
 
 See the [current root ledger](../../UPSTREAM_PARITY.md) and the
 [complete 2026 audit log](AUDIT_LOG_2026.md) for detailed dated analysis.

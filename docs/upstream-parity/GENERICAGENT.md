@@ -6,9 +6,9 @@ memory, hooks, subagents, Dream, heartbeat, and admin surfaces.
 
 ## Current Boundary
 
-- Audited ref: `main@71cf559fa` (2026-09-02; audited on 2026-09-03)
-- Previous recorded boundary: `63f9db74e`
-- Range reviewed: 31 commits, 22 first-parent; history advanced linearly.
+- Audited ref: `main@9d1add778` (2026-09-19; audited on 2026-09-22)
+- Previous recorded boundary: `71cf559fa`
+- Range reviewed: 9 linear commits; history advanced linearly.
 - Remote rule: keep `remote.genericagent-upstream.tagOpt = --no-tags`
 
 ## Current Mapping
@@ -24,15 +24,10 @@ memory, hooks, subagents, Dream, heartbeat, and admin surfaces.
 | Provider retry-delay safety | Shared `LLMProvider._run_with_retry` finite/persistent policy | `synced` |
 | Minimal autonomous loop | Richer Hahobot runtime surfaces remain first-class | `intentional_divergence` |
 
-The latest range is primarily conductor/desktop/Streamlit, Hub/P2P, and upstream loop-shape work;
-no direct local port was needed. Its summary false-positive fix (`f06d55038`) targets a heuristic
-Hahobot does not use, linear history trimming (`0c235a806`) does not match local Dream/compaction,
-and stream/retry abort changes (`3327a6c88`, `3d62523d4`) are already represented by Hahobot's
-cancellation and provider retry owners. Native Claude API-header handling (`c9cb4b53e`) belongs to a
-different provider construction path. `7ffc95823`'s oversized `Retry-After` cap is adapted into the
-shared retry owner: positive finite hints through 60 seconds are honored, finite/standard retry
-returns the current transient response immediately for larger or infinite hints, and persistent
-retry caps those hints at 60 seconds so its explicit keep-recovering contract remains intact.
+The latest nine-commit range is confined to desktop/P2P behavior and urllib3 socket-cancellation
+internals. Those owners do not map cleanly to Hahobot's aiohttp gateway, channel adapters, provider
+pool, or explicit task cancellation, so no direct local port was needed. The previously adopted
+`7ffc95823` retry-delay boundary remains in the shared provider retry owner.
 
 ## Intentional Divergences
 

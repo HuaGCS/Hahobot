@@ -92,6 +92,42 @@ def _agent_loop(tmp_path, *, max_tool_result_chars: int = 16_000):
         )
 
 
+@pytest.mark.asyncio
+async def test_relative_working_directory_resolves_from_workspace(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    subdir = workspace / "subdir"
+    subdir.mkdir(parents=True)
+    tool = ExecTool(
+        working_dir=str(workspace),
+        restrict_to_workspace=True,
+        confirmation_mode="allow",
+    )
+
+    with patch.object(tool, "_execute_after_safety", new_callable=AsyncMock) as execute:
+        execute.return_value = "ok"
+        result = await tool.execute("echo ok", working_dir="subdir")
+
+    assert result == "ok"
+    execute.assert_awaited_once_with("echo ok", cwd=str(subdir.resolve()), timeout=None)
+
+
+@pytest.mark.asyncio
+async def test_relative_working_directory_cannot_escape_workspace(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    tool = ExecTool(
+        working_dir=str(workspace),
+        restrict_to_workspace=True,
+        confirmation_mode="allow",
+    )
+
+    result = await tool.execute("echo ok", working_dir="../outside")
+
+    assert "working directory outside workspace" in result
+
+
 def test_config_defaults_to_model_while_raw_tool_stays_sdk_compatible() -> None:
     assert ExecToolConfig().confirmation_mode == "model"
     assert ExecTool().confirmation_mode == "allow"

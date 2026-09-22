@@ -1,5 +1,7 @@
 """Tests for tool hint formatting (hahobot.utils.tool_hints)."""
 
+import pytest
+
 from hahobot.providers.base import ToolCallRequest
 from hahobot.utils.tool_hints import format_tool_hints
 
@@ -257,6 +259,22 @@ class TestToolHintMaxLength:
         long = _hint([_tc("read_file", {"path": path})], max_length=80)
         assert len(long) > len(short)
         assert "loop.py" in short
+
+    @pytest.mark.parametrize(
+        ("name", "key"),
+        [("grep", "pattern"), ("glob", "pattern"), ("web_search", "query")],
+    )
+    def test_plain_value_tools_respect_max_length(self, name, key):
+        short = _hint([_tc(name, {key: "x" * 400})], max_length=40)
+        long = _hint([_tc(name, {key: "x" * 400})], max_length=120)
+
+        assert len(long) > len(short)
+        assert "\u2026" in short
+
+    def test_plain_value_at_max_length_is_untouched(self):
+        query = "a" * 40
+
+        assert _hint([_tc("web_search", {"query": query})], max_length=40) == (f'search "{query}"')
 
     def test_fallback_respects_max_length(self):
         long_val = "a" * 100

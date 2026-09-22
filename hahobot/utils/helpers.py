@@ -373,21 +373,58 @@ def split_message(content: str, max_len: int = 2000) -> list[str]:
         return [content]
     if len(content) <= max_len:
         return [content]
+    original_content = content
     chunks: list[str] = []
     while content:
         if len(content) <= max_len:
-            chunks.append(content)
+            if content.strip():
+                chunks.append(content)
             break
         cut = content[:max_len]
-        # Try to break at newline first, then space, then hard break
-        pos = cut.rfind("\n")
-        if pos <= 0:
-            pos = cut.rfind(" ")
-        if pos <= 0:
-            pos = max_len
-        chunks.append(content[:pos])
-        content = content[pos:].lstrip()
-    return chunks
+        # Consume only the newline itself so indentation starts the next chunk.
+        newline_pos = cut.rfind("\n")
+        if newline_pos >= 0:
+            line_end = newline_pos
+            if line_end > 0 and content[line_end - 1] == "\r":
+                line_end -= 1
+            chunk = content[:line_end]
+            if chunk.strip():
+                chunks.append(chunk)
+            content = content[newline_pos + 1 :]
+            continue
+
+        space_pos = cut.rfind(" ")
+        if space_pos > 0 and cut[:space_pos].strip():
+            chunks.append(content[:space_pos])
+            content = content[space_pos:].lstrip(" \t")
+            if content.startswith("\r\n"):
+                content = content[2:]
+            elif content.startswith("\n"):
+                content = content[1:]
+            continue
+
+        # Never split the two code points of a CRLF delimiter.
+        if cut.endswith("\r") and content[max_len : max_len + 1] == "\n":
+            chunk = cut[:-1]
+            if chunk.strip():
+                chunks.append(chunk)
+            content = content[max_len + 1 :]
+            continue
+
+        chunk = content[:max_len]
+        if chunk.strip():
+            chunks.append(chunk)
+        content = content[max_len:]
+        if not chunk.strip():
+            continue
+        content = content.lstrip(" \t")
+        if content.startswith("\r\n"):
+            content = content[2:]
+        elif content.startswith("\n"):
+            content = content[1:]
+
+    # Preserve the historical non-empty-input contract for whitespace-only input.
+    return chunks or [original_content[:max_len]]
 
 
 def build_assistant_message(

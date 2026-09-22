@@ -173,6 +173,41 @@ async def test_stream_true_returns_400(aiohttp_client, app) -> None:
     assert "stream" in body["error"]["message"].lower()
 
 
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", ["false", "true", 0, 1, [], {}])
+async def test_json_stream_requires_boolean_or_null(
+    aiohttp_client,
+    app,
+    mock_agent,
+    stream,
+) -> None:
+    client = await aiohttp_client(app)
+
+    resp = await client.post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "hello"}], "stream": stream},
+    )
+
+    assert resp.status == 400
+    assert (await resp.json())["error"]["message"] == "stream must be a boolean"
+    mock_agent.process_direct.assert_not_called()
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_json_stream_null_is_non_streaming(aiohttp_client, app, mock_agent) -> None:
+    client = await aiohttp_client(app)
+
+    resp = await client.post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "hello"}], "stream": None},
+    )
+
+    assert resp.status == 200
+    mock_agent.process_direct.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_model_mismatch_returns_400() -> None:
     request = MagicMock()

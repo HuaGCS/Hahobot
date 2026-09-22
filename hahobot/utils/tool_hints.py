@@ -92,6 +92,8 @@ def _fmt_known(tc, fmt: tuple, max_length: int = 40) -> str:
         val = abbreviate_path(val, max_len=max_length)
     elif fmt[3]:  # is_command
         val = _abbreviate_command(val, max_len=max_length)
+    elif max_length > 0 and len(val) > max_length:
+        val = val[: max_length - 1] + "\u2026"
     return fmt[1].format(val)
 
 

@@ -409,8 +409,12 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     if not isinstance(messages, list) or len(messages) != 1:
         return _error_json(400, "Only a single user message is supported")
 
-    # Stream not yet supported
-    if body.get("stream", False):
+    # Stream not yet supported. Keep JSON protocol selection type-safe while
+    # accepting explicit null as the same non-streaming default many clients emit.
+    stream_value = body.get("stream", False)
+    if stream_value is not None and not isinstance(stream_value, bool):
+        return _error_json(400, "stream must be a boolean")
+    if stream_value is True:
         return _error_json(400, "stream=true is not supported yet. Set stream=false or omit it.")
 
     message = messages[0]

@@ -20,6 +20,9 @@ _HEADER_RE = re.compile(r"^<!--\s*(?P<body>.*?)\s*-->\s*$")
 _TOKEN_RE = re.compile(r"(?P<key>ts|tag|src):(?P<value>\S+)")
 _LEGACY_TAG = "legacy"
 _UNKNOWN_SRC = "unknown"
+_UNSEGMENTED_SCRIPT_RE = re.compile(
+    r"[\u3040-\u30FF\u3100-\u318F\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF]"
+)
 
 
 @contextmanager
@@ -152,6 +155,9 @@ class MemoryFactsSQLiteIndex:
         if not query.strip():
             return self.recent(limit=limit, tag=tag)
 
+        if _UNSEGMENTED_SCRIPT_RE.search(query):
+            return self._substring_search(query=query, limit=limit, tag=tag)
+
         where: list[str] = ["facts_fts MATCH ?"]
         params: list[Any] = [self._fts_query(query)]
         if tag:
@@ -165,6 +171,33 @@ class MemoryFactsSQLiteIndex:
             JOIN facts f ON facts_fts.rowid = f.rowid
             WHERE {" AND ".join(where)}
             ORDER BY bm25(facts_fts), f.ts DESC
+            LIMIT ?
+        """
+        with _connect(self.db_path, read_only=True) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def _substring_search(
+        self,
+        *,
+        query: str,
+        limit: int,
+        tag: str | None,
+    ) -> list[dict[str, Any]]:
+        """Search scripts that SQLite FTS5 ``unicode61`` cannot segment."""
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where = [r"fragment LIKE ? ESCAPE '\'"]
+        params: list[Any] = [f"%{escaped}%"]
+        if tag:
+            where.append("tag = ?")
+            params.append(tag)
+        params.append(max(1, min(limit, 50)))
+        sql = f"""
+            SELECT id, fragment, ts, tag, src, fragment_order, char_len
+            FROM facts
+            WHERE {" AND ".join(where)}
+            ORDER BY ts DESC, fragment_order DESC
             LIMIT ?
         """
         with _connect(self.db_path, read_only=True) as conn:

@@ -254,7 +254,15 @@ class ExecTool(Tool):
         requires_confirmation: bool | None = None,
         **kwargs: Any,
     ) -> str:
-        cwd = str(Path(working_dir or self.working_dir or os.getcwd()).expanduser().resolve())
+        workspace_root = Path(self.working_dir or os.getcwd()).expanduser()
+        if working_dir:
+            requested_dir = Path(working_dir).expanduser()
+            cwd_path = (
+                requested_dir if requested_dir.is_absolute() else workspace_root / requested_dir
+            )
+        else:
+            cwd_path = workspace_root
+        cwd = str(cwd_path.resolve())
         safety_error = await self._safety_error(command, cwd)
         if safety_error:
             return safety_error

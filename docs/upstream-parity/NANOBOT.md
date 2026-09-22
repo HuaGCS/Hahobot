@@ -6,15 +6,23 @@ own architecture; file-for-file mirroring is not required.
 
 ## Current Boundary
 
-- Audited ref: `main@d81aa5a4a` (2026-09-02; audited 2026-09-03)
-- Previous boundary: `abfcdd481`
-- Range reviewed: 362 linear commits; the previous boundary remains an ancestor
+- Audited ref: `main@6bf604d43` (2026-09-22; audited 2026-09-22)
+- Previous boundary: `d81aa5a4a`
+- Range reviewed: 242 linear commits; the previous boundary remains an ancestor
 - Remote rule: keep `remote.nanobot-upstream.tagOpt = --no-tags`
 
 ## Latest Adopted Clusters
 
 | Upstream commits | Local disposition |
 | --- | --- |
+| `01760b738`, `8509432dc`, `b04aeeac0` | Shared message splitting preserves leading indentation, handles CRLF boundaries, drops empty chunks, and always advances. Telegram keeps its separate fence-aware splitter. |
+| `eddfa0dd6` | Registered plain-value tool hints apply `agents.defaults.toolHintMaxLength`, matching path/command/fallback hints instead of bypassing the cap. |
+| `7aaff4f66` | Relative exec `working_dir` values resolve from the configured workspace; the existing resolved-path workspace guard still rejects escapes. |
+| `104917aae` | Glob and grep treat `**` as zero or more complete path segments, including a match at the pattern root, while retaining traversal budgets and Windows-separator normalization. |
+| `835cac0ae`, `b1d54b2ca` | Cron add requires exactly one schedule field, positive intervals/nonblank expressions, and a future one-shot time. |
+| `12c2c95cb`, `b6b7caafd` | JSON OpenAI-compatible requests reject non-boolean, non-null `stream`; `null` remains non-streaming and `true` remains an intentional unsupported contract. |
+| `9b50a0227`, `0afebd474` | QQ inbound attachment downloads asynchronously validate the initial URL before opening an HTTP session and reject redirects. |
+| `47f77bdbc` | Email From parsing accepts valid international display names and receiver authentication parsing supports quoted mailbox identities while preserving unique-mailbox, exact-domain, and strict IDNA checks. |
 | `f573ecfe5`, `5c71ef6e4` | Email polling resolves stable UIDs, skips already-processed messages before FETCH, and performs self-address, mailbox-authentication-policy, and allowlist checks on headers before downloading an accepted body or attachment. Local hardening adds 30-second socket I/O, unique mailbox-only From parsing, serialized poll ownership with cancellation-safe committed-batch draining, top-level parsing of the nearest Authentication-Results header, exact From-domain matches, explicit DMARC-failure rejection, UIDVALIDITY-aware dedupe, and best-effort Seen updates. |
 | `649e3958c` | Recursive glob/grep scans run off-loop with cooperative cancellation, stable traversal, no directory-symlink descent, special-file avoidance, 500,000-path / caller-enforced 30-second budgets, exact acquire/release ownership for a four-slot non-cooperative daemon-worker cap, and timeout-capable concurrent regex matching with a 10,000-character pattern cap. |
 | `cc05fe6ed`, `302015fde`, `8a928592c`, `2b4a04fb7` | Telegram long polling tracks completed getUpdates round trips, rebuilds a stale app with 5–300 second RetryAfter-aware backoff, gates delivery on readiness, prevents PTB/HTTPX token-URL logging, redacts bot/proxy credentials from surfaced errors, incrementally owns both request pools, and serializes per-step-bounded teardown plus complete supervisor stop/restart ownership. |
@@ -100,6 +108,8 @@ own architecture; file-for-file mirroring is not required.
 - New channel/provider surfaces only when operator demand and local config/admin/test coverage exist.
 - Browser OAuth for remote MCP servers, once Hahobot has an explicit contract for callback binding,
   token storage/redaction, refresh/revocation, and authenticated admin initiation.
+- Private tool/MCP/hook diagnostics for temporary turns, once one task-local redaction contract can
+  cover every log sink instead of partially copying `264025107` / `d37d7c07c`.
 
 See the [current root ledger](../../UPSTREAM_PARITY.md) and the
 [complete 2026 audit log](AUDIT_LOG_2026.md) for dated commit-by-commit rationale.

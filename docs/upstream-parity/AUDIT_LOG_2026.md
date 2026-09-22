@@ -70,6 +70,54 @@ This file therefore records both:
 
 ## Dated Audit Log (Newest First)
 
+- `all tracked upstreams` (`2026-09-22`): fetched/audited without importing tags; every previous
+  boundary remained an ancestor. Nanobot advanced 242 linear commits from `d81aa5a4a` to
+  `main@6bf604d43`; GenericAgent advanced 9 linear commits from `71cf559fa` to
+  `main@9d1add778`; claude-mem advanced 182 commits (164 first-parent) from `18b3dab76` to
+  `main@4520de9e0`; nocturne_memory remained at `main@ffb5c709b`; jiuwenswarm advanced 454
+  commits (346 first-parent) from `896664ce0` to `develop@1b2221adf`.
+  - Adapted nanobot's generic splitting fixes (`01760b738`, `8509432dc`, `b04aeeac0`) in
+    `hahobot/utils/helpers.py`: shared chunks preserve indentation and CRLF boundaries, never emit
+    blank chunks, and always advance. Telegram retains its separate fence-aware owner. Adapted
+    `eddfa0dd6` in `hahobot/utils/tool_hints.py` so plain registered values obey the configured
+    hint cap. Regressions live in `tests/test_helpers.py` and `tests/agent/test_tool_hint.py`.
+  - Adapted relative exec working-directory resolution (`7aaff4f66`) and globstar segment semantics
+    (`104917aae`) in `hahobot/agent/tools/shell.py` and `search.py`. Relative directories now anchor
+    at the configured workspace before the existing escape guard; `**` matches zero or more full
+    path segments across both glob and grep filters. Focused coverage is in
+    `tests/tools/test_exec_confirmation.py` and `tests/tools/test_search_tools.py`.
+  - Adapted schedule validation (`835cac0ae`, `b1d54b2ca`) in the cron tool: add requires exactly
+    one schedule form, positive intervals/nonblank expressions, and a future one-time instant.
+    Jiuwenswarm `63b796bbe` independently reinforces the past-time boundary. Adapted nanobot's
+    JSON `stream` type checks (`12c2c95cb`, `b6b7caafd`) without changing Hahobot's intentional
+    non-streaming API: boolean false/null proceeds, true remains unsupported, and other JSON types
+    fail before agent dispatch. Regressions live in `tests/cron/test_cron_tool_list.py` and
+    `tests/test_openai_api.py`.
+  - Adapted QQ inbound attachment hardening (`9b50a0227`, `0afebd474`) in
+    `hahobot/channels/qq.py`: the initial URL is asynchronously SSRF-validated before creating a
+    client session and redirects are refused. Adapted the email sender-form cluster (`47f77bdbc`)
+    in `hahobot/channels/email.py`: valid international display-name defects remain acceptable,
+    quoted `smtp.mailfrom` / `header.i` mailboxes are parsed, DKIM AUID is a fallback only when
+    `header.d` is absent, and lossy IDNA 2003 mappings fail closed. Channel regressions cover the
+    rejection and compatibility paths.
+  - Adapted claude-mem's CJK retrieval fallback (`bfe469449`) onto the derived persona SQLite facts
+    index. Queries containing Han, Japanese, Hangul, or Bopomofo bypass `unicode61` token matching
+    for escaped literal `LIKE` matching while preserving tag, limit, and recency bounds. Markdown
+    remains the source of truth; tests cover all four script families plus literal `%` / `_`.
+  - Slow-client WebUI queue isolation, Matrix retained stream buffers, provider assistant content
+    during tool calls, incremental UTF-8 exec decoding, provider-pool raised exceptions, Discord
+    reply routing, and cron transaction/claim ownership were checked and are already covered
+    locally. Nanobot's temporary/private diagnostic redaction (`264025107`, `d37d7c07c`) remains a
+    watchlist item until one task-local policy can span runner, MCP, hooks, and every log sink.
+  - GenericAgent's desktop/P2P and urllib3 cancellation changes have no equivalent local owner.
+    Nocturne had no delta. Claude-mem's `filesRead` / `filesModified` evidence still requires a
+    versioned sidecar migration/query contract. Jiuwenswarm's bulk Team/marketplace/UI work remains
+    ideas-only; cross-process config transactions/secret redaction and single-gateway workspace
+    ownership remain watchlist items.
+  - Verification: 311 focused helper/tool/API/channel/memory regressions passed; the complete suite
+    passed with `2549 passed, 4 skipped`, `.venv/bin/ruff check .` passed, and `git diff --check`
+    passed. The four warnings are dependency deprecations from Lark/websockets rather than changed
+    Hahobot paths.
 - `all tracked upstreams` (`2026-09-03`): fetched/audited without importing tags; every previous
   boundary remained an ancestor, so no force-rewrite reconciliation was required. Nanobot advanced
   362 commits from `abfcdd481` to `main@d81aa5a4a`; GenericAgent advanced 31 commits (22
